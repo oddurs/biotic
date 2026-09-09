@@ -146,8 +146,7 @@ cmd_done() {
 cmd_list() {
   git -C "$PRIMARY" worktree list --porcelain | awk '/^worktree /{w=substr($0,10)} /^branch /{print substr($2,12) "\t" w}' |
   while IFS="$(printf '\t')" read -r br path; do
-    pr=$(gh pr list --head "$br" --state all --limit 1 --json number,state -q '"#\(.[0].number) \(.[0].state)"' 2>/dev/null || true)
-    [ "$pr" = "# null" ] && pr=""
+    pr=$(gh pr list --head "$br" --state all --limit 1 --json number,state -q '.[0] | select(. != null) | "#\(.number) \(.state)"' 2>/dev/null || true)
     printf '%-40s %-18s %s\n' "$br" "${pr:-no PR}" "$path"
   done
 }
