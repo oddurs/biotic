@@ -6,7 +6,7 @@ status: done
 milestone: dish
 assignee: Oddur Sigurdsson
 created: 2026-09-08
-updated: 2026-09-08
+updated: 2026-09-09
 priority: p0
 effort: m
 area: bio/mind.py, bio/mutagen.py
@@ -78,3 +78,31 @@ Two robustness fixes in scope: _mutate returns quietly when the strain was forgo
 ## 2026-09-08
 
 Watch: the /models pricing format (USD per token as strings, request per call) is assumed from OpenRouter's current responses; parse failures skip the row and negatives clamp to 0, but the first real call against OpenRouter should be checked by hand against vessel/prices.json. fmt_usd prints three decimals, so a call under a tenth of a cent shows as $0.000 while the total in dish.json stays exact. call events share the 200-entry Culture.events deque with visible events; if they crowd the eyepiece on a busy dish, skip them in _load_recent_events and the deque, not in the file.
+
+## 2026-09-09
+
+Revised on review (2026-09-09). The loop no longer picks a strain while backing off: _cycle returns before _pick until clock() >= retry_at, so requests stay queued and the oldest live one is taken when the schedule allows, instead of a strain being picked and held through a wait of up to ten minutes. run()'s two-second wake timeout bounds the poll; stop.wait is used only for the interval gap, so close() still interrupts it.
+
+## 2026-09-09
+
+Mutagen.clock is an attribute (default time.time) and every wall-clock read in the class goes through it; Culture.snapshot()['mutagen']['retry_in'] uses it too. Tests turn it by hand instead of patching the module, and 0040 can install a tick clock the same way.
+
+## 2026-09-09
+
+The price fetch is serialised by its own lock (_price_lock), never the counter lock, so a think() on another thread is not held up for the 15 s a /models request may take. A failed fetch with no cache is not asked again for MUTAGEN_BACKOFF_MAX (600 s): a /models that is down or unimplemented costs at most one attempt per ten minutes, warned once per process; the calls in between are priced from usage.cost or not at all, and cost_source says which.
+
+## 2026-09-09
+
+Checked against OpenRouter's usage-accounting documentation on 2026-09-09: usage: {include: true} is listed under deprecated parameters as having no effect, and usage with cost (in credits) is included in every response. Nothing extra is sent. An endpoint that omits cost falls back to the table and the call event says so in cost_source.
+
+## 2026-09-09
+
+After a hard kill the ledger catches up from the log: Culture.load reads the last call event in events.jsonl (each carries the running spent_usd and calls) and takes it when it is ahead of dish.json, logging one mind event ('ledger caught up from the log'). It happens before the mutagen is built, so a dish that crossed its budget between saves resumes exhausted without a second exhaustion event. It never lowers the ledger, so an old event cannot reset spend. Tokens are not reconciled; the events carry them per call.
+
+## 2026-09-09
+
+Dropped from the earlier draft: a non-JSON 200 reply (Unreadable) was going to be counted as a call with no usage. It is a MindError like any other failure: there is no usage to count and the table would price it at zero anyway. The vitals show spent / budget on their own 'spent' row beneath 'mind' instead of appended to the mind line, which already fills the 48-cell side panel.
+
+## 2026-09-09
+
+Test layout: tests/test_mind.py (the client and the ledger) and tests/test_budget.py (mutagen, culture, status, eyepiece), on a FakeMind that overrides only _request and repeats its last scripted reply. The membrane runs in-process only for tests that opt in with the no_subprocess fixture; the one threaded test (the real run() loop on a real clock) stubs admission instead, because Budget's alarm is main-thread only.

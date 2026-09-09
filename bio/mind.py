@@ -4,9 +4,9 @@ Used only as a mutagen. The dish never waits on it.
 
 Every call is priced and counted against a per-dish budget. The price comes
 from the endpoint's own figure when it reports one (`usage.cost`), else from
-its price list, fetched once from `/models` and cached in `vessel/prices.json`,
-else it is zero (a local endpoint). When the budget is spent, `think` raises
-`Exhausted` before any request is made.
+its price list, fetched once from `/models` after the first reply and cached
+in `vessel/prices.json`, else it is zero (a local endpoint). When the budget
+is spent, `think` raises `Exhausted` before any request is made.
 """
 
 from __future__ import annotations
@@ -99,6 +99,13 @@ def _int(x) -> int:
         return 0
 
 
+def _usd(x) -> float:
+    try:
+        return max(0.0, float(x or 0.0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
 class Mind:
     def __init__(self, model: str | None = None, budget_usd: float | None = None):
         self.model = model or config.MODEL
@@ -114,10 +121,11 @@ class Mind:
         self.spent_usd = 0.0
         self.last_usd = 0.0
         self.price: dict | None = None  # this model's {"prompt", "completion", "request"}: USD per token / per call
-        self.priced: bool | None = None  # True: the endpoint publishes prices; False: none (free); None: not looked yet
+        self.priced: bool | None = None  # True: the endpoint publishes prices; False: none (free); None: not settled
         self.log: Callable[..., None] = _silent  # the culture installs its own; signature log(kind, msg, **data)
-        self._lock = threading.Lock()
-        self._fetched = False
+        self._lock = threading.Lock()  # guards the counters; never held across a request
+        self._price_lock = threading.Lock()  # one price fetch at a time; never held together with _lock
+        self._prices_failed_at = -math.inf  # when /models last failed; not asked again for MUTAGEN_BACKOFF_MAX
         self._price_warned = False
 
     @property
@@ -187,7 +195,7 @@ class Mind:
         if not isinstance(usage, dict):
             usage = {}
         pt, ct = _int(usage.get("prompt_tokens")), _int(usage.get("completion_tokens"))
-        # the call was made and paid for, whatever the reply looks like: account for it first
+        # the endpoint answered, so the call is paid for whatever the reply looks like: account for it first
         self._ensure_prices()
         with self._lock:
             self.calls += 1
@@ -196,7 +204,7 @@ class Mind:
             usd, source = self._cost(usage, pt, ct)
             self.last_usd = usd
             self.spent_usd += usd
-            spent = self.spent_usd
+            spent, calls = self.spent_usd, self.calls
         self.log(
             "call",
             f"{self.model.split('/')[-1]} · {pt + ct} tok · {fmt_usd(usd)} · {latency:.1f}s",
@@ -205,6 +213,7 @@ class Mind:
             completion_tokens=ct,
             usd=usd,
             spent_usd=spent,
+            calls=calls,
             latency=latency,
             cost_source=source,
         )
@@ -233,27 +242,42 @@ class Mind:
     def _ensure_prices(self) -> None:
         """Learn this model's price once: from vessel/prices.json, else from the endpoint.
 
-        Called only after a successful reply, so a dead endpoint is never asked for its
-        price list. A failed fetch with no cache to fall back on leaves the question open
-        for the next successful call; with a cache, the cache is used as it stands.
+        Called after a successful reply and never before the first request, so a dead
+        endpoint is never asked for its price list. A fetch that fails with no cache to
+        fall back on leaves the question open for a later reply, but is not asked again
+        for MUTAGEN_BACKOFF_MAX seconds; with a cache, the cache stands.
         """
         if self.priced is not None:
             return
-        with self._lock:
+        with self._price_lock:
             if self.priced is not None:
                 return
             prices = self._read_prices()
             fetched = False
-            if (prices is None or (prices and self.model not in prices)) and not self._fetched:
-                try:
-                    prices = self._fetch_prices()
-                    self._fetched = fetched = True
-                except Exception as e:  # noqa: BLE001 — the price list is a convenience; the call already happened
-                    if not self._price_warned:
-                        self._price_warned = True
-                        self.log("mind", f"could not fetch prices from {self.host}: {type(e).__name__}: {e}")
+            if prices is None or (prices and self.model not in prices):
+                if time.time() - self._prices_failed_at < config.MUTAGEN_BACKOFF_MAX:
                     if prices is None:
-                        return
+                        return  # asked lately and got nothing; not again yet
+                else:
+                    try:
+                        prices = self._fetch_prices()
+                        fetched = True
+                    except Exception as e:  # noqa: BLE001 — the price list is a convenience; the call already happened
+                        self._prices_failed_at = time.time()
+                        if not self._price_warned:
+                            self._price_warned = True
+                            why = (
+                                f"HTTP {e.code}"
+                                if isinstance(e, urllib.error.HTTPError)
+                                else f"{type(e).__name__}: {e}"
+                            )
+                            self.log(
+                                "mind",
+                                f"could not fetch prices from {self.host}: {why} — "
+                                "spend is counted only when the endpoint reports it",
+                            )
+                        if prices is None:
+                            return
             self.price = prices.get(self.model) if prices else None
             self.priced = bool(prices)
             origin = (
@@ -314,12 +338,18 @@ class Mind:
 
     def restore(self, d: dict) -> None:
         """Take up a ledger saved with a dish. The model is never restored: it is the observer's choice."""
-        self.spent_usd = max(0.0, float(d.get("spent_usd") or 0.0))
+        self.spent_usd = _usd(d.get("spent_usd"))
         self.calls = _int(d.get("calls"))
         self.prompt_tokens = _int(d.get("prompt_tokens"))
         self.completion_tokens = _int(d.get("completion_tokens"))
         if "budget_usd" in d:
             self.budget_usd = parse_budget(d["budget_usd"])
+
+    def reconcile(self, ev: dict) -> None:
+        """Take the running totals from the last `call` event when they are ahead of the ledger:
+        a process killed between saves left its calls in the log but not in dish.json."""
+        self.spent_usd = max(self.spent_usd, _usd(ev.get("spent_usd")))
+        self.calls = max(self.calls, _int(ev.get("calls")))
 
     def models(self) -> list[dict]:
         data = self._request("/models", timeout=30)

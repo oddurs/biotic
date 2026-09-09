@@ -13,7 +13,8 @@ Two more rules hold for every test in this directory:
    tests/fixtures/genomes/, copied verbatim from the first "tide" run (qwen/qwen3-coder,
    2026-09-08); `fixture_genomes()` below lists them.
 
-A scripted mind (FakeMind) and a clock the mutagen can be driven against live here too.
+A scripted mind (FakeMind), a real HTTPError, and a clock the mutagen can be turned by
+live here too.
 """
 
 from __future__ import annotations
@@ -23,7 +24,6 @@ import io
 import urllib.error
 from collections.abc import Callable
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -74,12 +74,9 @@ def vessel(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         monkeypatch.setattr(config, name, p)
     monkeypatch.setattr(config, "API_KEY", None)
     monkeypatch.setattr(config, "BASE_URL", "https://example.invalid/v1")  # Mind.awake -> False
-    monkeypatch.setattr(config, "BUDGET_USD", 2.0)
+    monkeypatch.setattr(config, "BUDGET_USD", 2.0)  # whatever .env says, a test's default budget is $2.00
     monkeypatch.setattr(config, "MUTAGEN_INTERVAL", 12.0)
     monkeypatch.setattr("urllib.request.urlopen", _no_network)
-    # the membrane in-process: the tests run on the main thread, where Budget's alarm works
-    monkeypatch.setattr(bio.mutagen, "admit_isolated", admit)
-    monkeypatch.setattr(bio.culture, "admit_isolated", admit)
     real = config.ROOT / "vessel" / "curve.csv"
     before = real.stat().st_mtime_ns if real.exists() else None
     yield v
@@ -100,17 +97,29 @@ def lenient_budget(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture
+def no_subprocess(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The membrane in-process instead of in a fresh interpreter: faster, and deterministic.
+
+    Only for tests that stay on the main thread, where Budget's alarm works. A test that
+    starts the mutagen thread must not use it.
+    """
+    monkeypatch.setattr(bio.mutagen, "admit_isolated", admit)
+    monkeypatch.setattr(bio.culture, "admit_isolated", admit)
+
+
+@pytest.fixture
 def make_culture() -> Callable[..., Culture]:
     """A small culture founded on FALLBACK_GENESIS, inoculated, with seed.txt written so
     Culture.load() works after save(). Built directly, so the mutagen thread starts only in
-    tests that go through Culture.run(); with the mind dormant it logs once and exits."""
+    tests that go through Culture.run(); with the mind dormant it logs once and exits. `mind`
+    defaults to a dormant Mind()."""
 
-    def _make(seed: str = "test", w: int = 24, h: int = 12) -> Culture:
+    def _make(seed: str = "test", w: int = 24, h: int = 12, mind: Mind | None = None) -> Culture:
         config.VESSEL.mkdir(exist_ok=True)
         config.SEED_FILE.write_text(seed + "\n")
         dish = Dish(seed, w, h)
         reg = Registry(seed)
-        c = Culture(seed, dish, reg, Mind())
+        c = Culture(seed, dish, reg, mind or Mind())
         s = reg.new(FALLBACK_GENESIS, None, 0, "founder", "")
         dish.register(s.id, FALLBACK_GENESIS)
         dish.inoculate(s.id)
@@ -162,7 +171,12 @@ def dish_state(d: Dish) -> tuple:
 
 
 class FakeMind(Mind):
-    """A mind with a scripted endpoint. Only `_request` is overridden; everything above it is real."""
+    """A mind with a scripted endpoint. Only `_request` is overridden; everything above it is real.
+
+    Replies are served in order and the last one repeats; an exception instance is raised as
+    urlopen would raise it. Each chat reply carries `usage` and, when `cost` is given, the
+    endpoint's own figure. `/models` serves `models` verbatim, or one priced row for this model.
+    """
 
     def __init__(
         self,
@@ -198,7 +212,7 @@ class FakeMind(Mind):
             return {"data": [{"id": self.model, "pricing": {"prompt": p, "completion": c}}]}
         if path == "/chat/completions":
             self.chat_requests += 1
-            reply = self.replies.pop(0) if self.replies else DAUGHTER
+            reply = self.replies.pop(0) if len(self.replies) > 1 else (self.replies[0] if self.replies else DAUGHTER)
             if isinstance(reply, BaseException):
                 raise reply
             pt, ct = self.usage
@@ -217,40 +231,31 @@ def http_error(code: int, retry_after: str | None = None, body: bytes = b'{"erro
     return urllib.error.HTTPError("https://mind.invalid/v1/chat/completions", code, "error", hdrs, io.BytesIO(body))
 
 
-@pytest.fixture
-def clock(monkeypatch):
-    """The mutagen's wall clock, under test control. bio.mutagen only ever calls time.time()."""
-    c = SimpleNamespace(now=0.0)
-    monkeypatch.setattr(bio.mutagen, "time", SimpleNamespace(time=lambda: c.now))
-    return c
+class Clock:
+    """A clock a test turns by hand. Installed as Mutagen.clock."""
+
+    def __init__(self, now: float = 0.0):
+        self.now = now
+
+    def __call__(self) -> float:
+        return self.now
 
 
 @pytest.fixture
-def mutagen(clock):
-    """A mutagen that knows one strain and is never started as a thread. Its events land in mind.events."""
+def clock() -> Clock:
+    return Clock()
+
+
+@pytest.fixture
+def mutagen(clock: Clock) -> Callable[[Mind], Mutagen]:
+    """A factory: a mutagen on the given mind, run by `clock`, that knows one strain `f` and is
+    never started as a thread. Its events land in mind.events."""
 
     def make(mind: Mind) -> Mutagen:
         m = Mutagen(mind, "test", mind.log)
+        m.clock = clock
         m.know("f", "founder", FALLBACK_GENESIS)
         m.context = {"census": {"f": 5}}
         return m
-
-    return make
-
-
-@pytest.fixture
-def culture(vessel):
-    """A small culture on the built-in founder, with a mind that can afford exactly one call."""
-
-    def make(mind: Mind | None = None) -> Culture:
-        mind = mind or FakeMind(budget_usd=0.01)
-        dish = Dish("test", 24, 12)
-        reg = Registry("test")
-        s = reg.new(FALLBACK_GENESIS, None, 0, "founder", "eats where it stands")
-        dish.register(s.id, FALLBACK_GENESIS)
-        dish.inoculate(s.id)
-        vessel.mkdir(parents=True, exist_ok=True)
-        config.SEED_FILE.write_text("test\n")
-        return Culture("test", dish, reg, mind)
 
     return make

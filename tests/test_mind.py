@@ -16,7 +16,11 @@ from bio.mind import Exhausted, MindError, backoff, fmt_budget, fmt_usd
 from .conftest import FakeMind, http_error
 
 
-def test_prices_are_fetched_after_the_first_reply_and_cached(vessel):
+def _events(m: FakeMind, kind: str) -> list[dict]:
+    return [ev for ev in m.events if ev["kind"] == kind]
+
+
+def test_prices_are_fetched_after_the_first_reply_and_cached():
     m = FakeMind()
     assert not config.PRICES_FILE.exists()
     m.think("s", "u")
@@ -27,17 +31,18 @@ def test_prices_are_fetched_after_the_first_reply_and_cached(vessel):
     assert cache["base"] == m.base
     assert cache["fetched_at"] > 0
     assert cache["prices"]["test/model"] == {"prompt": 5e-6, "completion": 5e-6, "request": 0.0}
-    assert any(ev["kind"] == "mind" and "price list cached" in ev["msg"] for ev in m.events)
+    assert any("price list cached" in ev["msg"] for ev in _events(m, "mind"))
 
     second = FakeMind()
     second.think("s", "u")
     assert second.models_requests == 0, "the second process reads the cache instead of asking again"
     assert second.price == m.price
     assert second.spent_usd == pytest.approx(0.01)
+    assert any("price list read from prices.json" in ev["msg"] for ev in _events(second, "mind"))
 
 
 def test_dead_endpoint_never_asks_for_prices():
-    m = FakeMind(replies=[http_error(503) for _ in range(3)])
+    m = FakeMind(replies=[http_error(503)])
     for _ in range(3):
         with pytest.raises(MindError):
             m.think("s", "u")
@@ -48,6 +53,35 @@ def test_dead_endpoint_never_asks_for_prices():
     assert m.chat_requests == 3
 
 
+def test_a_failed_price_fetch_is_asked_again_only_after_the_backoff_cap(monkeypatch):
+    clk = SimpleNamespace(now=1_700_000_000.0)
+    monkeypatch.setattr(bio.mind, "time", SimpleNamespace(time=lambda: clk.now))
+
+    class NoModels(FakeMind):
+        def _request(self, path, body=None, timeout=120):
+            if path == "/models":
+                self.models_requests += 1
+                raise http_error(500)
+            return super()._request(path, body, timeout)
+
+    m = NoModels()
+    m.think("s", "u")
+    assert m.models_requests == 1
+    assert (m.priced, m.price) == (None, None), "the question stays open"
+    assert (m.calls, m.spent_usd) == (1, 0.0)
+    assert _events(m, "call")[-1]["cost_source"] == "none"
+    warned = _events(m, "mind")
+    assert len(warned) == 1 and warned[0]["msg"].startswith("could not fetch prices from mind.invalid: HTTP 500")
+
+    m.think("s", "u")
+    assert m.models_requests == 1, "not asked again inside the cap"
+    clk.now += config.MUTAGEN_BACKOFF_MAX
+    m.think("s", "u")
+    assert m.models_requests == 2
+    assert len(_events(m, "mind")) == 1, "the warning is given once per process"
+    assert not config.PRICES_FILE.exists()
+
+
 def test_spent_grows_with_each_call():
     m = FakeMind()
     for _ in range(3):
@@ -56,9 +90,10 @@ def test_spent_grows_with_each_call():
     assert m.spent_usd == pytest.approx(0.03)
     assert m.last_usd == pytest.approx(0.01)
     assert (m.prompt_tokens, m.completion_tokens) == (3000, 3000)
-    calls = [ev for ev in m.events if ev["kind"] == "call"]
+    calls = _events(m, "call")
     assert len(calls) == 3
     assert [ev["spent_usd"] for ev in calls] == pytest.approx([0.01, 0.02, 0.03])
+    assert [ev["calls"] for ev in calls] == [1, 2, 3]
     for ev in calls:
         assert ev["usd"] == pytest.approx(0.01)
         assert ev["model"] == "test/model"
@@ -76,12 +111,12 @@ def test_endpoint_reported_cost_wins():
 
     garbage = FakeMind(cost="garbage")
     garbage.think("s", "u")
-    assert garbage.spent_usd == pytest.approx(0.01)
+    assert garbage.spent_usd == pytest.approx(0.01), "an unreadable figure falls back to the table"
     assert garbage.events[-1]["cost_source"] == "table"
 
     negative = FakeMind(cost=-1)
     negative.think("s", "u")
-    assert negative.spent_usd == 0.0
+    assert negative.spent_usd == 0.0, "an endpoint cannot pay the dish"
 
 
 def test_unpriced_endpoint_spends_nothing():
@@ -93,9 +128,9 @@ def test_unpriced_endpoint_spends_nothing():
     assert m.spent_usd == 0.0
     assert not m.exhausted
     assert m.models_requests == 1
-    free = [ev for ev in m.events if ev["kind"] == "mind"]
+    free = _events(m, "mind")
     assert len(free) == 1 and "free" in free[0]["msg"]
-    assert all(ev["cost_source"] == "none" for ev in m.events if ev["kind"] == "call")
+    assert all(ev["cost_source"] == "none" for ev in _events(m, "call"))
 
     second = FakeMind(models=[{"id": "local"}])
     second.think("s", "u")
@@ -110,7 +145,7 @@ def test_priced_endpoint_without_this_model_counts_only_reported_cost():
     assert m.price is None
     assert m.spent_usd == 0.0
     assert m.models_requests == 1
-    assert any("no price for test/model" in ev["msg"] for ev in m.events if ev["kind"] == "mind")
+    assert any("no price for test/model" in ev["msg"] for ev in _events(m, "mind"))
     m.think("s", "u")
     assert m.models_requests == 1, "the answer is settled for the life of the process"
 
@@ -154,6 +189,7 @@ def test_http_errors_carry_status_and_retry_after(monkeypatch):
             http_error(429, formatdate(clk.now + 1.0 + 90, usegmt=True)),
             http_error(500),
             urllib.error.URLError("connection refused"),
+            "fine",
         ]
     )
     with pytest.raises(MindError) as e:
@@ -177,7 +213,7 @@ def test_http_errors_carry_status_and_retry_after(monkeypatch):
     assert (e.value.status, e.value.retry_after) == (None, None)
     assert str(e.value).startswith("URLError")
 
-    m.think("s", "u")
+    assert m.think("s", "u") == "fine"
     assert m.last_latency == 0.5
     assert m.last_error is None
     assert m.events[-1]["latency"] == 0.5
@@ -238,6 +274,17 @@ def test_ledger_round_trip():
     fresh.restore({})
     assert fresh.budget_usd == 0.75
     assert fresh.spent_usd == 0.0
+
+
+def test_reconcile_only_ever_moves_the_ledger_forward():
+    m = FakeMind()
+    m.restore({"spent_usd": 0.02, "calls": 2})
+    m.reconcile({"kind": "call", "spent_usd": 0.01, "calls": 1})
+    assert (m.spent_usd, m.calls) == (0.02, 2), "an older event never lowers the ledger"
+    m.reconcile({"kind": "call", "spent_usd": 0.05, "calls": 5})
+    assert (m.spent_usd, m.calls) == (0.05, 5)
+    m.reconcile({"kind": "call", "msg": "no numbers"})
+    assert (m.spent_usd, m.calls) == (0.05, 5)
 
 
 def test_money_is_printed_the_same_everywhere():

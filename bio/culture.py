@@ -15,7 +15,7 @@ from collections import deque
 from . import config, curve, prompts
 from .dish import Cell, Dish
 from .membrane import admit_isolated, inspect
-from .mind import Dormant, Exhausted, Mind, MindError, parse_budget
+from .mind import Dormant, Exhausted, Mind, MindError, fmt_usd, parse_budget
 from .mutagen import Mutagen
 from .strains import Registry
 
@@ -126,7 +126,9 @@ class Culture:
     @classmethod
     def load(cls, mind: Mind | None = None, budget: float | None = None) -> Culture:
         """Take up the dish in vessel/. The budget is the flag's if given, else what the dish
-        remembers, else what the mind was constructed with (BIOTIC_BUDGET_USD)."""
+        remembers, else what the mind was constructed with (BIOTIC_BUDGET_USD). The spend is
+        what the dish remembers, or the last `call` event in the log if that is further on:
+        a process killed between saves left its calls there and nowhere else."""
         if not config.DISH_FILE.exists():
             raise FileNotFoundError('nothing in the dish — `biotic seed "<word>"` first')
         seed = config.SEED_FILE.read_text().strip()
@@ -136,6 +138,10 @@ class Culture:
         m = mind or Mind()
         if isinstance(blob.get("mind"), dict):
             m.restore(blob["mind"])
+        saved = m.spent_usd
+        last = _last_call(config.EVENTS)
+        if last is not None:
+            m.reconcile(last)
         if budget is not None:
             m.budget_usd = parse_budget(budget)
         cult = cls(seed, dish, reg, m)
@@ -145,6 +151,8 @@ class Culture:
                 cult.rng.setstate((st[0], tuple(st[1]), st[2]))
             except (TypeError, ValueError, IndexError):
                 pass
+        if m.spent_usd > saved:
+            cult.log("mind", f"ledger caught up from the log — {fmt_usd(saved)} saved, {fmt_usd(m.spent_usd)} spent")
         return cult
 
     def save(self) -> None:
@@ -410,7 +418,7 @@ class Culture:
                 "nonviable": self.mutagen.nonviable,
                 "boosted": d.tick < self.mutagen.boost_until,
                 "failures": self.mutagen.failures,
-                "retry_in": max(0.0, self.mutagen.retry_at - time.time()),
+                "retry_in": max(0.0, self.mutagen.retry_at - self.mutagen.clock()),
             },
             "mind": {
                 "model": self.mind.model,
@@ -425,6 +433,21 @@ class Culture:
             },
             "uptime": time.time() - self.started,
         }
+
+
+def _last_call(path) -> dict | None:
+    """The most recent `call` event in the log, or None. Its running totals are the truth about
+    what the dish has spent when the process that made the calls never got to save."""
+    if not path.exists():
+        return None
+    for line in reversed(path.read_text().splitlines()):
+        try:
+            ev = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(ev, dict) and ev.get("kind") == "call":
+            return ev
+    return None
 
 
 def sterilize() -> None:

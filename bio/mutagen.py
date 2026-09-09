@@ -5,7 +5,8 @@ genome from the pool if one exists, otherwise they queue a request and
 divide faithfully. Throughput of novelty is bounded by the mind, not the dish.
 
 A failing mind is retried on a doubling schedule (15 s, 30 s, … 10 min), reset
-by the next success; a `Retry-After` from the endpoint stretches it. A spent
+by the next success; a `Retry-After` from the endpoint stretches it. While the
+schedule says wait, no strain is picked and requests stay queued. A spent
 budget puts the mutagen in the `exhausted` state, logged once, and the culture
 grows on without variation.
 """
@@ -28,6 +29,7 @@ class Mutagen(threading.Thread):
         self.mind = mind
         self.seed = seed
         self.log = log
+        self.clock: Callable[[], float] = time.time  # the wall clock; tests, and later a tick clock, replace it
         self.lock = threading.Lock()
         self.wake = threading.Event()
         self.stop = threading.Event()
@@ -43,12 +45,12 @@ class Mutagen(threading.Thread):
         self.boost_until = 0
         self.last_call = 0.0
         self.failures = 0  # consecutive failed calls
-        self.retry_at = 0.0  # wall clock before which no call is made
+        self.retry_at = 0.0  # clock time before which no strain is picked
 
     # --- called from the dish thread ---------------------------------------
     def request(self, strain: str) -> None:
         with self.lock:
-            self.requests.setdefault(strain, time.time())
+            self.requests.setdefault(strain, self.clock())
         self.wake.set()
 
     def take(self, strain: str):
@@ -94,12 +96,13 @@ class Mutagen(threading.Thread):
             return False
         if self.state == "exhausted":  # the budget was raised since
             self.state = "idle"
+        if self.clock() < self.retry_at:
+            return False  # backing off: nothing is picked; run()'s two-second wake bounds the poll
         strain = self._pick()
         if strain is None:
             return False
-        # respect the minimum interval between calls, and the backoff after a failure
-        now = time.time()
-        gap = max(config.MUTAGEN_INTERVAL / max(self.boost, 1.0) - (now - self.last_call), self.retry_at - now)
+        # respect the minimum interval between calls
+        gap = config.MUTAGEN_INTERVAL / max(self.boost, 1.0) - (self.clock() - self.last_call)
         if gap > 0 and self.stop.wait(gap):
             return True
         try:
@@ -120,7 +123,7 @@ class Mutagen(threading.Thread):
                 return strain
             # spontaneous mutation: keep the pool warm for the dominant strain
             census = self.context.get("census") or {}
-            if census and time.time() - self.last_call > config.MUTAGEN_INTERVAL * 5:
+            if census and self.clock() - self.last_call > config.MUTAGEN_INTERVAL * 5:
                 top = max(census, key=census.get)
                 if top in self.genomes and len(self.pool.get(top, ())) < 2:
                     return top
@@ -150,7 +153,7 @@ class Mutagen(threading.Thread):
             rejections=rejections,
         )
         self.state = "thinking"
-        self.last_call = time.time()
+        self.last_call = self.clock()
         try:
             reply = self.mind.think(prompts.MUTAGEN_SYSTEM, user)
         except Dormant:
@@ -192,10 +195,15 @@ class Mutagen(threading.Thread):
         wait = backoff(self.failures)
         if retry_after:
             wait = max(wait, min(retry_after, config.RETRY_AFTER_MAX))
-        self.retry_at = time.time() + wait
+        self.retry_at = self.clock() + wait
         self.state = "error"
         self.log(
-            "mind", f"{msg} — next attempt in {_fmt_wait(wait)}", status=status, retry_in=wait, failures=self.failures
+            "mind",
+            f"{msg} — next attempt in {fmt_wait(wait)}",
+            status=status,
+            retry_in=wait,
+            failures=self.failures,
+            latency=self.mind.last_latency,
         )
 
     def _exhaust(self) -> None:
@@ -215,7 +223,8 @@ class Mutagen(threading.Thread):
         self.wake.set()
 
 
-def _fmt_wait(seconds: float) -> str:
+def fmt_wait(seconds: float) -> str:
+    """A wait as a person reads it: '15s', '2m00s', '1h00m'."""
     s = int(round(seconds))
     if s < 60:
         return f"{s}s"

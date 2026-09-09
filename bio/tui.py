@@ -140,9 +140,9 @@ def vitals(c: Culture, snap: dict) -> Table:
         mind_line.append(
             f" · {mind['calls']} calls · {mind['tokens'] / 1000:.1f}k tok · {mind['latency']:.0f}s", style="dim"
         )
-    if mind["awake"]:
-        mind_line.append(f" · {fmt_budget(mind['spent_usd'], mind['budget_usd'])}", style="dim")
     t.add_row("mind", mind_line)
+    if mind["awake"] or mind["calls"]:
+        t.add_row("spent", Text(fmt_budget(mind["spent_usd"], mind["budget_usd"]), style="dim"))
     if mind["error"]:
         t.add_row("", Text(mind["error"][:60], style="red"))
     return t
