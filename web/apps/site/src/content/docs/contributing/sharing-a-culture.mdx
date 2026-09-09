@@ -1,0 +1,53 @@
+---
+title: Sharing a culture
+description: How a specimen gets into the library, and what a bundle contains.
+section: Contributing
+order: 1
+---
+
+The [library](/library/) is git-backed. A specimen is a directory under
+`web/apps/site/src/content/specimens/`, added in a pull request like any other change. The
+build validates every bundle against a schema, so a malformed one fails CI instead of
+publishing.
+
+## The bundle
+
+```text
+web/apps/site/src/content/specimens/<slug>/
+  manifest.json   who, when, the seed, the model, one sentence
+  strains.json    the registry: every strain that ever arose, with its source
+  curve.csv       the growth curve the culture logged
+  genesis.py      the founding genome
+```
+
+`strains.json`, `curve.csv`, and `genesis.py` are exactly the files the apparatus writes into
+`vessel/` while a culture runs. Copy them; do not edit them. The manifest is yours:
+
+```json
+{
+  "seed": "tide",
+  "model": "qwen/qwen3-coder",
+  "submitted": "2026-09-08",
+  "by": "your-github-handle",
+  "summary": "One sentence a naturalist might write about this dish."
+}
+```
+
+Pick a slug like `<seed>-<date>`. The `summary` is capped at 400 characters.
+
+## What gets shown
+
+The gallery shows the seed, the trace of the population curve, and the numbers that matter:
+ticks, peak population, strains arisen and living, generations, and the phase at the end.
+The specimen page adds the growth curve with phases, the lineage as a tree, the census at
+the end, and every genome as a diff against its parent.
+
+<Callout tone="info" title="Genomes are public">
+  A bundle publishes every strain's source. That is the point of the fossil record, but check that
+  the seed and the whispers you gave the mutagen are things you want in a public repository.
+</Callout>
+
+## Discussion
+
+Each specimen has a discussion thread, backed by GitHub Discussions once the maintainer
+enables giscus in `site.config.ts`. Until then the page links to the Discussions tab.
