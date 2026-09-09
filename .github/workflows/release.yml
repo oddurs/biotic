@@ -73,7 +73,7 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           {
-            awk -v v="$VERSION" '$0 ~ "^## \\[" v "\\] - " {on=1; next} /^## /{on=0} on' CHANGELOG.md
+            awk -v v="$VERSION" '$0 ~ "^## \\[" v "\\] - " {on=1; next} /^## |^\[[^]]+\]: /{on=0} on' CHANGELOG.md
             echo
             gh api -X POST "repos/${GITHUB_REPOSITORY}/releases/generate-notes" -f tag_name="v$VERSION" -q .body
           } | scripts/noattrib > notes.md
