@@ -5,7 +5,7 @@ type: feature
 status: planned
 milestone: dish
 created: 2026-09-08
-updated: 2026-09-08
+updated: 2026-09-09
 priority: p2
 effort: s
 area: bio/tui.py
@@ -31,3 +31,7 @@ window and the layout clips silently; resize mid-run and the frame tears.
 
 - [ ] A dish seeded at 150×50 is watchable at 100×30 with the ½ badge
 - [ ] Resizing during `biotic live` never raises and settles within one frame
+
+## 2026-09-09
+
+From the 0003 review: the events deque is appended by the main and mutagen threads and iterated by the renderer with no lock; the renderer swallows the RuntimeError, so a frame is dropped now and then. Pre-existing; the eyepiece work here is the place to own it.

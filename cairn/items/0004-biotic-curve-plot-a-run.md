@@ -7,7 +7,7 @@ milestone: dish
 depends_on:
 - 3
 created: 2026-09-08
-updated: 2026-09-08
+updated: 2026-09-09
 priority: p1
 effort: m
 area: bio/__main__.py
@@ -37,3 +37,7 @@ curve.
 - [ ] `biotic curve` on the current dish prints a plot with phase markers
 - [ ] `biotic curve --png` produces a file when matplotlib is present and says how to install it when not
 - [ ] Works on a curve with 50 rows and with 50,000 rows (downsamples)
+
+## 2026-09-09
+
+From 0003/0045: read the curve through bio.curve.read(path); rows from a nine-column file carry None in the new columns. Markers (drops, phase changes, extinctions, incubation gaps) come from events.jsonl joined on tick, not from curve columns. docs/curve.md names dominance as the Berger-Parker index and defines mean_gen as lineage depth; use those words in axis labels.

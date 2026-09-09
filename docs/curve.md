@@ -24,15 +24,19 @@ previous row.
 | `starved`, `lysed`, `senescent` | int, cumulative | deaths by cause: out of energy; threw or returned nonsense; older than `MAX_AGE` |
 | `killed` | int, cumulative | deaths under an antibiotic disc |
 | `shannon` | float | Shannon diversity, H = −Σ pᵢ ln pᵢ over the strain census, in nats; 0.0 for a monoculture and for a sterile dish |
-| `dominance` | float | share of the commonest strain; 1.0 for a monoculture, 0.0 for a sterile dish |
-| `mean_gen` | float | mean generation of the living cells, weighted by cell; the founder is generation 0 |
+| `dominance` | float | share of the commonest strain (the Berger–Parker index); 1.0 for a monoculture, 0.0 for a sterile dish |
+| `mean_gen` | float | mean generation of the living cells, weighted by cell. A strain's generation is the number of mutated divisions between it and the founder, which is generation 0: lineage depth, not cell doublings |
 | `arisen` | int, cumulative | strains ever created, founder included |
 | `extinct` | int, cumulative | strains that have gone extinct |
 | `pheromone` | float | mean pheromone over the agar, 0 to 1 |
 | `mutations_ready` | int, gauge | prepared daughters waiting in the mutagen's pool at that tick |
 | `mutations_taken` | int, cumulative | divisions that produced a new strain; the count of `arose` events |
 
-Floats are written to four decimals, `mean_gen` to two.
+Floats are written to four decimals, `mean_gen` to two. Four decimals resolve
+sustained signalling in `pheromone`: one cell emitting 0.2 every tick holds the
+mean near 0.001 on the default 72×34 dish, and 0.05 every tick near 0.0004. A
+single emission below 0.1 rounds to `0.0000`. The format is not part of the
+schema; it can be widened without a migration.
 
 ## reading it
 
@@ -57,9 +61,13 @@ next tick still counts.
 strain without one, so today it equals `arisen − 1` in every row; the column is
 there for when strains can arrive some other way than a mutated division.
 `mutations_ready` is the one column that is not a function of the dish: it
-samples a pool filled by a background thread on the wall clock, so two replays
-of the same run can differ in it and nowhere else. Leave it out when comparing
-curves.
+samples a pool that a background thread fills on the wall clock. Under an exact
+replay of the admitted genomes at their original ticks, every other column
+reproduces (`phase` too, if the replay is resumed at the same ticks, since the
+debounce restarts with the process); this one need not. Without such a replay,
+two runs from the same seed diverge in every column from the first variant
+taken, because when a variant is ready depends on the machine and the mind, not
+the dish. Leave `mutations_ready` out when comparing curves.
 
 The death ledger closes. For a dish inoculated once,
 `births − (starved + lysed + senescent + killed) = population − INOCULUM` holds

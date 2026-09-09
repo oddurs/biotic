@@ -320,6 +320,7 @@ class Culture:
     def snapshot(self) -> dict:
         d = self.dish
         census = d.census()
+        metrics = self.metrics(census)
         return {
             "seed": self.seed,
             "tick": d.tick,
@@ -327,13 +328,13 @@ class Culture:
             "population": len(census) and sum(census.values()),
             "census": census,
             "tiles": d.tiles,
-            "nutrient": d.nutrient_mean(),
+            "nutrient": metrics["nutrient"],
             "births": d.births,
             "deaths": dict(d.deaths),
             "history": list(d.history),
             "strains_total": len(self.registry.strains),
             "generation": max((s.generation for s in self.registry.strains.values()), default=0),
-            "metrics": self.metrics(census),
+            "metrics": metrics,
             "mutagen": {
                 "state": self.mutagen.state,
                 "ready": self.mutagen.ready(),

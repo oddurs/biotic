@@ -59,8 +59,8 @@ def vessel(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 @pytest.fixture
 def make_culture() -> Callable[..., Culture]:
     """A small culture founded on FALLBACK_GENESIS, inoculated, with seed.txt written so
-    Culture.load() works after save(). Built directly, never through run(), so the mutagen
-    thread never starts."""
+    Culture.load() works after save(). Built directly, so the mutagen thread starts only in
+    tests that go through Culture.run(); with the mind dormant it logs once and exits."""
 
     def _make(seed: str = "test", w: int = 24, h: int = 12) -> Culture:
         config.VESSEL.mkdir(exist_ok=True)

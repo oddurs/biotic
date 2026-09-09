@@ -7,7 +7,7 @@ milestone: dish
 depends_on:
 - 2
 created: 2026-09-08
-updated: 2026-09-08
+updated: 2026-09-09
 priority: p0
 effort: m
 area: bio/mutagen.py, bio/culture.py
@@ -100,3 +100,7 @@ function of ticks and budget and nothing else.
 - [ ] `curve.csv` has `mutations_attempted`, `mutations_viable`, `mutations_taken`; `biotic curve` reads a file written before this change
 - [ ] `biotic run` prints the mode; `biotic status` shows it; `dish.json` carries it across a resume
 - [ ] `docs/experiments.md` exists and explains the two modes and when to use which; README points to it
+
+## 2026-09-09
+
+From 0003/0045: mutations_taken is derived from the registry (strains with a parent), not counted; keep deriving it or persist your counter so it stays monotone across resumes. Append mutations_attempted and mutations_viable after the existing eighteen columns; tests/test_metrics.py pins the full header as a literal (NEW_HEADER), so extend it there. Until this item lands the slope of arisen is wall-clock bound and not comparable across machines or --tick values.
