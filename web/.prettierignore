@@ -3,3 +3,4 @@ dist
 .astro
 pnpm-lock.yaml
 packages/design/src/tokens/generated
+apps/site/src/content/docs/reference/cli.mdx

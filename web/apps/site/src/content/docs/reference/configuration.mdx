@@ -1,0 +1,22 @@
+---
+title: Configuration
+description: Environment variables the apparatus reads.
+section: Reference
+order: 1
+---
+
+Set these in `.env` at the repository root, or in the environment. The rest of the physics is
+constants in `bio/config.py`.
+
+| Variable                  | Default                        | Meaning                                                      |
+| ------------------------- | ------------------------------ | ------------------------------------------------------------ |
+| `OPENROUTER_API_KEY`      |                                | Key for the mind. `BIOTIC_API_KEY` is an alias.              |
+| `BIOTIC_BASE_URL`         | `https://openrouter.ai/api/v1` | Any OpenAI-compatible endpoint. Local endpoints need no key. |
+| `BIOTIC_MODEL`            | `qwen/qwen3-coder`             | The model that acts as mutagen.                              |
+| `BIOTIC_MUTAGEN_INTERVAL` | `12`                           | Minimum seconds between calls to the mind.                   |
+| `BIOTIC_MUTAGEN_TEMP`     | `1.0`                          | Sampling temperature for mutations.                          |
+| `BIOTIC_MUTATION_RATE`    | `0.06`                         | Probability a division rolls a mutation.                     |
+| `BIOTIC_WIDTH`            | `72`                           | Dish width in tiles.                                         |
+| `BIOTIC_HEIGHT`           | `34`                           | Dish height in tiles.                                        |
+| `BIOTIC_TICK`             | `0.35`                         | Seconds per tick when watching.                              |
+| `BIOTIC_REPLENISH`        | `0.0004`                       | Nutrient added per tile per tick. `0` closes the dish.       |

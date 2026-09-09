@@ -1,0 +1,38 @@
+---
+title: The mutagen
+description: A background thread that asks the mind for daughter genomes.
+section: The instrument
+order: 2
+---
+
+## Semantic mutation
+
+On a fraction of divisions, controlled by `BIOTIC_MUTATION_RATE`, the daughter's genome is a
+rewrite of the parent's by one small heritable change: a changed threshold, a new branch on
+an existing condition, a new key in memory, a dropped behaviour. The model is told that it
+does not know what will work, that selection decides, and that most real mutations are bad.
+
+## It never blocks the dish
+
+Requests go to a queue. If a prepared daughter exists for the strain, the division takes it;
+otherwise the division is faithful and the request waits. A minimum interval between calls,
+`BIOTIC_MUTAGEN_INTERVAL`, bounds the rate of novelty by how fast the mind thinks, and the
+dish keeps its own time.
+
+## The mind
+
+Any OpenAI-compatible chat endpoint. Configure it in `.env`:
+
+```sh
+OPENROUTER_API_KEY=...
+BIOTIC_MODEL=qwen/qwen3-coder
+```
+
+Fully local, with no code change:
+
+```sh
+BIOTIC_BASE_URL=http://localhost:11434/v1
+BIOTIC_MODEL=qwen2.5-coder:7b
+```
+
+`biotic probe` checks the wiring with one question; `biotic minds` lists available models.

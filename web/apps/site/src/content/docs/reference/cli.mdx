@@ -1,0 +1,99 @@
+---
+title: CLI reference
+description: Every biotic command and its arguments.
+section: Reference
+order: 0
+generated: scripts/cli_reference.py
+---
+
+Generated from the command line parser by `scripts/cli_reference.py`; edit the code, not this page.
+Run any command as `uv run biotic <command>` from the repository, or `biotic <command>` once installed. Without a command, `biotic` opens the live view if a culture exists.
+
+## seed
+
+Inoculate a fresh dish from a word, phrase, or question.
+
+| Argument | Meaning |
+| --- | --- |
+| `seed` | — |
+| `--fresh` | autoclave first if a culture exists |
+
+## live
+
+Watch the dish (default).
+
+| Argument | Meaning |
+| --- | --- |
+| `--tick TICK` | seconds per tick |
+
+## run
+
+Run headless, e.g. for an experiment.
+
+| Argument | Meaning |
+| --- | --- |
+| `--ticks TICKS` | — |
+| `--tick TICK` | seconds per tick (0 = as fast as possible) |
+| `--quiet` | — |
+
+## status
+
+## strains
+
+Census of living strains.
+
+| Argument | Meaning |
+| --- | --- |
+| `--all` | include extinct |
+
+## genome
+
+Print a strain's code (`top` for the dominant one).
+
+| Argument | Meaning |
+| --- | --- |
+| `id` | — |
+
+## log
+
+| Argument | Meaning |
+| --- | --- |
+| `-n N` |  (default `30`) |
+
+## whisper
+
+Pin a note the mutagen will see.
+
+| Argument | Meaning |
+| --- | --- |
+| `text...` | — |
+
+## drop
+
+Intervene in the dish.
+
+| Argument | Meaning |
+| --- | --- |
+| `what` | One of `nutrient`, `antibiotic`, `mutagen` |
+| `--at AT` | x,y |
+| `--r R` | radius |
+
+## minds
+
+List models available to the mind.
+
+| Argument | Meaning |
+| --- | --- |
+| `query` | — |
+
+## probe
+
+Check the mind answers.
+
+## sterilize
+
+Autoclave everything.
+
+| Argument | Meaning |
+| --- | --- |
+| `--yes, -y` | — |

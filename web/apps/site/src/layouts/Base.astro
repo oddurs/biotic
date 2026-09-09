@@ -2,6 +2,7 @@
 import "@biotic/design/global.css";
 import "@biotic/design/fonts.css";
 import { ThemeToggle, themeBootScript } from "@biotic/design";
+import { Search } from "../components/Search";
 import { site } from "../../site.config";
 import { bodyStyle, Shell } from "../components/Shell";
 import { href } from "../lib/url";
@@ -33,7 +34,10 @@ const current = Astro.url.pathname.replace(site.base.replace(/\/$/, ""), "") || 
   </head>
   <body class={bodyStyle.className} style={bodyStyle.style}>
     <Shell current={current}>
-      <ThemeToggle slot="tools" client:load />
+      <Fragment slot="tools">
+        <Search base={site.base.endsWith("/") ? site.base : `${site.base}/`} client:idle />
+        <ThemeToggle client:load />
+      </Fragment>
       <slot />
     </Shell>
     {import.meta.env.DEV && (

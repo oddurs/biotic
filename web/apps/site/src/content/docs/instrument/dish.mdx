@@ -1,0 +1,31 @@
+---
+title: The dish
+description: Agar, cells, and physics. It knows nothing about language models.
+section: The instrument
+order: 0
+---
+
+## Geometry
+
+An elliptical grid of tiles. Everything outside the ellipse is glass: it counts as occupied
+and holds nothing. Nutrient starts patchy, from a handful of gaussian blobs, and diffuses
+slowly. Replenishment is nearly zero by default; `BIOTIC_REPLENISH=0` makes a truly closed
+dish that blooms, crashes, and is done.
+
+## A cell
+
+A position, an energy level, an age, a strain id, and a memory dict that persists across
+ticks and is copied into daughters. Every tick costs basal energy. Eating converts nutrient
+on the tile into energy; moving and emitting pheromone cost more. Above the division
+threshold a cell may split into an empty neighbour, halving its energy with the daughter.
+
+## Death
+
+Starvation when energy reaches zero. Senescence past a maximum age. Lysis when a genome
+throws, returns something unparseable, or exceeds its wall-clock budget. Every death returns
+some nutrient to the tile.
+
+## Physics constants
+
+All of them live in `bio/config.py`. Changing one changes every culture that runs afterwards,
+which is why such changes belong in the changelog.

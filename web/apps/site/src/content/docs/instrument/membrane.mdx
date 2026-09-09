@@ -1,0 +1,33 @@
+---
+title: The membrane
+description: What code is allowed to become a cell.
+section: The instrument
+order: 1
+---
+
+A genome is Python source that defines exactly one function, `live(me)`, called once per tick.
+It comes from a language model, so it is untrusted. Before it can run inside the dish it
+passes through two gates.
+
+## The static gate
+
+The source is parsed and walked. Rejected outright: imports, classes, `global` and
+`nonlocal`, async and generators, any dunder name or attribute, and a list of banned
+builtins (`eval`, `exec`, `open`, `getattr`, `print`, and more). Only `def` and simple
+assignments may appear at module level. There is a size cap.
+
+## The dynamic gate
+
+The genome is compiled into a namespace whose only builtins are a short allowlist, with
+`math` and `random` in scope. It then runs forty ticks against random situations. It must
+never throw, must always return a parseable action, and must finish each call inside the
+time budget.
+
+## Inside the dish
+
+A genome that passes can still misbehave later. Any exception, unparseable return, or timeout
+during a real tick bursts that cell and touches nothing else.
+
+<Callout tone="caution" title="A way through the membrane is a security bug">
+  Report it privately through GitHub Security Advisories. See `SECURITY.md`.
+</Callout>

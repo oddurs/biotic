@@ -1,0 +1,40 @@
+---
+import { Card, Grid, Heading, Link, Text } from "@biotic/design";
+import Base from "../../layouts/Base.astro";
+import { SectionLayout } from "../../components/SectionLayout";
+import { docNav, orderedDocs } from "../../lib/docs";
+import { href } from "../../lib/url";
+
+const docs = await orderedDocs();
+const nav = docNav(docs);
+---
+
+<Base title="Docs" description="How the instrument works, how to run it, and how to change it.">
+  <SectionLayout
+    section="Docs"
+    nav={nav}
+    current={href("/docs/")}
+    title="Documentation"
+    lede="How the instrument works, how to run it, and how to change it."
+  >
+    <Grid min="16rem" gap="md">
+      {nav.map((group) => (
+        <Card variant="sunken">
+          <Heading level={2} size="1" plain>
+            {group.section}
+          </Heading>
+          <ul>
+            {group.items.map((item) => (
+              <li>
+                <Link href={item.href}>{item.label}</Link>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ))}
+    </Grid>
+    <Text tone="muted" size="n1">
+      {docs.length} pages. Press / to search.
+    </Text>
+  </SectionLayout>
+</Base>
