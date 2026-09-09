@@ -1,0 +1,19 @@
+---
+import Base from "../../layouts/Base.astro";
+import { SectionLayout } from "../../components/SectionLayout";
+import { ComponentsPage } from "../../components/design/ComponentsPage";
+import { designNav } from "../../components/design/nav";
+import { href } from "../../lib/url";
+---
+
+<Base title="Components" description="Every primitive, live.">
+  <SectionLayout
+    section="Design"
+    nav={designNav}
+    current={href("/design/components/")}
+    title="Components"
+    lede="Every primitive, live."
+  >
+    <ComponentsPage />
+  </SectionLayout>
+</Base>

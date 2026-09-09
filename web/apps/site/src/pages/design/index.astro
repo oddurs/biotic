@@ -1,0 +1,22 @@
+---
+import Base from "../../layouts/Base.astro";
+import { SectionLayout } from "../../components/SectionLayout";
+import { Overview } from "../../components/design/Overview";
+import { designNav } from "../../components/design/nav";
+import { href } from "../../lib/url";
+---
+
+<Base
+  title="Design system"
+  description="The visual foundation of the site, rendered from its own tokens and components."
+>
+  <SectionLayout
+    section="Design"
+    nav={designNav}
+    current={href("/design/")}
+    title="Design system"
+    lede="The visual foundation of the site, rendered from its own tokens and components."
+  >
+    <Overview />
+  </SectionLayout>
+</Base>
