@@ -68,7 +68,8 @@ cmd_start() {
   git -C "$PRIMARY" show-ref --verify --quiet "refs/heads/$br" && die "branch $br already exists (see 'scripts/agent list')"
   [ -e "$path" ] && die "worktree path already exists: $path"
   mkdir -p "$(dirname "$path")"
-  run git -C "$PRIMARY" worktree add -b "$br" "$path" "origin/$def"
+  # git chatters on stdout; stdout is reserved for the path so `cd "$(scripts/agent start ...)"` works.
+  run git -C "$PRIMARY" worktree add --no-track -b "$br" "$path" "origin/$def" 1>&2
   say "worktree ready on $br. move there with:"
   printf 'cd %s\n' "$path"
 }
