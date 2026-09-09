@@ -1,0 +1,19 @@
+---
+import Base from "../../layouts/Base.astro";
+import { SectionLayout } from "../../components/SectionLayout";
+import { SpacePage } from "../../components/design/SpacePage";
+import { designNav } from "../../components/design/nav";
+import { href } from "../../lib/url";
+---
+
+<Base title="Space" description="A fixed ladder for components and fluid steps for layout.">
+  <SectionLayout
+    section="Design"
+    nav={designNav}
+    current={href("/design/space/")}
+    title="Space"
+    lede="A fixed ladder for components and fluid steps for layout."
+  >
+    <SpacePage />
+  </SectionLayout>
+</Base>

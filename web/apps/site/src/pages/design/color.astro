@@ -1,0 +1,22 @@
+---
+import Base from "../../layouts/Base.astro";
+import { SectionLayout } from "../../components/SectionLayout";
+import { ColorPage } from "../../components/design/ColorPage";
+import { designNav } from "../../components/design/nav";
+import { href } from "../../lib/url";
+---
+
+<Base
+  title="Colour"
+  description="The palette the instrument is drawn in, and the semantic names components use."
+>
+  <SectionLayout
+    section="Design"
+    nav={designNav}
+    current={href("/design/color/")}
+    title="Colour"
+    lede="The palette the instrument is drawn in, and the semantic names components use."
+  >
+    <ColorPage />
+  </SectionLayout>
+</Base>
