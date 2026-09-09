@@ -12,6 +12,7 @@ import random
 import shutil
 import signal
 import subprocess
+import sys
 import time
 
 import pytest
@@ -29,10 +30,12 @@ from bio.membrane import (
     admit_isolated,
     compile_genome,
     inspect,
+    smoke_test,
 )
 
 LIVE_REST = "def live(me):\n    return 'rest'\n"
 EXCEPT_RULE = "except may only name"
+CONSTANT_RULE = "module-level values must be constants (numbers, strings, tuples; no calls, lists or dicts)"
 
 
 @pytest.fixture
@@ -61,6 +64,18 @@ REJECTED = [
     ("type", "def live(me):\n    return type(me)\n", "forbidden name: type"),
     ("module_level_call", "math.floor(1.5)\n" + LIVE_REST, "module-level expression with side effects"),
     ("module_level_try", "try:\n    x = 1\nexcept Exception:\n    x = 2\n" + LIVE_REST, "module-level Try not allowed"),
+    ("module_level_draw", "BOLD = random.random()\n" + LIVE_REST, CONSTANT_RULE),
+    ("module_level_call_in_assignment", "DIRS = list(range(8))\n" + LIVE_REST, CONSTANT_RULE),
+    ("module_level_list", "SEEN = []\n" + LIVE_REST, CONSTANT_RULE),
+    ("module_level_dict", "WEIGHTS: dict = {'eat': 1.0}\n" + LIVE_REST, CONSTANT_RULE),
+    ("module_level_set", "TRIED = set()\n" + LIVE_REST, CONSTANT_RULE),
+    ("module_level_comprehension", "DIRS = tuple(d for d in range(8))\n" + LIVE_REST, CONSTANT_RULE),
+    ("module_level_lambda", "PICK = lambda me: me.here\n" + LIVE_REST, CONSTANT_RULE),
+    ("mutable_default", "def helper(me, seen=[]):\n    return seen\n\n" + LIVE_REST, CONSTANT_RULE),
+    ("default_draw", "def helper(me, x=random.random()):\n    return x\n\n" + LIVE_REST, CONSTANT_RULE),
+    ("annotation_call", "def helper(me) -> random.random():\n    return 1\n\n" + LIVE_REST, CONSTANT_RULE),
+    ("annotation_list", "def helper(me: [1]):\n    return 1\n\n" + LIVE_REST, CONSTANT_RULE),
+    ("decorator", "def wrap(f):\n    return f\n\n@wrap\ndef live(me):\n    return 'rest'\n", "decorators not allowed"),
     ("class", "class X:\n    pass\n" + LIVE_REST, "classes not allowed"),
     ("generator", "def live(me):\n    yield 'rest'\n", "async/generators not allowed"),
     ("async", "async def live(me):\n    return 'rest'\n", "async/generators not allowed"),
@@ -121,6 +136,77 @@ REJECTED = [
         "def live(me):\n    try:\n        return 'eat'\n    except* ValueError:\n        return 'rest'\n",
         "except* not allowed",
     ),
+    ("with", "def live(me):\n    with me.memory:\n        pass\n    return 'rest'\n", "with not allowed"),
+    ("attribute_store_math", "def live(me):\n    math.pi = 0\n    return 'rest'\n", "attributes are read-only: .pi"),
+    (
+        "attribute_store_rng",
+        "def live(me):\n    random.tally = 1\n    return 'rest'\n",
+        "attributes are read-only: .tally",
+    ),
+    (
+        "attribute_store_me",
+        "def live(me):\n    me.energy = 2.0\n    return 'rest'\n",
+        "attributes are read-only: .energy",
+    ),
+    (
+        "attribute_store_function",
+        "def helper():\n    return 1\n\ndef live(me):\n    helper.n = me.tick\n    return 'rest'\n",
+        "attributes are read-only: .n",
+    ),
+    ("attribute_del", "def live(me):\n    del math.pi\n    return 'rest'\n", "attributes are read-only: .pi"),
+    ("rebind_local", "def live(me):\n    ValueError = 5\n    return 'rest'\n", "cannot rebind ValueError"),
+    ("rebind_module_level", "ValueError = 5\n" + LIVE_REST, "cannot rebind ValueError"),
+    (
+        "rebind_later_in_function",
+        "def live(me):\n    try:\n        return 'eat'\n    except ValueError:\n        pass\n    ValueError = 5\n",
+        "cannot rebind ValueError",
+    ),
+    (
+        "rebind_as",
+        "def live(me):\n    try:\n        return 'eat'\n    except KeyError as ValueError:\n        return 'rest'\n",
+        "cannot rebind ValueError",
+    ),
+    ("rebind_parameter", "def helper(me, KeyError):\n    return 1\n\n" + LIVE_REST, "cannot rebind KeyError"),
+    (
+        "rebind_lambda_parameter",
+        "def live(me):\n    f = lambda KeyError: 1\n    return 'rest'\n",
+        "cannot rebind KeyError",
+    ),
+    (
+        "rebind_for_target",
+        "def live(me):\n    for KeyError in range(3):\n        pass\n    return 'rest'\n",
+        "cannot rebind KeyError",
+    ),
+    (
+        "rebind_comprehension_target",
+        "def live(me):\n    x = [1 for KeyError in me.around]\n    return 'rest'\n",
+        "cannot rebind KeyError",
+    ),
+    (
+        "rebind_walrus",
+        "def live(me):\n    if (KeyError := 3):\n        pass\n    return 'rest'\n",
+        "cannot rebind KeyError",
+    ),
+    ("rebind_tuple_unpack", "def live(me):\n    a, Exception = 1, 2\n    return 'rest'\n", "cannot rebind Exception"),
+    ("rebind_augassign", "def live(me):\n    TypeError += 1\n    return 'rest'\n", "cannot rebind TypeError"),
+    ("rebind_annassign", "def live(me):\n    IndexError: int = 1\n    return 'rest'\n", "cannot rebind IndexError"),
+    ("rebind_del", "def live(me):\n    del ZeroDivisionError\n    return 'rest'\n", "cannot rebind ZeroDivisionError"),
+    ("rebind_def", "def KeyError():\n    return 1\n\n" + LIVE_REST, "cannot rebind KeyError"),
+    (
+        "rebind_match_capture",
+        "def live(me):\n    match me.tick:\n        case KeyError:\n            pass\n    return 'rest'\n",
+        "cannot rebind KeyError",
+    ),
+    (
+        "rebind_match_star",
+        "def live(me):\n    match me.around:\n        case [*KeyError]:\n            pass\n    return 'rest'\n",
+        "cannot rebind KeyError",
+    ),
+    (
+        "rebind_match_mapping_rest",
+        "def live(me):\n    match me.memory:\n        case {**KeyError}:\n            pass\n    return 'rest'\n",
+        "cannot rebind KeyError",
+    ),
     ("two_args", "def live(me, other):\n    return 'rest'\n", "live() must take exactly one argument"),
     ("no_live", "def grow(me):\n    return 'eat'\n", "no live(me) function"),
     ("syntax_error", "def live(me)\n    return 'rest'\n", "SyntaxError:"),
@@ -142,6 +228,44 @@ def test_except_rule_lists_every_name_a_genome_may_catch():
     (reason,) = v.reasons
     assert reason.startswith(EXCEPT_RULE)
     assert all(name in reason for name in ALLOWED_EXCEPTIONS)
+
+
+def test_every_name_except_may_catch_is_pinned_to_the_builtin():
+    """The except whitelist is checked by identifier, so each identifier has to keep meaning the
+    builtin: every name on the list, and only those, is refused as a binding target."""
+    for name in ALLOWED_EXCEPTIONS:
+        assert inspect(f"def live(me):\n    {name} = 1\n    return 'rest'\n").reasons == [f"cannot rebind {name}"]
+    assert inspect("def live(me):\n    err = total = 0\n    return 'rest'\n")  # any other name is the genome's
+
+
+@pytest.mark.skipif(sys.version_info < (3, 12), reason="type parameters arrived in Python 3.12")
+def test_type_parameter_cannot_rebind_an_exception_name():
+    """`def helper[KeyError](x)` binds KeyError to a TypeVar inside helper."""
+    v = inspect("def helper[KeyError](x):\n    return x\n\n" + LIVE_REST)
+    assert v.reasons == ["cannot rebind KeyError"]
+
+
+def test_module_level_constants_are_admitted():
+    """What module level may hold: numbers, strings, tuples, arithmetic, an f-string, `math.pi`,
+    an alias of the generator, and a helper whose defaults and annotations are the same."""
+    src = (
+        "THRESH = 0.04\n"
+        "HALF = THRESH / 2\n"
+        "DIRS = (0, 1, 2, 3) + (4, 5, 6, 7)\n"
+        "LABEL = f'{THRESH:.2f}'\n"
+        "TAU: float = math.pi * 2\n"
+        "FIRST = DIRS[0]\n"
+        "SIGN = -1 if THRESH > 1 else +1\n"
+        "R = random\n"
+        "\n"
+        "def helper(me, dirs=DIRS, k: int = FIRST) -> float:\n"
+        "    return R.random() + dirs[k] + SIGN\n"
+        "\n"
+        "def live(me):\n"
+        "    return 'eat' if helper(me) > HALF else 'rest'\n"
+    )
+    v = admit(src)
+    assert v, v.reasons
 
 
 def test_too_long_source_is_rejected_without_parsing(monkeypatch):
@@ -167,7 +291,8 @@ def test_reasons_are_deduplicated():
 
 def test_lysis_is_not_a_catchable_builtin():
     """Nothing a genome can name catches a burst. `Exception` is the widest class in scope,
-    and every class the except whitelist admits sits below it."""
+    every class the except whitelist admits sits below it, and (test_every_name_except_may_catch_
+    is_pinned_to_the_builtin) none of those names can be made to mean anything else."""
     assert issubclass(Lysis, BaseException)
     assert not issubclass(Lysis, Exception)
     assert "BaseException" not in SAFE_BUILTINS
@@ -236,6 +361,126 @@ def test_except_laundering_is_rejected_before_it_can_run(tight_budget):
     assert len(v.reasons) == 1 and v.reasons[0].startswith(EXCEPT_RULE)
 
 
+LAUNDERED = [
+    (
+        "local_rng",
+        "def live(me):\n"
+        "    KeyError = me.rng\n"
+        "    try:\n"
+        "        try:\n"
+        "            while True:\n"
+        "                pass\n"
+        "        except KeyError:\n"
+        "            pass\n"
+        "    except Exception:\n"
+        "        return 'rest'\n",
+        "KeyError",
+    ),
+    (
+        "local_int_outer_type_error",
+        "def live(me):\n"
+        "    ValueError = 5\n"
+        "    try:\n"
+        "        try:\n"
+        "            while True:\n"
+        "                pass\n"
+        "        except ValueError:\n"
+        "            pass\n"
+        "    except TypeError:\n"
+        "        return 'rest'\n",
+        "ValueError",
+    ),
+    (
+        "module_level_int",
+        "ValueError = 5\n"
+        "\n"
+        "def live(me):\n"
+        "    try:\n"
+        "        try:\n"
+        "            while True:\n"
+        "                pass\n"
+        "        except ValueError:\n"
+        "            pass\n"
+        "    except TypeError:\n"
+        "        return 'rest'\n",
+        "ValueError",
+    ),
+    (
+        "unbound_local",
+        "def live(me):\n"
+        "    try:\n"
+        "        try:\n"
+        "            while True:\n"
+        "                pass\n"
+        "        except ValueError:\n"
+        "            pass\n"
+        "    except Exception:\n"
+        "        ValueError = 5\n"
+        "        return 'rest'\n",
+        "ValueError",
+    ),
+    (
+        "as_shadow",
+        "def live(me):\n"
+        "    try:\n"
+        "        {}[1]\n"
+        "    except KeyError as ValueError:\n"
+        "        pass\n"
+        "    try:\n"
+        "        try:\n"
+        "            while True:\n"
+        "                pass\n"
+        "        except ValueError:\n"
+        "            pass\n"
+        "    except Exception:\n"
+        "        return 'rest'\n",
+        "ValueError",
+    ),
+    (
+        "parameter",
+        "def helper(me, KeyError):\n"
+        "    try:\n"
+        "        try:\n"
+        "            while True:\n"
+        "                pass\n"
+        "        except KeyError:\n"
+        "            pass\n"
+        "    except Exception:\n"
+        "        return 'rest'\n"
+        "\n"
+        "def live(me):\n"
+        "    return helper(me, me.rng)\n",
+        "KeyError",
+    ),
+]
+
+
+@pytest.mark.parametrize("name,source,rebound", LAUNDERED, ids=[r[0] for r in LAUNDERED])
+def test_rebound_except_name_is_rejected_before_it_can_run(name, source, rebound, tight_budget):
+    """`except KeyError:` where KeyError is bound to anything but an exception class, whether
+    locally, at module level, as a parameter, through `as`, or merely later in the function
+    (which makes the name an unbound local), is a TypeError or UnboundLocalError raised while
+    the Lysis is being matched. Both are Exceptions, so an outer `except Exception:` or
+    `except TypeError:` catches one after the loop has burst, with the one-shot timer already
+    spent. Before the rebind rule every genome here was admitted in about 0.8 s: forty bursts,
+    each swallowed. Now nothing is executed."""
+    t0 = time.perf_counter()
+    v = admit(source)
+    assert time.perf_counter() - t0 < 0.5
+    assert v.reasons == [f"cannot rebind {rebound}"]
+
+
+def test_loop_after_a_laundered_lysis_is_rejected_before_it_can_run(tight_budget):
+    """The worst case of the above: a genome that loops in the outer handler runs unbounded
+    after its Lysis, with no timer left, and in the dish there is no ceiling. Admitted through
+    the child interpreter so that a regression is a timeout and not a hung suite."""
+    src = LAUNDERED[0][1].replace("        return 'rest'\n", "        while True:\n            pass\n")
+    t0 = time.perf_counter()
+    v = admit_isolated(src, timeout=5.0)
+    assert time.perf_counter() - t0 < 5.0
+    assert v.reasons == ["cannot rebind KeyError"]
+
+
 def test_recursion_bomb_throws():
     v = admit("def live(me):\n    return live(me)\n")
     assert not v
@@ -243,9 +488,13 @@ def test_recursion_bomb_throws():
 
 
 def test_module_level_work_is_budgeted(tight_budget):
+    """The static gate refuses a call at module level, so this genome never compiles through
+    `admit`; if one ever got past it, the smoke test budgets the module body as well. Both
+    gates are asserted so that neither can quietly stand in for the other."""
     src = "x = sum(i for i in range(10**9))\n" + LIVE_REST
+    assert inspect(src).reasons == [CONSTANT_RULE]
     t0 = time.perf_counter()
-    v = admit(src)
+    v = smoke_test(src)
     assert time.perf_counter() - t0 < 2.0
     assert not v
     assert v.reasons == ["too slow: module level exceeded time budget"]
@@ -288,24 +537,36 @@ BENIGN = '''\
 
 THRESH = 0.5
 LIMIT: int = 3
+HALF = THRESH / 2
+NAMES = ("N", "NE", "E", "SE") + ("S", "SW", "W", "NW")
+LABEL = f"{THRESH:.1f}"
+R = random
 
 
-def _helper(me, _tmp):
-    return sum(x for x in me.around if x > THRESH) + _tmp
+def _helper(me, _tmp, names=NAMES, k: int = LIMIT) -> float:
+    return sum(x for x in me.around if x > THRESH) + _tmp + R.random() * k + len(names[0])
 
 
 def live(me):
     _ = me.tick
+    err = None
     try:
         n = int("x")
-    except ValueError:
+    except ValueError as e:
+        err = e
         n = LIMIT
+    del err
     try:
         me.memory["seen"] = me.around[me.memory["dir"]]
     except (KeyError, IndexError) as e:
         me.memory["dir"] = len(str(e)) % 8
-    label = f"{me.energy:.2f}"
-    if random.random() < 0.5 and len(label) > n:
+    match me.age % 3:
+        case 0:
+            me.memory["mood"] = NAMES[me.memory["dir"]]
+        case _:
+            pass
+    label = f"{me.energy:.2f}{LABEL}"
+    if (roll := random.random()) < HALF and len(label) > n and roll < 1.0:
         return ("move", random.choice(range(8)))
     return "eat" if _helper(me, 0.0) >= 0 else "rest"
 '''
@@ -313,8 +574,10 @@ def live(me):
 
 def test_benign_constructs_are_admitted():
     """Generator expressions, try/except on the whitelisted names (alone, as a tuple, with `as`),
-    f-strings, local underscore names, module-level constants, a docstring and the random
-    functions in scope are all legal."""
+    `del` of a local, `match` with a wildcard, a walrus, f-strings, local underscore names,
+    module-level constants with arithmetic, a tuple and an alias of `random`, a helper with
+    constant defaults and annotations, a docstring and the random functions in scope are all
+    legal."""
     v = admit(BENIGN)
     assert v, v.reasons
 

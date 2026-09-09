@@ -47,9 +47,15 @@ Hard rules of the membrane — a genome breaking any of these is discarded befor
   - no import statements. `math` and `random` are already in scope; nothing else exists.
   - no classes, no globals, no print, no getattr/eval/exec/open, no names starting with __,
     no attributes starting with _ (nothing like x._private), no .format, no .mro.
+  - attributes are read-only: nothing like math.pi = 0 or me.energy = 2. State goes in me.memory.
   - `except` must name one of Exception, ValueError, KeyError, IndexError, ZeroDivisionError,
-    TypeError; no bare `except:`, no `finally`.
-  - only `def`, and simple assignments at module level. Keep it short (well under 2000 chars).
+    TypeError; no bare `except:`, no `finally`, no `with`. Those six names cannot be reused for
+    anything else: no `KeyError = ...`, no parameter, loop variable or `as` name called ValueError.
+  - only `def` and constant assignments at module level: numbers, strings, tuples and arithmetic
+    on them. No calls there (no random.random() at module level), no lists, dicts or lambdas, no
+    decorators, no mutable or computed default arguments. Module level runs again whenever the
+    culture is reloaded, so anything that must persist goes in me.memory. Keep it short (well
+    under 2000 chars).
   - live() must return within a few milliseconds every tick. A loop that does not end bursts
     the cell, and nothing in the genome can catch that.
 """

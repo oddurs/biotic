@@ -115,9 +115,10 @@ Genomes are untrusted code from a language model running on your machine, so
 they pass through `bio/membrane.py` before they can live: no imports (only
 `math` and `random` exist, and `random` is the dish's own seeded generator), no
 classes, no dunders or private attributes, no `open`/`eval`/`getattr`, no
-`.format`, no `finally`, `except` only on the six built-in exceptions a genome can
-see, a size cap, and a wall-clock budget per call that nothing in a genome can
-catch or outlive. Then forty ticks against random situations
+`.format`, no `finally` or `with`, `except` only on the six built-in exceptions a
+genome can see and no rebinding of those names, read-only attributes, constants
+only at module level, a size cap, and a wall-clock budget per call that nothing
+in a genome can catch or outlive. Then forty ticks against random situations
 without throwing. A genome that throws inside the dish bursts the cell; it
 doesn't touch anything else. `docs/membrane.md` has every rule with its reason
 string, and what the membrane cannot do.

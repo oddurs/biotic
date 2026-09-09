@@ -35,12 +35,20 @@ turns the `Unreleased` section into a dated release.
 - The vitals `strains` row reads `living  arisen  extinct`; the maximum generation it used to show is
   replaced by the cell-weighted mean generation on the new `diversity` row.
 - The membrane rejects attributes beginning with `_` (`random._os`), `.format`, `.format_map` and `.mro`,
-  `finally`, `except*`, bare `except:`, and `except` clauses that name anything but the six built-in exceptions
-  a genome can see. Inside a genome, `random` is the dish's own seeded generator rather than the module, so a
-  culture is deterministic under its seed and `random.Random`/`random.SystemRandom` no longer exist there.
+  `finally`, `with`, `except*`, bare `except:`, `except` clauses that name anything but the six built-in
+  exceptions a genome can see, and any binding of those six names (`ValueError = 5`, `def helper(me, KeyError)`,
+  `except KeyError as ValueError`). Attributes are read-only: `math.pi = 0` used to change `math.pi` for every
+  genome in the process. Module level may hold only `def`s without decorators and constants — numbers, strings,
+  tuples, names and arithmetic on them, in assignments, default arguments and annotations alike; no calls, lists,
+  dicts or lambdas there. Inside a genome, `random` is the dish's own seeded generator rather than the module, so
+  a culture is deterministic under its seed and `random.Random`/`random.SystemRandom` no longer exist there.
 - A genome can no longer catch or outlive its time budget: `Lysis` is a `BaseException`, and with no `finally`,
-  no bare `except` and no `except` outside that list, nothing in a genome runs after it is raised. The smoke
-  test also budgets module-level code.
+  no `with`, no bare `except`, no `except` outside that list and no way to rebind a name on it, nothing in a
+  genome runs after it is raised. The smoke test also budgets module-level code.
+- A dish loaded from `dish.json` compiles its genomes again, so module-level code runs a second time. With module
+  level held to constants and attributes read-only, everything a genome can change between ticks is in `me.memory`
+  or the dish's generator, both of which the save carries, so a resumed dish is an exact twin of the running one
+  for any genome the membrane admits (primitive memory values; `docs/membrane.md` has the limit).
 - A genome longer than `GENOME_MAX_CHARS` is rejected before it is parsed.
 - The mutagen's prompt states the rules the membrane enforces.
 

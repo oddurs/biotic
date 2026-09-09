@@ -1,10 +1,23 @@
 """The dish's physics under the founder: growth phases, carrying capacity, determinism.
 
-Everything runs on a 24×12 dish (232 tiles) with seed "test". These are regression
-pins on one seeded trajectory, not statistical estimates; the only analytic claims are
-the carrying-capacity ceiling and the death ledger. The numeric bands are a deliberate
-floor: retuning BASAL_COST, MOVE_COST, EAT_RATE, NECROMASS, CORPSE_NUTRIENT, DIFFUSION
-or the founder will move them, and the point of these tests is to say so when it happens.
+Everything runs on a 24×12 dish (232 tiles) with seed "test". These are regression pins
+on one seeded trajectory, not statistical estimates; the only analytic claims are the
+carrying-capacity ceiling and the death ledger. A seeded trajectory is exact, so the bands
+sit close around the measured values, and what they guard was measured by retuning one
+constant at a time and re-evaluating the assertions:
+
+- The stationary mean is pinned to 0.52 K within 12%. That is the basal share of the
+  founder's intake, so it moves with MOVE_COST (0.0125: 0.74 K; 0.02: 0.60 K; 0.03:
+  0.45 K; 0.05: 0.42 K) and with BASAL_COST (0.015: 0.60 K), and with little else.
+- The min/max bands and the modal phase pin the flatness of the tail. They trip when the
+  founder can no longer keep up with itself: EAT_RATE at 0.045 or below, BASAL_COST at
+  0.012 or above (and at 0.007), a founder that eats a barer tile or divides later.
+- The two-replenish ratio pins linear scaling with the feed, within 10%.
+
+They do not see NECROMASS, CORPSE_NUTRIENT or DIFFUSION at any value tried (0 to twice the
+default), EAT_RATE above 0.06, or BASAL_COST at 0.008: the founder eats its tile bare
+before the rate limits it, and the corpse and diffusion terms move less energy per tick
+than one cell's basal cost. A retune of those constants is not covered here.
 """
 
 from __future__ import annotations
@@ -69,23 +82,26 @@ def test_replenished_dish_holds_a_stationary_population():
     """Energy conservation puts a ceiling on the population: K = replenish × tiles / BASAL_COST
     is what the agar can feed if every unit of energy went to staying alive. Measured over
     the tail, the founder spends 51% of its intake on basal cost and 46% on moving, and
-    the rest leaves with corpses, so it holds about half of K (0.53 K). The band below is
-    that measurement with room to breathe, not an estimate."""
+    the rest leaves with corpses, so it holds about half of K: mean 30.2 = 0.52 K, the
+    lowest sample 0.76 and the highest 1.16 of the mean, and 687 of the 1000 ticks reading
+    stationary. K is the ceiling, not the centre; the bands are that measurement with room
+    for nothing but a deliberate retune (see the module docstring for which ones they see)."""
     tail, phases = _stationary_tail(0.0025)
     K = 0.0025 * Dish("test", 24, 12).tiles / config.BASAL_COST  # 58
     mean = sum(tail) / len(tail)
-    assert 0.35 * K <= mean <= K
-    assert min(tail) >= 0.6 * mean
-    assert max(tail) <= 1.4 * mean
+    assert 0.46 * K <= mean <= 0.58 * K
+    assert min(tail) >= 0.7 * mean
+    assert max(tail) <= 1.3 * mean
     assert all(tail)
     assert max(phases, key=phases.get) == "stationary"  # the curve reads as stationary most of the time
 
 
 def test_carrying_capacity_scales_with_replenish():
+    """Twice the feed, twice the population: 2.01 measured."""
     a, _ = _stationary_tail(0.0025)
     b, _ = _stationary_tail(0.005)
     ratio = (sum(b) / len(b)) / (sum(a) / len(a))
-    assert 1.5 <= ratio <= 2.5
+    assert 1.8 <= ratio <= 2.2
 
 
 def test_dish_is_deterministic_under_a_seed():

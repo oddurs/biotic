@@ -24,6 +24,8 @@ returns without parsing, because parsing megabytes of model output is itself a c
 | `import x`, `from x import y` | `imports are not allowed (math and random are already in scope)` |
 | a call, or any other non-constant expression, at module level | `module-level expression with side effects` |
 | anything at module level but `def`, an assignment, an annotated assignment, or a bare constant such as a docstring (`try`, `if`, `for`, `while`, `with`, ...) | `module-level <Node> not allowed` |
+| a module-level value that is not a constant: a call (`X = random.random()`, `DIRS = list(range(8))`), a list, dict, set or comprehension (`SEEN = []`), a lambda; the same in a `def`'s defaults and annotations (`def helper(me, seen=[])`, `def helper(me, x=random.random())`) | `module-level values must be constants (numbers, strings, tuples; no calls, lists or dicts)` |
+| `@decorator` | `decorators not allowed` |
 | no `def live` | `no live(me) function` |
 | `def live(me, other)` | `live() must take exactly one argument` |
 | `eval` `exec` `compile` `open` `input` `__import__` `globals` `locals` `vars` `getattr` `setattr` `delattr` `breakpoint` `memoryview` `type` `super` `object` `classmethod` `staticmethod` `property` `exit` `quit` `help` `dir` `id` `hash` `iter` `next` `print` | `forbidden name: <name>` |
@@ -31,10 +33,13 @@ returns without parsing, because parsing megabytes of model output is itself a c
 | any attribute beginning with `__` (`me.__class__`, `[].__class__.__subclasses__()`, `me.rng.__dict__`) | `dunder access: .<attr>` |
 | any attribute beginning with `_` (`random._os`) | `private attribute: .<attr>` |
 | `.format`, `.format_map`, `.mro` | `forbidden attribute: .<attr>` |
+| assigning to or deleting an attribute (`math.pi = 0`, `random.tally = 1`, `helper.n = 1`, `me.energy = 2`, `del math.pi`) | `attributes are read-only: .<attr>` |
 | `try` with a `finally:` | `finally not allowed` |
+| `with` | `with not allowed` |
 | `except*` | `except* not allowed` |
 | `except:` with no type | `bare except not allowed` |
 | `except` naming anything but `Exception`, `ValueError`, `KeyError`, `IndexError`, `ZeroDivisionError`, `TypeError`, alone or as a tuple (`except BaseException:`, `except me.oops:`, `except err:`, `except Exception.mro()[1]:`) | `except may only name Exception, IndexError, KeyError, TypeError, ValueError, ZeroDivisionError` |
+| binding one of those six names to anything: `ValueError = 5`, `def helper(me, KeyError)`, `except KeyError as ValueError`, `for KeyError in ...`, `(KeyError := 3)`, `def KeyError()`, `del ValueError`, a `case KeyError:` capture | `cannot rebind <name>` |
 | `global`, `nonlocal` | `global/nonlocal not allowed` |
 | `async def`, `await`, `yield`, `yield from` | `async/generators not allowed` |
 | `class` | `classes not allowed` |
@@ -45,20 +50,50 @@ the syntax tree never shows. `.mro()` is the one attribute without a leading und
 that leads from an exception class to `BaseException` and `object`; `BaseException` is
 what a burst is (below), and a genome must be able neither to catch one nor to raise one.
 
-Why the `except` rules: a burst is an exception, and there are three ways a genome
+Why the `except` rules: a burst is an exception, and there are four ways a genome
 could run on after one. A `finally:` block runs whatever is propagating, and a `return`
-there discards it, instantly, so no timer can help. A bare `except:` catches
-everything. And an `except` whose expression is not a plain name can evaluate to
+there discards it, instantly, so no timer can help; a `with` block's `__exit__` runs
+the same way and may swallow what is propagating by returning true. A bare `except:`
+catches everything. An `except` whose expression is not a plain name can evaluate to
 something wider than the genome should be able to name: `Exception.mro()[1]` is
 `BaseException`, and `except BaseException:` itself is a `NameError` inside a genome,
-which an outer `except Exception:` would catch after the loop has burst. So `except`
-may name only the exception classes in the namespace, by name, alone or as a tuple,
-and every one of those is a subclass of `Exception`. The list in the reason string is
-built from `SAFE_BUILTINS`, so adding an exception class there widens `except` in the
-same step; the suite pins that no class in that namespace is a superclass of `Lysis`.
+which an outer `except Exception:` would catch after the loop has burst. And an
+`except` that names one of the six correctly still has to mean it: if `KeyError` has
+been bound to anything else, locally, at module level, as a parameter, through `as`,
+or merely later in the function so that the name is an unbound local, then matching a
+burst against `except KeyError:` raises a `TypeError` or an `UnboundLocalError`, both
+of them `Exception`s that an outer handler would catch, again after the burst, with
+the one-shot timer already spent. So `except` may name only the exception classes in
+the namespace, by name, alone or as a tuple; every one of those is a subclass of
+`Exception`; and a genome may not bind any of those six names to anything. The list in
+the reason string is built from `SAFE_BUILTINS`, so adding an exception class there
+widens `except` and the rebinding rule in the same step; the suite pins that no class
+in that namespace is a superclass of `Lysis` and that every name on the list is refused
+as a binding target.
 
 Names with a single leading underscore (`_`, `_tmp`, `def _helper`) stay legal. The
 rule is about attributes, which are how a genome would reach out of its namespace.
+
+Why attributes are read-only: `math` is the real module, and `random` is the dish's
+generator, an ordinary object with a `__dict__`. `math.pi = 0` would change `math.pi`
+for every genome in the process (it did, before the rule); `random.tally = 1` or
+`helper.n = 1` would give a strain a scratchpad that no `dish.json` carries. Nothing a
+genome can reach has an attribute it should write, so the gate refuses every attribute
+store and delete. `me.memory[...] = x` is a subscript, not an attribute, and stays legal.
+
+Why module level is constants: module-level code runs when a genome is compiled, and a
+dish loaded from the freezer compiles its genomes again on their first tick, so whatever
+happens at module level happens twice, at different points in the run. A module-level
+`random.random()` would draw from the dish's generator at a different point than the
+original run did and hand every cell a different constant; a module-level list, dict or
+set, or a mutable default argument, which is created when the `def` runs, would be
+state a strain carries between ticks that no save contains. So module level may hold
+`def`s without decorators, and assignments, default arguments and annotations built
+from numbers, strings, `True`/`False`/`None`, tuples, names and arithmetic on them: no
+calls, no lists, dicts, sets, comprehensions or lambdas. An alias such as `R = random`
+is fine; it is the same generator. With this and the read-only attributes, everything
+a genome can change between ticks is in `me.memory` or the dish's generator, and both
+are in `dish.json`.
 
 What a genome has: `math`, `random` (see below), and these builtins — `abs` `all` `any`
 `bool` `dict` `divmod` `enumerate` `filter` `float` `int` `isinstance` `len` `list`
@@ -93,11 +128,11 @@ Nothing inside a genome can catch it or run after it:
 - `Lysis` derives from `BaseException`, not `Exception`. `Exception` is the widest
   class a genome can name, and `except Exception:` does not see it.
 - The static gate refuses every construct that would run code after it: `finally:`,
-  bare `except:`, `except*`, and any `except` that does not name one of the six
-  built-in exception classes directly. Every route from a name a genome has to
-  `BaseException` is closed too (`.mro()`, every `__dunder__`, `type`, `object`), so
-  a genome cannot raise one either, and the dish's own handler, which catches `Lysis`
-  and `Exception`, sees everything a genome can throw.
+  `with`, bare `except:`, `except*`, any `except` that does not name one of the six
+  built-in exception classes directly, and any binding of those six names. Every route
+  from a name a genome has to `BaseException` is closed too (`.mro()`, every
+  `__dunder__`, `type`, `object`), so a genome cannot raise one either, and the dish's
+  own handler, which catches `Lysis` and `Exception`, sees everything a genome can throw.
 
 The timer is one shot on purpose. Nothing can run after the first `Lysis`, so a second
 alarm would add nothing, and a repeating one could fire while the first is still
@@ -124,7 +159,9 @@ Inside a genome, `random` and `me.rng` are the same object: the dish's own seede
 `choice`, `randint`, `uniform`, `shuffle`, `gauss`, `randrange`, `sample` — and the
 `random` module itself, with its private state and `SystemRandom`, is out of reach.
 This is what makes a culture reproducible: with a fixed seed, two dishes run the same
-genomes to the same state, tick for tick.
+genomes to the same state, tick for tick. A draw at module level is refused by the
+static gate (above), because module level runs again when a dish is loaded and the
+draw would then land at a different point in the sequence.
 
 The flip side is that a genome can call `random.seed(...)`, and that reseeds the dish.
 The result is still deterministic — the same genome does the same thing on every
@@ -136,23 +173,30 @@ done today.
 
 `tests/fixtures/genomes/` holds ten fossils copied verbatim from `soma/` of the first
 "tide" run (seed "tide", model `qwen/qwen3-coder`, 2026-09-08): the founder,
-`tide_drifter`, and nine of its descendants. They are the membrane's positive control. Every one must be admitted, and the suite names the one
-that stops being when a rule changes. Do not edit them; ruff is told to leave them
-alone, and their trailing whitespace is part of the record.
+`tide_drifter`, and nine of its descendants. They are the membrane's positive control.
+Every one must be admitted, and the suite names the one that stops being when a rule
+changes. Do not edit them; ruff is told to leave them alone, and their trailing
+whitespace is part of the record.
 
 ## What the suite guarantees
 
 `tests/test_membrane.py` holds one genome per escape class, each asserting the reason
 string above by name, so a rule that quietly stops firing is caught by name and not by
 a count. The dynamic gate is exercised at the real 4 ms budget: a busy loop, a loop
-inside `except Exception:`, a recursion bomb, module-level work, and the `finally` and
-laundering genomes, which are refused before anything runs. `admit_isolated` is
-exercised with a Python-level loop, which the child's own budget answers, and a
-C-level one, which the ceiling ends, leaving no process behind. The built-in founder
-and the ten fossils are the positive control, and one genome using every benign
-construct at once — generator expressions, `try/except` on the whitelisted names
-alone, as a tuple and with `as`, f-strings, underscore-prefixed locals, module-level
-constants, a docstring, `random.random()` and `random.choice()` — must be admitted.
+inside `except Exception:`, a recursion bomb, module-level work, the `finally` and
+laundering genomes, and six spellings of a rebound `except` name (a local, a module-level
+constant, a parameter, an `as` name, an unbound local, and one whose outer handler loops
+forever, admitted through the child interpreter so that a regression is a timeout and
+not a hung suite), all refused before anything runs. `admit_isolated` is exercised with
+a Python-level loop, which the child's own budget answers, and a C-level one, which the
+ceiling ends, leaving no process behind. The built-in founder and the ten fossils are
+the positive control, and one genome using every benign construct at once — generator
+expressions, `try/except` on the whitelisted names alone, as a tuple and with `as`,
+`del` of a local, `match` with a wildcard, a walrus, f-strings, underscore-prefixed
+locals, module-level constants with arithmetic, a tuple and an alias of `random`, a
+helper with constant defaults and annotations, a docstring, `random.random()` and
+`random.choice()` — must be admitted. `tests/test_persistence.py` resumes a genome with
+the fullest module level the gate admits and asserts an exact twin for fifty ticks.
 
 ## Known limits
 
@@ -168,3 +212,8 @@ constants, a docstring, `random.random()` and `random.choice()` — must be admi
 - **The stand-in cell is not the dish.** Forty rounds against random situations find
   genomes that throw on ordinary inputs. They do not find one that throws on a state
   only a real dish produces; that is what lysis in the dish is for.
+- **The twin holds for primitive memory.** `dish.json` keeps ints, floats, strings,
+  bools and `None` in `me.memory`, at most 64 keys, and stringifies the rest; a genome
+  that keeps a list there gets a string back after a resume. Module level and
+  attributes are closed (above), so this is the one place a genome's state can differ
+  from its save.
