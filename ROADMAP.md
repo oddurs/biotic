@@ -4,7 +4,7 @@
 
 ## dish — A dish you can leave running
 
-`··········` 0% · 0 of 9 done · due 2026-09-21
+`··········` 0% · 0 of 10 done · due 2026-09-21
 
 The apparatus exists and a culture evolves in it. It is not yet an instrument:
 
@@ -19,10 +19,11 @@ The apparatus exists and a culture evolves in it. It is not yet an instrument:
 - [ ] `0008` Membrane and physics test suite <sup>chore · p0</sup>
 - [ ] `0009` Survive small and resized terminals <sup>feature · p2</sup>
 - [ ] `0010` Incubation gaps: record wall-clock absence, do not fake ticks <sup>feature · p2</sup>
+- [ ] `0040` Tick-clocked mutation supply for headless runs <sup>feature · p0</sup>
 
 ## biotic-env — The environment is other cells
 
-`··········` 0% · 0 of 5 done · due 2026-10-05
+`··········` 0% · 0 of 6 done · due 2026-10-05
 
 Tierra's own history says where novelty comes from: not the physical
 
@@ -33,6 +34,7 @@ Tierra's own history says where novelty comes from: not the physical
 - [ ] `0014` Horizontal gene transfer: the mutagen splices neighbours <sup>feature · p0</sup>
 - [ ] `0015` A random mutagen as the control arm <sup>feature · p0</sup>
 - [ ] `0016` Experiment: does parasitism arise? <sup>docs · p1</sup>
+- [ ] `0041` Experiment: the mutagen's identity — a model comparison <sup>docs · p1</sup>
 
 ## substrates — The agar becomes chemistry
 
