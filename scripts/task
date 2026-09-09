@@ -1,0 +1,38 @@
+#!/bin/sh
+# The stack seam. CI, git hooks, and scripts/agent talk to the toolchain only through here.
+#
+#   scripts/task fmt        format in place
+#   scripts/task fmt:check  verify formatting; non-zero on drift
+#   scripts/task lint       lint; warnings are errors
+#   scripts/task test       full test suite
+#   scripts/task build      build the wheel and sdist into dist/
+#   scripts/task check      fmt:check && lint && test && build
+#   scripts/task version [x.y.z]  print the project version, or set it (and the lockfile)
+set -eu
+cd "$(dirname "$0")/.."
+
+run() {
+  printf '+ %s\n' "$*" >&2
+  "$@"
+}
+
+# `uv run --locked` syncs .venv from uv.lock first and fails if the lockfile is stale,
+# so a green check here means exactly the same thing in CI.
+case "${1:-}" in
+  fmt)       run uv run --locked ruff format . ;;
+  fmt:check) run uv run --locked ruff format --check . ;;
+  lint)      run uv run --locked ruff check . ;;
+  test)      run uv run --locked pytest ;;
+  build)     run uv build ;;
+  version)   if [ -n "${2:-}" ]; then run uv version "$2"; else uv version --short; fi ;;
+  check)
+    "$0" fmt:check
+    "$0" lint
+    "$0" test
+    "$0" build
+    ;;
+  *)
+    sed -n '4,11p' "$0" >&2
+    exit 2
+    ;;
+esac

@@ -1,0 +1,11 @@
+#!/bin/sh
+# One-time contributor setup: wire the tracked git hooks, then prove the tree is green.
+set -eu
+cd "$(dirname "$0")/.."
+printf '+ git config core.hooksPath .githooks\n' >&2
+git config core.hooksPath .githooks
+if git remote get-url origin >/dev/null 2>&1; then
+  git remote set-head origin -a >/dev/null 2>&1 || true
+fi
+scripts/task check
+printf '\nready. start work with: scripts/agent start <type>/<slug>\n' >&2

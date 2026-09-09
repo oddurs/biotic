@@ -1,0 +1,18 @@
+#!/bin/sh
+# The attribution ban, in one place.
+#   scripts/noattrib          copy stdin to stdout, dropping lines that credit an AI tool
+#   scripts/noattrib --check  exit 1 if any line of stdin credits an AI tool
+set -eu
+RE='co-authored-by:.*(claude|anthropic|openai|chatgpt|gpt-|copilot|gemini|cursor|codex|devin|aider|assistant|\[bot\])'
+RE="$RE|generated (with|by).*(claude|copilot|chatgpt|gpt|gemini|cursor|codex|aider|devin)"
+RE="$RE|ai-generated|claude-session:|claude\.ai/code|claude\.com/claude-code|signed-off-by:.*(claude|anthropic)|🤖"
+case "${1:-}" in
+  --check)
+    if hits=$(grep -inE "$RE"); then
+      printf 'attribution found:\n%s\n' "$hits" >&2
+      exit 1
+    fi
+    ;;
+  "") grep -ivE "$RE" || true ;;
+  *) printf 'usage: scripts/noattrib [--check]\n' >&2; exit 2 ;;
+esac

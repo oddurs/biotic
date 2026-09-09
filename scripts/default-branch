@@ -1,0 +1,11 @@
+#!/bin/sh
+# Print the default branch. Resolved from origin/HEAD, then GitHub, then the primary checkout.
+set -eu
+primary=$(git worktree list --porcelain | sed -n '1s/^worktree //p')
+if b=$(git -C "$primary" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null) && [ -n "$b" ]; then
+  printf '%s\n' "${b#origin/}"
+elif b=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null) && [ -n "$b" ]; then
+  printf '%s\n' "$b"
+else
+  git -C "$primary" symbolic-ref -q --short HEAD
+fi

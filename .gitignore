@@ -1,0 +1,24 @@
+# secrets
+.env
+
+# the running culture and what it grows. to publish a fossil record: git add -f soma/
+vessel/
+soma/*
+!soma/__init__.py
+
+# python
+__pycache__/
+*.pyc
+.venv/
+dist/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# worktrees, OS, editors
+.worktrees/
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp

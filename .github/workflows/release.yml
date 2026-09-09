@@ -1,0 +1,109 @@
+name: release
+
+# Two ways in: merging a "chore(release): vX.Y.Z" PR (from scripts/release), or pushing a
+# vX.Y.Z tag by hand. Either way the version in the tree is the source of truth.
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    if: startsWith(github.ref, 'refs/tags/v') || startsWith(github.event.head_commit.message, 'chore(release): v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-tags: true
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+
+      - name: resolve the version
+        id: version
+        run: |
+          version=$(scripts/task version)
+          case "$GITHUB_REF" in
+            refs/tags/*)
+              [ "$GITHUB_REF_NAME" = "v$version" ] || { echo "tag $GITHUB_REF_NAME does not match version $version in pyproject.toml"; exit 1; } ;;
+          esac
+          grep -q "^## \[$version\] - " CHANGELOG.md || { echo "CHANGELOG.md has no dated '## [$version]' section"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - run: scripts/task check
+
+      - name: tag the release commit
+        if: startsWith(github.ref, 'refs/heads/')
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if git ls-remote --exit-code --tags origin "v$VERSION" >/dev/null; then
+            echo "v$VERSION already exists"; exit 0
+          fi
+          git tag "v$VERSION" "$GITHUB_SHA"
+          git push origin "v$VERSION"
+
+      - name: attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/*
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dist
+          path: dist/*
+          if-no-files-found: error
+
+      - name: write release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          {
+            awk -v v="$VERSION" '$0 ~ "^## \\[" v "\\] - " {on=1; next} /^## /{on=0} on' CHANGELOG.md
+            echo
+            gh api -X POST "repos/${GITHUB_REPOSITORY}/releases/generate-notes" -f tag_name="v$VERSION" -q .body
+          } | scripts/noattrib > notes.md
+          cat notes.md
+
+      - name: publish the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            gh release edit "v$VERSION" --notes-file notes.md
+            gh release upload "v$VERSION" dist/* --clobber
+          else
+            gh release create "v$VERSION" --title "v$VERSION" --notes-file notes.md --verify-tag dist/*
+          fi
+
+  # Trusted publishing to PyPI. Off until the owner adds a trusted publisher on PyPI for this
+  # repository, workflow, and the "pypi" environment, then sets repository variable
+  # PYPI_PUBLISH=true. Nothing here needs a token.
+  pypi:
+    needs: release
+    if: vars.PYPI_PUBLISH == 'true'
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dist
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2

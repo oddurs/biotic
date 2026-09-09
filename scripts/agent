@@ -1,0 +1,157 @@
+#!/bin/sh
+# Agentic git workflow: one unit of work -> one worktree -> one branch -> one PR.
+#
+#   scripts/agent doctor              verify git, gh, auth, toolchain, hooks, clean tree
+#   scripts/agent start <type>/<slug> branch from origin/<default> into a fresh worktree; prints its path
+#   scripts/agent check               scripts/task check
+#   scripts/agent commit <msg>        stage everything, validate the message, commit
+#   scripts/agent pr [--draft]        check, push, open the pull request; prints its URL
+#   scripts/agent sync                rebase the current branch onto origin/<default>
+#   scripts/agent done [branch]       after the PR is merged: remove worktree, branch, and remote branch
+#   scripts/agent list                worktrees with their branches and PR state
+#
+# Never changes the caller's directory: it prints paths for you to cd into.
+set -eu
+
+say() { printf '%s\n' "$*" >&2; }
+die() { say "error: $*"; exit 1; }
+run() { say "+ $*"; "$@"; }
+
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || die "not inside a git repository"
+PRIMARY=$(git -C "$ROOT" worktree list --porcelain | sed -n '1s/^worktree //p')
+NAME=$(basename "$PRIMARY")
+WORKTREES=$(dirname "$PRIMARY")/.worktrees/$NAME
+BRANCH_RE='^(feat|fix|chore|docs|perf|refactor|test)/[a-z0-9][a-z0-9._-]*$'
+
+default_branch() { "$PRIMARY/scripts/default-branch"; }
+current_branch() { git -C "$ROOT" symbolic-ref -q --short HEAD || die "detached HEAD"; }
+worktree_of() {
+  git -C "$PRIMARY" worktree list --porcelain | awk -v b="refs/heads/$1" '
+    /^worktree /{w=substr($0,10)} /^branch /{if ($2==b) print w}'
+}
+
+cmd_doctor() {
+  bad=0
+  problem() { say "  ✗ $*"; bad=1; }
+  ok() { say "  ✓ $*"; }
+  for tool in git gh; do
+    command -v "$tool" >/dev/null 2>&1 && ok "$tool: $(command -v "$tool")" || problem "$tool is not installed"
+  done
+  if gh auth status >/dev/null 2>&1; then ok "gh is authenticated"; else problem "gh is not authenticated: run 'gh auth login'"; fi
+  if [ "$(git -C "$ROOT" config core.hooksPath || true)" = ".githooks" ]; then
+    ok "core.hooksPath = .githooks"
+  else
+    run git -C "$ROOT" config core.hooksPath .githooks
+    ok "core.hooksPath set to .githooks"
+  fi
+  for h in commit-msg pre-commit pre-push; do
+    [ -x "$PRIMARY/.githooks/$h" ] || problem ".githooks/$h is missing or not executable"
+  done
+  if git -C "$PRIMARY" remote get-url origin >/dev/null 2>&1; then
+    git -C "$PRIMARY" remote set-head origin -a >/dev/null 2>&1 || true
+    ok "origin: $(git -C "$PRIMARY" remote get-url origin), default branch $(default_branch)"
+  else
+    problem "no 'origin' remote"
+  fi
+  if [ -z "$(git -C "$ROOT" status --porcelain)" ]; then ok "working tree is clean"; else problem "working tree is not clean:"; git -C "$ROOT" status --short >&2; fi
+  if "$ROOT/scripts/task" lint >/dev/null 2>&1; then ok "toolchain works (scripts/task lint is green)"; else problem "scripts/task lint failed: toolchain missing or lint errors (run it to see)"; fi
+  [ "$bad" -eq 0 ] && say "doctor: all clear" || die "doctor found problems"
+}
+
+cmd_start() {
+  br=${1:-}
+  [ -n "$br" ] || die "usage: scripts/agent start <type>/<slug>"
+  printf '%s\n' "$br" | grep -Eq "$BRANCH_RE" || die "branch '$br' must match $BRANCH_RE"
+  def=$(default_branch)
+  path=$WORKTREES/$br
+  run git -C "$PRIMARY" fetch origin
+  git -C "$PRIMARY" show-ref --verify --quiet "refs/heads/$br" && die "branch $br already exists (see 'scripts/agent list')"
+  [ -e "$path" ] && die "worktree path already exists: $path"
+  mkdir -p "$(dirname "$path")"
+  run git -C "$PRIMARY" worktree add -b "$br" "$path" "origin/$def"
+  say "worktree ready on $br. move there with:"
+  printf 'cd %s\n' "$path"
+}
+
+cmd_check() { "$ROOT/scripts/task" check; }
+
+cmd_commit() {
+  msg=${1:-}
+  [ -n "$msg" ] || die "usage: scripts/agent commit '<type>(<scope>): <subject>'"
+  [ "$(current_branch)" != "$(default_branch)" ] || die "refusing to commit on $(default_branch); use 'scripts/agent start'"
+  tmp=$(mktemp)
+  printf '%s\n' "$msg" >"$tmp"
+  "$PRIMARY/.githooks/commit-msg" "$tmp" || { rm -f "$tmp"; exit 1; }
+  rm -f "$tmp"
+  run git -C "$ROOT" add -A
+  git -C "$ROOT" diff --cached --quiet && die "nothing to commit"
+  run git -C "$ROOT" commit -m "$msg"
+}
+
+cmd_pr() {
+  draft=""
+  [ "${1:-}" = "--draft" ] && draft="--draft"
+  br=$(current_branch)
+  def=$(default_branch)
+  [ "$br" != "$def" ] || die "you are on $def; a PR needs a branch from 'scripts/agent start'"
+  cmd_check
+  run git -C "$ROOT" push -u origin "$br"
+  if url=$(gh pr view "$br" --json url -q .url 2>/dev/null) && [ -n "$url" ]; then
+    say "PR already exists"
+    printf '%s\n' "$url"
+    return
+  fi
+  title=$(git -C "$ROOT" log --reverse --format=%s "origin/$def..HEAD" | head -n 1)
+  [ -n "$title" ] || die "no commits on $br beyond origin/$def"
+  body=$(mktemp)
+  "$PRIMARY/scripts/noattrib" <"$PRIMARY/.github/PULL_REQUEST_TEMPLATE.md" >"$body"
+  say "+ gh pr create --base $def --head $br --title '$title' --body-file <template> $draft"
+  # shellcheck disable=SC2086
+  url=$(gh pr create --base "$def" --head "$br" --title "$title" --body-file "$body" $draft)
+  rm -f "$body"
+  printf '%s\n' "$url"
+}
+
+cmd_sync() {
+  def=$(default_branch)
+  [ "$(current_branch)" != "$def" ] || die "already on $def"
+  run git -C "$ROOT" fetch origin
+  run git -C "$ROOT" rebase "origin/$def"
+}
+
+cmd_done() {
+  br=${1:-$(current_branch)}
+  def=$(default_branch)
+  [ "$br" != "$def" ] || die "'$br' is the default branch"
+  state=$(gh pr view "$br" --json state -q .state 2>/dev/null || true)
+  [ "$state" = "MERGED" ] || die "PR for $br is ${state:-missing}, not MERGED; merge it first"
+  path=$(worktree_of "$br")
+  if [ -n "$path" ]; then
+    run git -C "$PRIMARY" worktree remove "$path"
+  else
+    say "no worktree for $br"
+  fi
+  if git -C "$PRIMARY" show-ref --verify --quiet "refs/heads/$br"; then
+    run git -C "$PRIMARY" branch -D "$br"
+  fi
+  run git -C "$PRIMARY" worktree prune
+  run git -C "$PRIMARY" fetch --prune
+  if git -C "$PRIMARY" ls-remote --exit-code --heads origin "$br" >/dev/null 2>&1; then
+    run git -C "$PRIMARY" push origin --delete "$br"
+  fi
+  case "$PWD/" in "$path"/*) say "your shell is inside the removed worktree. move back with:"; printf 'cd %s\n' "$PRIMARY" ;; esac
+}
+
+cmd_list() {
+  git -C "$PRIMARY" worktree list --porcelain | awk '/^worktree /{w=substr($0,10)} /^branch /{print substr($2,12) "\t" w}' |
+  while IFS="$(printf '\t')" read -r br path; do
+    pr=$(gh pr list --head "$br" --state all --limit 1 --json number,state -q '"#\(.[0].number) \(.[0].state)"' 2>/dev/null || true)
+    [ "$pr" = "# null" ] && pr=""
+    printf '%-40s %-18s %s\n' "$br" "${pr:-no PR}" "$path"
+  done
+}
+
+case "${1:-}" in
+  doctor|start|check|commit|pr|sync|done|list) cmd=$1; shift; "cmd_$cmd" "$@" ;;
+  *) sed -n '2,13p' "$0" >&2; exit 2 ;;
+esac

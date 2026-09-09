@@ -1,0 +1,17 @@
+#!/bin/sh
+# Never push to the default branch; never push red code.
+set -eu
+root=$(git rev-parse --show-toplevel)
+def=$("$root/scripts/default-branch")
+zero=0000000000000000000000000000000000000000
+pushing=0
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ "$local_sha" = "$zero" ] && continue   # deleting a remote branch
+  if [ "$remote_ref" = "refs/heads/$def" ]; then
+    printf 'pre-push: %s only advances through a merged pull request. use scripts/agent pr\n' "$def" >&2
+    exit 1
+  fi
+  pushing=1
+done
+[ "$pushing" -eq 1 ] && "$root/scripts/task" check
+exit 0

@@ -1,0 +1,56 @@
+#!/bin/sh
+# Cut a release: one PR that sets the version and dates the changelog. Merging it is the release.
+#
+#   scripts/release <x.y.z>
+#
+# From the primary checkout, on a clean default branch. Creates chore/release-x.y.z in a
+# worktree, sets the version through scripts/task, moves everything under
+# "## [Unreleased]" in CHANGELOG.md into "## [x.y.z] - <today>", commits, and opens the PR.
+# When that PR merges, .github/workflows/release.yml tags vx.y.z, builds, attests, and
+# publishes the GitHub release (and PyPI, if enabled). Nothing is tagged by hand.
+set -eu
+
+say() { printf '%s\n' "$*" >&2; }
+die() { say "error: $*"; exit 1; }
+
+new=${1:-}
+printf '%s\n' "$new" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || die "usage: scripts/release <x.y.z>"
+root=$(git rev-parse --show-toplevel)
+cd "$root"
+primary=$(git worktree list --porcelain | sed -n '1s/^worktree //p')
+[ "$root" = "$primary" ] || die "run this from the primary checkout: $primary"
+def=$(scripts/default-branch)
+[ "$(git symbolic-ref -q --short HEAD)" = "$def" ] || die "switch to $def first"
+[ -z "$(git status --porcelain)" ] || die "working tree is not clean"
+git fetch origin --tags
+[ "$(git rev-parse HEAD)" = "$(git rev-parse "origin/$def")" ] || die "$def is not up to date with origin; git pull first"
+current=$(scripts/task version)
+git ls-remote --exit-code --tags origin "v$new" >/dev/null 2>&1 && die "v$new is already tagged"
+git rev-parse -q --verify "refs/tags/v$new" >/dev/null && die "v$new exists locally; delete it or pick another version"
+if [ "$new" != "$current" ]; then
+  newest=$(printf '%s\n%s\n' "$current" "$new" | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1)
+  [ "$newest" = "$new" ] || die "$new is older than the current version $current"
+fi
+notes=$(awk '/^## \[Unreleased\]/{on=1; next} /^## /{on=0} on' CHANGELOG.md | grep -v '^[[:space:]]*$' || true)
+[ -n "$notes" ] || die "nothing under '## [Unreleased]' in CHANGELOG.md; write the notes first"
+
+path=$(scripts/agent start "chore/release-$new")
+today=$(date -u +%Y-%m-%d)
+(
+  cd "$path"
+  [ "$new" = "$current" ] || scripts/task version "$new"
+  awk -v v="$new" -v d="$today" -v cur="$current" '
+    /^## \[Unreleased\]/ { print; print ""; print "## [" v "] - " d; next }
+    /^\[Unreleased\]: / {
+      repo = $2; sub(/\/(compare|commits)\/.*$/, "", repo)
+      print "[Unreleased]: " repo "/compare/v" v "...HEAD"
+      if (v == cur) print "[" v "]: " repo "/releases/tag/v" v
+      else print "[" v "]: " repo "/compare/v" cur "...v" v
+      next
+    }
+    { print }' CHANGELOG.md >CHANGELOG.md.new
+  mv CHANGELOG.md.new CHANGELOG.md
+  scripts/agent commit "chore(release): v$new"
+  scripts/agent pr
+)
+say "merge that PR to publish v$new."

@@ -1,0 +1,26 @@
+name: Feature request
+description: Something the apparatus should be able to do
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you cannot do or observe today. Describe the experiment, not the implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: What you would like to happen. Sketches of the TUI or CLI are welcome.
+    validations:
+      required: true
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - label: This changes the physics of the dish (energetics, agar, mutation), so existing cultures would behave differently.
+        - label: This changes what the mutagen is told.
+        - label: I am willing to open a pull request for this.

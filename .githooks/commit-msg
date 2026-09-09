@@ -1,0 +1,14 @@
+#!/bin/sh
+# Reject anything that is not a Conventional Commit, and any AI attribution.
+set -eu
+root=$(git rev-parse --show-toplevel)
+msg=$(grep -v '^#' "$1" || true)
+subject=$(printf '%s\n' "$msg" | sed -n '1p')
+types='feat|fix|chore|docs|perf|refactor|test|build|ci|style|revert'
+fail() { printf 'commit-msg: %s\n' "$*" >&2; exit 1; }
+
+printf '%s\n' "$subject" | grep -Eq "^($types)(\([a-z0-9._/-]+\))?!?: [^ ]" ||
+  fail "subject must be 'type(scope)!: subject' with type in {$types}; got: '$subject'"
+[ "${#subject}" -le 72 ] || fail "subject is ${#subject} characters; the limit is 72"
+case "$subject" in *.) fail "subject must not end with a period" ;; esac
+printf '%s\n' "$msg" | "$root/scripts/noattrib" --check || fail "the work is published under the owner's name; remove the attribution"

@@ -1,0 +1,39 @@
+name: Bug report
+description: Something in the apparatus misbehaves
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you saw, what you expected. Paste the `biotic log` tail if relevant.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: The seed, the commands, and any `BIOTIC_*` variables. Say if the mind was awake or dormant.
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `git rev-parse --short HEAD`, plus your Python version and OS.
+    validations:
+      required: true
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where
+      options:
+        - the dish (physics, cells, agar)
+        - the membrane (a genome that should or should not have been admitted)
+        - the mutagen or mind (LLM calls)
+        - the eyepiece (terminal UI)
+        - the CLI
+        - not sure
+    validations:
+      required: true
