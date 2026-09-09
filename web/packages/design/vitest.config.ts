@@ -12,6 +12,9 @@ export default defineConfig({
     react(),
   ],
   test: {
+    // @stylexjs/unplugin leaves file handles open in its Vite dev server, which Vitest
+    // otherwise waits ten seconds for after the last test.
+    teardownTimeout: 1000,
     projects: [
       {
         extends: true,

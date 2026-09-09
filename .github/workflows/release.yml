@@ -44,6 +44,8 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - run: scripts/task check
+        env:
+          TASK_SCOPE: all
 
       - name: tag the release commit
         if: startsWith(github.ref, 'refs/heads/')

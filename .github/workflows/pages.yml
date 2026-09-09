@@ -30,6 +30,7 @@ jobs:
           cache-dependency-path: web/pnpm-lock.yaml
       - name: build
         env:
+          TASK_SCOPE: all
           SITE_URL: https://${{ github.repository_owner }}.github.io
           SITE_BASE: /${{ github.event.repository.name }}
         run: scripts/task build
