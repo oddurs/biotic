@@ -1,2 +1,4 @@
 * text=auto eol=lf
 uv.lock linguist-generated=true
+web/pnpm-lock.yaml linguist-generated=true
+web/packages/design/src/tokens/generated/* linguist-generated=true

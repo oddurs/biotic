@@ -15,9 +15,27 @@ You are an agent contributing to `biotic`. These are instructions, not suggestio
 ## The seam
 
 All checks run through `scripts/task`: `fmt`, `fmt:check`, `lint`, `test`, `build`,
-`check`, `version`. Do not call `uv`, `ruff`, or `pytest` directly in hooks, CI, or docs,
-and do not add tooling that bypasses it. A branch is green when `scripts/task check` passes.
-If you add a rule, config, or dependency, make the check pass in the same change.
+`check`, `version`. Do not call `uv`, `ruff`, `pytest`, `pnpm`, `eslint`, or `astro`
+directly in hooks, CI, or docs, and do not add tooling that bypasses it. A branch is green
+when `scripts/task check` passes. If you add a rule, config, or dependency, make the check
+pass in the same change.
+
+## The site (`web/`)
+
+A pnpm workspace: `web/packages/design` is the design system (StyleX tokens, themes,
+primitives, browser tests) and `web/apps/site` is the Astro site. Rules:
+
+- Style only with StyleX and only with tokens. No raw colours, sizes, or fonts in
+  components; add a token first if one is missing. Never write plain CSS beyond
+  `packages/design/src/global.css`, which is a structural reset.
+- Import tokens from their own module: `@biotic/design/tokens/color.stylex`. StyleX cannot
+  see variables through a barrel, and the build fails if you try.
+- Components are React; `.astro` files are routes and content shells only. Anything that
+  needs JavaScript in the browser is an island with an explicit `client:` directive.
+- The palette and fluid scales are generated: edit `packages/design/scripts/generate.ts`,
+  run `pnpm --dir web generate`, and commit the output. A test fails on drift.
+- Every primitive has a browser test that includes an axe audit. Keep it that way.
+- The project name and links live in `web/apps/site/site.config.ts`; nothing else hardcodes them.
 
 ## Commits and pull requests
 

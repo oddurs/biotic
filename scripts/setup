@@ -1,5 +1,6 @@
 #!/bin/sh
-# One-time contributor setup: wire the tracked git hooks, then prove the tree is green.
+# One-time contributor setup: wire the tracked git hooks, fetch the browsers the tests use,
+# then prove the tree is green. Needs git, gh, uv, and node 24 (pnpm comes via corepack).
 set -eu
 cd "$(dirname "$0")/.."
 printf '+ git config core.hooksPath .githooks\n' >&2
@@ -7,5 +8,13 @@ git config core.hooksPath .githooks
 if git remote get-url origin >/dev/null 2>&1; then
   git remote set-head origin -a >/dev/null 2>&1 || true
 fi
+if ! command -v pnpm >/dev/null 2>&1; then
+  printf '+ corepack enable\n' >&2
+  corepack enable
+fi
+printf '+ pnpm --dir web install --frozen-lockfile\n' >&2
+pnpm --dir web install --frozen-lockfile
+printf '+ playwright install chromium\n' >&2
+pnpm --dir web --filter @biotic/design exec playwright install chromium
 scripts/task check
 printf '\nready. start work with: scripts/agent start <type>/<slug>\n' >&2
