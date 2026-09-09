@@ -5,7 +5,6 @@ This is the thing you run. It owns the vessel/ directory.
 
 from __future__ import annotations
 
-import csv
 import json
 import random
 import shutil
@@ -13,7 +12,7 @@ import threading
 import time
 from collections import deque
 
-from . import config, prompts
+from . import config, curve, prompts
 from .dish import Cell, Dish
 from .membrane import admit_isolated
 from .mind import Dormant, Mind, MindError
@@ -49,6 +48,8 @@ class Culture:
         self._candidate_for = 0
         self.mutation_rate = config.MUTATION_RATE
         self.lock = threading.Lock()
+        self._curve_fields: list[str] | None = None  # header of curve.csv, reconciled on the first row
+        self._curve_broken = False  # the last row could not be written; said once, retried every row
         self.mutagen = Mutagen(mind, seed, self.log)
         for sid, s in registry.strains.items():
             if sid in dish.genomes:
@@ -251,33 +252,47 @@ class Culture:
                 "whispers": self.whispers(),
             }
             self._inbox()
-        if d.tick % 10 == 0:
+        if d.tick % curve.CADENCE == 0:
             self._curve(census, phase)
         if d.tick % 150 == 0:
             self.save()
 
+    def metrics(self, census: dict[str, int] | None = None, phase: str | None = None) -> dict:
+        """One row of the growth curve: what the dish knows about itself, plus lineage and
+        turnover from the registry and the state of the mutagen's supply. Reads only."""
+        d = self.dish
+        if census is None:
+            census = d.census()
+        row = d.metrics(census)
+        row["phase"] = phase or self.last_phase or d.phase()
+        strains = self.registry.strains
+        n = row["population"]
+        generations = sum(k * strains[s].generation for s, k in census.items() if s in strains)
+        row["mean_gen"] = generations / n if n else 0.0
+        row["arisen"] = len(strains)
+        row["extinct"] = sum(1 for s in strains.values() if s.extinct_at is not None)
+        row["mutations_ready"] = self.mutagen.ready()
+        row["mutations_taken"] = sum(1 for s in strains.values() if s.parent is not None)
+        return row
+
     def _curve(self, census: dict, phase: str) -> None:
-        new = not config.CURVE.exists()
-        with open(config.CURVE, "a", newline="") as f:
-            w = csv.writer(f)
-            if new:
-                w.writerow(
-                    ["tick", "population", "strains", "nutrient", "phase", "births", "starved", "lysed", "senescent"]
-                )
-            dd = self.dish.deaths
-            w.writerow(
-                [
-                    self.dish.tick,
-                    sum(census.values()),
-                    len(census),
-                    f"{self.dish.nutrient_mean():.4f}",
-                    phase,
-                    self.dish.births,
-                    dd.get("starved", 0),
-                    dd.get("lysed", 0),
-                    dd.get("senescent", 0),
-                ]
-            )
+        row = self.metrics(census, phase)
+        try:
+            if self._curve_fields is None:
+                self._curve_fields, added = curve.reconcile(config.CURVE)
+                if added:
+                    self.log("curve", f"growth curve widened: {len(added)} columns added ({', '.join(added)})")
+            curve.append(config.CURVE, self._curve_fields, row)
+        except curve.ERRORS as e:
+            # a curve.csv the culture cannot read or write must not stop the dish: say so once,
+            # keep trying every row (reconcile again if it never succeeded), and say when it works
+            if not self._curve_broken:
+                self.log("curve", f"growth curve not written from tick {row['tick']}: {e}")
+            self._curve_broken = True
+            return
+        if self._curve_broken:
+            self._curve_broken = False
+            self.log("curve", f"growth curve resumed at tick {row['tick']}")
 
     def run(
         self, ticks: int | None = None, stop: threading.Event | None = None, tick_seconds: float = config.TICK_SECONDS
@@ -318,6 +333,7 @@ class Culture:
             "history": list(d.history),
             "strains_total": len(self.registry.strains),
             "generation": max((s.generation for s in self.registry.strains.values()), default=0),
+            "metrics": self.metrics(census),
             "mutagen": {
                 "state": self.mutagen.state,
                 "ready": self.mutagen.ready(),

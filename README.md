@@ -39,21 +39,22 @@ Without a key the dish still grows, from a built-in founder, but nothing ever mu
 
 ```
  biotic   seed “tide”   tick 1204   0h10m02s   ♥
-╭─ agar ────────────────────────────────╮ ╭─ vitals ─────────────────────────╮
-│          ·:·∷∷∷:·                     │ │ population  483   25% of agar    │
-│       ·:∷●●●●●●∷:·                    │ │             ▁▂▃▅▆▇█████▇▇▇▇      │
-│     ·:∷●●●●●●●●●●●∷:                  │ │      phase  stationary           │
-│    ·∷●●●●●●●●●●●●●●●:·                │ │    strains  6 living · 14 arisen │
-│    ∷●●●●●●●●●●●●●●●●●∷                │ │       agar  ████████░░░░ 0.41    │
-│    :●●●●●●●●●●●●●●●●●:                │ │    mutagen  ◐ thinking  2 ready  │
-│     ·∷●●●●●●●●●●●●∷·                  │ ╰──────────────────────────────────╯
-│        ·:∷∷●●●∷∷:·                    │ ╭─ census ─────────────────────────╮
-╰───────────────────────────────────────╯ │ ● 3f1a  tide_drift   gen 3  212  │
-╭─ incubator log ───────────────────────────────────────────────────────────╮
-│ 14:02:11   1180 ✚ tide_drift arose from slack_water — “now leans into …   │
-│ 14:01:50   1162 ✖ mutation of slack_water nonviable — threw on tick 7 …   │
-│ 13:59:02   1099 † neap arose went extinct after 212 ticks (peak 40)       │
-╰───────────────────────────────────────────────────────────────────────────╯
+╭─ agar ────────────────────────────────╮ ╭─ vitals ───────────────────────────────────╮
+│          ·:·∷∷∷:·                     │ │ population 483  25% of agar                │
+│       ·:∷●●●●●●∷:·                    │ │            ▁▂▃▅▆▇█████▇▇▇▇                 │
+│     ·:∷●●●●●●●●●●●∷:                  │ │      phase stationary                      │
+│    ·∷●●●●●●●●●●●●●●●:·                │ │    strains 6  14 arisen  8 extinct         │
+│    ∷●●●●●●●●●●●●●●●●●∷                │ │  diversity H 1.24  dominance 61%  gen 2.3  │
+│    :●●●●●●●●●●●●●●●●●:                │ │       agar ████████░░░░ 0.41               │
+│     ·∷●●●●●●●●●●●●∷·                  │ │    mutagen ◐ thinking  2 ready             │
+│        ·:∷∷●●●∷∷:·                    │ ╰────────────────────────────────────────────╯
+│           ·:∷:·                       │ ╭─ census ───────────────────────────────────╮
+╰───────────────────────────────────────╯ │ ● 3f1a  tide_drift   gen 3  212            │
+╭─ incubator log ──────────────────────────────────────────────────────────────────────╮
+│ 14:02:11   1180 ✚ tide_drift arose from slack_water — “now leans into the scent …    │
+│ 14:01:50   1162 ✖ mutation of slack_water nonviable — threw on tick 7 …              │
+│ 13:59:02   1099 † neap went extinct after 212 ticks (peak 40)                        │
+╰──────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
 Cells are `●`, coloured by strain (daughters get a hue near the parent's;
@@ -81,7 +82,7 @@ And look at what has grown:
 ## experiments
 
     biotic run --ticks 5000 --tick 0     # headless, as fast as it goes
-    open vessel/curve.csv                # tick, population, strains, nutrient, phase, births, deaths
+    open vessel/curve.csv                # population, diversity, turnover by tick; docs/curve.md
 
 `BIOTIC_REPLENISH=0` gives a truly closed dish: bloom, crash, done.
 `BIOTIC_MUTATION_RATE`, `BIOTIC_MUTAGEN_INTERVAL`, `BIOTIC_TICK`, `BIOTIC_WIDTH`,
@@ -121,11 +122,13 @@ cell; it doesn't touch anything else.
       membrane.py   what code is allowed to become a cell
       mutagen.py    the background thread that asks the mind for variants
       culture.py    dish + strains + mutagen + your interventions; owns vessel/
+      curve.py      the growth curve: its columns, its reader, widening older files
       strains.py    lineage, colour, the fossil record
       prompts.py    what the mutagen is told
       tui.py        the eyepiece
     soma/         every strain that ever arose. written by the culture. do not edit.
     vessel/       the running state: seed, dish, strains, events, growth curve, whispers
+    docs/         longer notes: docs/curve.md on reading the growth curve
 
 ## development
 

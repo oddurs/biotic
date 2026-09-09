@@ -2,8 +2,9 @@
 id: 3
 title: Diversity and turnover metrics in the growth curve
 type: feature
-status: planned
+status: done
 milestone: dish
+assignee: Oddur Sigurdsson
 created: 2026-09-08
 updated: 2026-09-08
 priority: p0
@@ -37,6 +38,62 @@ Show `shannon` and `dominance` in the vitals panel.
 
 ## Acceptance criteria
 
-- [ ] `curve.csv` has the new columns and an old file is still readable by `biotic curve`
-- [ ] A monoculture reports `shannon=0.0, dominance=1.0`
-- [ ] Vitals panel shows diversity next to the strain count
+- [x] `curve.csv` has the new columns and an old file is still readable by `biotic curve`
+- [x] A monoculture reports `shannon=0.0, dominance=1.0`
+- [x] Vitals panel shows diversity next to the strain count
+
+## 2026-09-08
+
+Two layers: Dish.metrics() returns only what the dish knows (tick, population, strains, nutrient, pheromone, shannon, dominance, births, deaths incl. killed) so dish.py stays ignorant of the registry and the mind; Culture.metrics() merges phase, mean_gen, arisen, extinct, mutations_ready, mutations_taken from the registry and mutagen. snapshot()['metrics'] carries it to the eyepiece and status.
+
+## 2026-09-08
+
+mutations_taken is derived, not counted: strains with a parent. No new persisted state, monotone across resumes, equals the number of arose events. Until strains can arrive without a mutated division it equals arisen - 1 in every row; documented rather than dropped because 0040 already names it. 0040 must keep deriving it or persist its counter; 0015 can split it by origin.
+
+## 2026-09-08
+
+Old curve.csv is widened in place by one rule: target header = existing header + the COLUMNS it lacks, in COLUMNS order; rows padded with empty cells; rewritten via curve.csv.tmp then replace(), so a crash leaves the original. Unknown columns from a newer apparatus keep their place and are written empty. Reconciled once per process (fieldnames cached on the culture) and logged once as a curve event. Two processes appending to one vessel is unsupported and could interleave.
+
+## 2026-09-08
+
+killed added as a column (it was already counted in Dish.deaths, never written) so the ledger births - (starved + lysed + senescent + killed) = population - inoculum closes after an antibiotic disc; tested.
+
+## 2026-09-08
+
+No prompt change. The mutagen is still told strains=len(census) and not H or dominance: the observer does not grade (CONCEPT.md). config.py, membrane.py, mutagen.py, mind.py, prompts.py, strains.py, soma/ untouched.
+
+## 2026-09-08
+
+mutations_ready is the one wall-clock column: a 10-tick sample of the mutagen pool, filled by a background thread. 0037's 'identical curve.csv' criterion must exclude it until 0040's tick clock exists. docs/curve.md says to leave it out when comparing curves.
+
+## 2026-09-08
+
+Markers (drops, phase changes, extinctions, incubation gaps) stay in events.jsonl and are joined on tick; 0004, 0005, 0010, 0012 should not add marker columns. bio.curve.read(path) takes a path so 0006's flasks can read several curves; the default is config.CURVE resolved at call time, never bound at import.
+
+## 2026-09-08
+
+Acceptance criterion 1 says 'readable by biotic curve'; biotic curve is 0004. Met here by shipping the reader it will use, bio.curve.read(), tested against a verbatim nine-column file, plus the in-place widening tested end to end.
+
+## 2026-09-08
+
+Vitals: the value column is 33 cells at the default 120-column bench (side panel 48, chrome 4, label 10, gap 1). strains and diversity rows are 28 and 32 cells at worst (three-digit counts, dominance 100%, mean gen >= 10) and a test renders the panel at width 48 to prove they do not wrap. 0009 owns narrower benches. The maximum generation left the strains row; snapshot()['generation'] is kept for anything else that reads it.
+
+## 2026-09-08
+
+cmd_run's progress() now takes c.lock around snapshot(): metrics() iterates registry.strains, which _on_divide mutates inside d.step() under the lock, and the reporter thread read it unlocked before (latent 'dictionary changed size during iteration'). The final progress() after run() returns is outside any locked section, so the non-reentrant lock is safe. The lock is not fair: at --tick 0 a progress line may arrive late.
+
+## 2026-09-08
+
+Tests: an autouse conftest fixture redirects every config path to tmp_path, makes the Mind dormant (no key, invalid base URL), monkeypatches urllib.request.urlopen to fail, and asserts at teardown that the repository's vessel/curve.csv mtime did not change. Trajectory tests prove metrics() and snapshot() are inert: a watched dish and a bare dish share census, nutrient and RNG state after 100 ticks.
+
+## 2026-09-08
+
+Review follow-up. One predicate now owns 'has a header': curve._header, the first non-blank csv row, opened utf-8-sig so a spreadsheet's byte-order mark does not make 'tick' look like a new column. reconcile, append and read all use it. A file with no header at all (empty, or blank lines only) is started over by append with 'w' so the header is line one; that is the only case append truncates, and by construction it holds no row. Leading blank lines before a real header are skipped, never truncated; a rewrite drops them.
+
+## 2026-09-08
+
+Culture._curve catches curve.ERRORS (OSError, UnicodeDecodeError, csv.Error) and nothing broader: a curve.csv the culture cannot read or write never stops the dish. It logs one 'curve' event with the tick of the first row lost, keeps trying every row (reconcile again if it never succeeded, so a file repaired mid-run is picked up), and logs 'resumed' once writing works. Rows in between are missing; documented. Before this branch an OSError on append stopped the loop; that is in the changelog under Changed. A rewrite that fails part-way removes curve.csv.tmp before re-raising.
+
+## 2026-09-08
+
+Also from review: 'curve' events get an icon in the incubator log (≡, dim); the ledger test uses config.INOCULUM rather than 5; docs/curve.md says the earliest rows of a run and of a resume carry the raw phase because last_phase is None until a first reading has held 25 ticks and is not persisted.

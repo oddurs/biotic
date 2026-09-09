@@ -41,10 +41,11 @@ def cmd_run(a):
     t0 = time.time()
 
     def progress():
-        s = c.snapshot()
+        with c.lock:  # the dish steps on the main thread; a snapshot must not read it mid-tick
+            s = c.snapshot()
         print(
             f"tick {s['tick']:>6}  pop {s['population']:>5}  strains {len(s['census']):>3}  "
-            f"agar {s['nutrient']:.2f}  {s['phase']}",
+            f"H {s['metrics']['shannon']:.2f}  agar {s['nutrient']:.2f}  {s['phase']}",
             file=sys.stderr,
         )
 
@@ -73,7 +74,11 @@ def cmd_status(a):
     print(f"seed        “{s['seed']}”")
     print(f"tick        {s['tick']}   phase {s['phase']}")
     print(f"population  {s['population']}  ({s['population'] / s['tiles']:.0%} of agar)")
-    print(f"strains     {len(s['census'])} living / {s['strains_total']} arisen / generation {s['generation']}")
+    mt = s["metrics"]
+    print(f"strains     {len(s['census'])} living / {mt['arisen']} arisen / {mt['extinct']} extinct")
+    print(
+        f"diversity   H {mt['shannon']:.3f} nats · dominance {mt['dominance']:.2f} · mean generation {mt['mean_gen']:.1f}"
+    )
     print(f"agar        {s['nutrient']:.3f}")
     print(f"births      {s['births']}   deaths {s['deaths']}")
     print(f"mind        {s['mind']['model']}  {'awake' if s['mind']['awake'] else 'dormant'}")
