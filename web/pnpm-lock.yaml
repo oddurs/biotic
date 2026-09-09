@@ -178,6 +178,9 @@ importers:
       astro-pagefind:
         specifier: ^2.0.1
         version: 2.0.1(astro@7.3.2(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)(@types/node@26.5.0)(jiti@2.7.0)(yaml@2.9.0))
+      diff:
+        specifier: ^9.0.0
+        version: 9.0.0
       pagefind:
         specifier: ^1.5.2
         version: 1.5.2

@@ -9,6 +9,9 @@ export const site = {
   // Where the site is served. The deploy workflow sets these for GitHub Pages.
   url: process.env.SITE_URL ?? "http://localhost:6969",
   base: process.env.SITE_BASE ?? "/",
+  // Discussion threads on specimens, via giscus. Off until the ids are filled in:
+  // install https://github.com/apps/giscus on the repo, then copy the ids from https://giscus.app.
+  giscus: { repo: "oddurs/biotic", repoId: "", category: "Specimens", categoryId: "" },
   nav: [
     { label: "Docs", href: "/docs/" },
     { label: "Library", href: "/library/" },

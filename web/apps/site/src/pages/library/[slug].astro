@@ -1,0 +1,36 @@
+---
+import { getCollection } from "astro:content";
+import Base from "../../layouts/Base.astro";
+import { SectionLayout } from "../../components/SectionLayout";
+import { libraryNav } from "../../components/library/nav";
+import { SpecimenPage } from "../../components/library/SpecimenPage";
+import { Discussion } from "../../components/library/Discussion";
+import { href } from "../../lib/url";
+import { site } from "../../../site.config";
+import type { Specimen } from "../../lib/specimens";
+
+export async function getStaticPaths() {
+  const specimens = await getCollection("specimens");
+  return specimens.map((s) => ({ params: { slug: s.id }, props: { id: s.id, data: s.data } }));
+}
+interface Props {
+  id: string;
+  data: Specimen;
+}
+const { id, data } = Astro.props;
+const title = `“${data.seed}” by ${data.by}`;
+---
+
+<Base title={title} description={data.summary}>
+  <SectionLayout
+    section="Library"
+    nav={libraryNav}
+    current={href("/library/")}
+    title={title}
+    lede={data.summary}
+  >
+    <SpecimenPage data={data}>
+      <Discussion slot="discussion" giscus={site.giscus} term={`specimen:${id}`} client:visible />
+    </SpecimenPage>
+  </SectionLayout>
+</Base>
