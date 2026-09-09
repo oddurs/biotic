@@ -15,6 +15,13 @@ dist/
 .pytest_cache/
 .ruff_cache/
 
+# web
+web/node_modules/
+web/**/node_modules/
+web/**/dist/
+web/**/.astro/
+web/**/.vitest/
+
 # worktrees, OS, editors
 .worktrees/
 .DS_Store

@@ -1,13 +1,16 @@
 #!/bin/sh
-# The stack seam. CI, git hooks, and scripts/agent talk to the toolchain only through here.
+# The stack seam. CI, git hooks, and scripts/agent talk to the toolchains only through here.
 #
 #   scripts/task fmt        format in place
 #   scripts/task fmt:check  verify formatting; non-zero on drift
-#   scripts/task lint       lint; warnings are errors
-#   scripts/task test       full test suite
-#   scripts/task build      build the wheel and sdist into dist/
+#   scripts/task lint       lint and typecheck; warnings are errors
+#   scripts/task test       full test suites
+#   scripts/task build      build the wheel and sdist into dist/, and the site into web/apps/site/dist/
 #   scripts/task check      fmt:check && lint && test && build
 #   scripts/task version [x.y.z]  print the project version, or set it (and the lockfile)
+#
+# Two toolchains live here: uv for bio/ and pnpm for web/. Both are pinned (uv.lock,
+# pnpm-lock.yaml) and both fail loudly if the lockfile is stale.
 set -eu
 cd "$(dirname "$0")/.."
 
@@ -18,12 +21,22 @@ run() {
 
 # `uv run --locked` syncs .venv from uv.lock first and fails if the lockfile is stale,
 # so a green check here means exactly the same thing in CI.
+py() { run uv run --locked "$@"; }
+
+# pnpm: install from the lockfile when node_modules is missing or older than it.
+web() {
+  if [ ! -d web/node_modules ] || [ web/pnpm-lock.yaml -nt web/node_modules/.modules.yaml ]; then
+    run pnpm --dir web install --frozen-lockfile
+  fi
+  run pnpm --dir web "$@"
+}
+
 case "${1:-}" in
-  fmt)       run uv run --locked ruff format . ;;
-  fmt:check) run uv run --locked ruff format --check . ;;
-  lint)      run uv run --locked ruff check . ;;
-  test)      run uv run --locked pytest ;;
-  build)     run uv build ;;
+  fmt)       py ruff format . && web fmt ;;
+  fmt:check) py ruff format --check . && web fmt:check ;;
+  lint)      py ruff check . && web lint && web typecheck ;;
+  test)      py pytest && web test ;;
+  build)     run uv build && web build ;;
   version)   if [ -n "${2:-}" ]; then run uv version "$2"; else uv version --short; fi ;;
   check)
     "$0" fmt:check

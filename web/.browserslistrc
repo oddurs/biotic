@@ -1,0 +1,5 @@
+# Modern targets only, so lightningcss keeps oklch() and light-dark() as written.
+last 2 Chrome versions
+last 2 Firefox versions
+last 2 Safari versions
+last 2 Edge versions
