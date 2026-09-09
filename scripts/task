@@ -23,8 +23,25 @@ run() {
 # so a green check here means exactly the same thing in CI.
 py() { run uv run --locked "$@"; }
 
+# The web half runs when something under web/ (or this script) differs from the default
+# branch or is uncommitted, or when TASK_SCOPE=all (CI sets it, so CI always runs everything).
+# A change to bio/ alone cannot affect the site, so its gate stays short.
+web_in_scope() {
+  [ "${TASK_SCOPE:-}" = "all" ] && return 0
+  git rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
+  def=$(scripts/default-branch 2>/dev/null) || return 0
+  git rev-parse --verify --quiet "origin/$def" >/dev/null || return 0
+  if ! git diff --quiet "origin/$def...HEAD" -- web scripts/task 2>/dev/null; then return 0; fi
+  if [ -n "$(git status --porcelain -- web scripts/task)" ]; then return 0; fi
+  return 1
+}
+
 # pnpm: install from the lockfile when node_modules is missing or older than it.
 web() {
+  if ! web_in_scope; then
+    printf '~ web: no changes under web/, skipped (TASK_SCOPE=all to force)\n' >&2
+    return 0
+  fi
   if [ ! -d web/node_modules ] || [ web/pnpm-lock.yaml -nt web/node_modules/.modules.yaml ]; then
     run pnpm --dir web install --frozen-lockfile
   fi

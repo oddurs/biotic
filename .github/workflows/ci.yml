@@ -34,6 +34,8 @@ jobs:
           key: playwright-${{ runner.os }}-${{ hashFiles('web/pnpm-lock.yaml') }}
       - run: pnpm --dir web --filter @biotic/design exec playwright install chromium --with-deps
       - run: scripts/task check
+        env:
+          TASK_SCOPE: all
 
   # The single status check branch protection requires. A skipped job would count as
   # passing, so this runs always and fails unless every job it needs succeeded.
