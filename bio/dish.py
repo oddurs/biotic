@@ -172,14 +172,20 @@ class Dish:
             grid.append(row)
         return grid
 
-    def nutrient_mean(self) -> float:
+    def _mean(self, grid: list[list[float]]) -> float:
         tot = n = 0
         for y in range(self.h):
             for x in range(self.w):
                 if self.mask[y][x]:
-                    tot += self.nutrient[y][x]
+                    tot += grid[y][x]
                     n += 1
         return tot / n if n else 0.0
+
+    def nutrient_mean(self) -> float:
+        return self._mean(self.nutrient)
+
+    def pheromone_mean(self) -> float:
+        return self._mean(self.pheromone)
 
     # --- genomes ------------------------------------------------------------
     def register(self, strain: str, source: str) -> None:
@@ -220,6 +226,39 @@ class Dish:
         for c in self.cells.values():
             out[c.strain] = out.get(c.strain, 0) + 1
         return out
+
+    def metrics(self, census: dict[str, int] | None = None) -> dict:
+        """What the dish can say about its own population: size, diversity, the death ledger.
+
+        Shannon diversity H = -sum(p ln p) over the strain census, in nats, and dominance,
+        the share of the commonest strain; both 0.0 for a sterile dish, and a monoculture
+        reads H = 0.0, dominance = 1.0. Reads only; no registry, no mind, no RNG.
+        """
+        if census is None:
+            census = self.census()
+        total = sum(census.values())
+        h = 0.0
+        top = 0
+        for n in census.values():
+            if n <= 0:
+                continue
+            top = max(top, n)
+            p = n / total
+            h -= p * math.log(p)
+        return {
+            "tick": self.tick,
+            "population": total,
+            "strains": len(census),
+            "nutrient": self.nutrient_mean(),
+            "pheromone": self.pheromone_mean(),
+            "shannon": h,
+            "dominance": top / total if total else 0.0,
+            "births": self.births,
+            "starved": self.deaths.get("starved", 0),
+            "lysed": self.deaths.get("lysed", 0),
+            "senescent": self.deaths.get("senescent", 0),
+            "killed": self.deaths.get("killed", 0),
+        }
 
     def _die(self, cell: Cell, cause: str) -> None:
         self.cells.pop((cell.x, cell.y), None)

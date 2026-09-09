@@ -7,6 +7,21 @@ turns the `Unreleased` section into a dated release.
 
 ## [Unreleased]
 
+### Added
+
+- Diversity and turnover in the growth curve: `vessel/curve.csv` gains `killed`, `shannon`, `dominance`,
+  `mean_gen`, `arisen`, `extinct`, `pheromone`, `mutations_ready` and `mutations_taken`, sampled every
+  10 ticks like the rest. `Dish.metrics()`, `Culture.metrics()` and `bio.curve.read()` expose them; the
+  vitals panel and `biotic status` show diversity next to the strain count, and `biotic run` prints H in
+  its progress line. See `docs/curve.md`.
+
+### Changed
+
+- A `curve.csv` written before this release is widened in place the first time the culture appends to
+  it: older rows keep their values and have empty cells in the new columns. Logged once as a `curve` event.
+- The vitals `strains` row reads `living  arisen  extinct`; the maximum generation it used to show is
+  replaced by the cell-weighted mean generation on the new `diversity` row.
+
 ## [0.1.0] - 2026-09-09
 
 ### Added

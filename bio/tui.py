@@ -96,7 +96,16 @@ def vitals(c: Culture, snap: dict) -> Table:
         ),
     )
     living = len(snap["census"])
-    t.add_row("strains", f"{living} living · {snap['strains_total']} arisen · gen {snap['generation']}")
+    mt = snap["metrics"]
+    t.add_row(
+        "strains",
+        Text(f"{living}", style="bold") + Text(f"  {mt['arisen']} arisen  {mt['extinct']} extinct", style="dim"),
+    )
+    t.add_row(
+        "diversity",
+        Text(f"H {mt['shannon']:.2f}", style="bold")
+        + Text(f"  dominance {mt['dominance']:.0%}  gen {mt['mean_gen']:.1f}", style="dim"),
+    )
     nb = int(snap["nutrient"] * 20)
     t.add_row("agar", Text("█" * nb + "░" * (20 - nb), style="green4") + Text(f" {snap['nutrient']:.2f}", style="dim"))
     dd = snap["deaths"]
