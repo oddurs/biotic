@@ -14,6 +14,7 @@ from bio import config, curve
 from bio.__main__ import main
 from bio.culture import FALLBACK_GENESIS
 from bio.dish import Dish
+from bio.tui import events as log_panel
 from bio.tui import vitals
 
 OLD_HEADER = "tick,population,strains,nutrient,phase,births,starved,lysed,senescent"
@@ -205,7 +206,7 @@ def test_curve_has_the_new_columns(make_culture):
     assert isinstance(first["nutrient"], float) and isinstance(first["mean_gen"], float)
     assert (
         first["population"]
-        == rows[0]["births"] - sum(first[k] for k in ("starved", "lysed", "senescent", "killed")) + 5
+        == first["births"] - sum(first[k] for k in ("starved", "lysed", "senescent", "killed")) + config.INOCULUM
     )
     assert not _events(c, "curve")
 
@@ -278,6 +279,92 @@ def test_appending_after_the_curve_is_removed_writes_a_header(make_culture):
     assert curve.read()[0]["tick"] == 20
 
 
+def test_a_headerless_curve_gets_a_header_with_the_next_row(make_culture):
+    """A file truncated to a blank line has no header: reconcile leaves it and append starts it over,
+    so the header is the first line and the row is not mistaken for one."""
+    config.CURVE.write_text("\n")
+    assert curve.read() == []
+    assert curve.reconcile(config.CURVE) == (list(curve.COLUMNS), [])
+    assert config.CURVE.read_text() == "\n"
+    c = make_culture()
+    for _ in range(10):
+        c.step()
+    lines = config.CURVE.read_text().splitlines()
+    assert lines[0].split(",") == list(curve.COLUMNS) and len(lines) == 2
+    assert [r["tick"] for r in curve.read()] == [10]
+    assert not _events(c, "curve")
+
+
+def test_blank_lines_before_the_header_are_not_the_header(tmp_path):
+    """The header is the first non-blank row, so only a file with no row at all counts as headerless
+    and nothing readable is ever started over."""
+    p = tmp_path / "curve.csv"
+    p.write_text("\n\n" + OLD_HEADER + "\n" + "\n".join(OLD_ROWS) + "\n")
+    assert [r["tick"] for r in curve.read(p)] == [10, 20, 30]
+    fields, added = curve.reconcile(p)
+    assert fields == list(curve.COLUMNS) and added == list(curve.COLUMNS[9:])
+    lines = p.read_text().splitlines()
+    assert lines[0] == ",".join(curve.COLUMNS) and len(lines) == 4  # the rewrite drops the blank lines
+    assert [r["tick"] for r in curve.read(p)] == [10, 20, 30]
+
+
+def test_a_spreadsheets_byte_order_mark_is_not_a_column(make_culture):
+    """Excel's 'CSV UTF-8' save prefixes a byte-order mark; `tick` must still be recognised as tick."""
+    bom = "\ufeff"
+    config.CURVE.write_bytes((bom + OLD_HEADER + "\n" + "\n".join(OLD_ROWS) + "\n").encode())
+    fields, added = curve.reconcile(config.CURVE)
+    assert fields == list(curve.COLUMNS) and added == list(curve.COLUMNS[9:])
+    assert config.CURVE.read_bytes().startswith(b"tick,")  # rewritten without the mark
+    assert curve.read()[0]["tick"] == 10
+    # a file with every column and a mark is read in place, not rewritten
+    row = "10,5,1,0.7000,lag,0,0,0,0,0,0.0000,1.0000,0.00,1,0,0.0000,0,0"
+    config.CURVE.write_bytes((bom + ",".join(curve.COLUMNS) + "\n" + row + "\n").encode())
+    assert curve.reconcile(config.CURVE) == (list(curve.COLUMNS), [])
+    assert config.CURVE.read_bytes().startswith(bom.encode())
+    rows = curve.read()
+    assert rows[0]["tick"] == 10 and set(rows[0]) == set(curve.COLUMNS)
+    c = make_culture()
+    for _ in range(10):
+        c.step()
+    with open(config.CURVE, newline="", encoding="utf-8-sig") as f:
+        assert {len(r) for r in csv.reader(f)} == {len(curve.COLUMNS)}
+    assert [r["tick"] for r in curve.read()] == [10, 10]
+    assert not _events(c, "curve")
+
+
+def test_a_curve_the_culture_cannot_read_does_not_stop_the_dish(make_culture):
+    damaged = b"tick,population\xff\n10,5\n"
+    config.CURVE.write_bytes(damaged)
+    c = make_culture()
+    for _ in range(20):
+        c.step()
+    assert c.dish.tick == 20
+    assert config.CURVE.read_bytes() == damaged
+    said = _events(c, "curve")
+    assert len(said) == 1  # once, not every row
+    assert said[0]["msg"].startswith("growth curve not written from tick 10: ") and "codec" in said[0]["msg"]
+    config.CURVE.unlink()  # the repair
+    for _ in range(10):
+        c.step()
+    assert [ev["msg"] for ev in _events(c, "curve")][1:] == ["growth curve resumed at tick 30"]
+    assert config.CURVE.read_text().splitlines()[0].split(",") == list(curve.COLUMNS)
+    assert [r["tick"] for r in curve.read()] == [30]
+
+
+def test_a_failed_rewrite_leaves_the_file_and_no_temporary(tmp_path):
+    p = tmp_path / "curve.csv"
+    text = OLD_HEADER + "\n" + OLD_ROWS[0] + "\n" + "20,10,1,0.7314," + "x" * 40 + ",5,0,0,0\n"
+    p.write_text(text)
+    limit = csv.field_size_limit(30)  # the header reads; the second row does not
+    try:
+        with pytest.raises(curve.ERRORS):
+            curve.reconcile(p)
+    finally:
+        csv.field_size_limit(limit)
+    assert p.read_text() == text
+    assert not p.with_name("curve.csv.tmp").exists()
+
+
 # --- the eyepiece, status, run ----------------------------------------------
 
 
@@ -313,6 +400,13 @@ def test_vitals_rows_fit_the_side_panel(make_culture):
     assert labels[s + 1] == "diversity" and labels[s + 2] == "agar"
     assert "123  456 arisen  789 extinct" in lines[s]
     assert "H 4.81  dominance 100%  gen 12.3" in lines[s + 1]
+
+
+def test_the_log_panel_marks_curve_events(make_culture):
+    c = make_culture()
+    c.log("curve", "growth curve widened: 9 columns added (killed)")
+    line = [ln for ln in _render(log_panel(c, 1), 120) if ln.strip()][-1]
+    assert "≡ growth curve widened" in line
 
 
 def test_status_prints_diversity(make_culture, capsys):

@@ -85,3 +85,15 @@ cmd_run's progress() now takes c.lock around snapshot(): metrics() iterates regi
 ## 2026-09-08
 
 Tests: an autouse conftest fixture redirects every config path to tmp_path, makes the Mind dormant (no key, invalid base URL), monkeypatches urllib.request.urlopen to fail, and asserts at teardown that the repository's vessel/curve.csv mtime did not change. Trajectory tests prove metrics() and snapshot() are inert: a watched dish and a bare dish share census, nutrient and RNG state after 100 ticks.
+
+## 2026-09-08
+
+Review follow-up. One predicate now owns 'has a header': curve._header, the first non-blank csv row, opened utf-8-sig so a spreadsheet's byte-order mark does not make 'tick' look like a new column. reconcile, append and read all use it. A file with no header at all (empty, or blank lines only) is started over by append with 'w' so the header is line one; that is the only case append truncates, and by construction it holds no row. Leading blank lines before a real header are skipped, never truncated; a rewrite drops them.
+
+## 2026-09-08
+
+Culture._curve catches curve.ERRORS (OSError, UnicodeDecodeError, csv.Error) and nothing broader: a curve.csv the culture cannot read or write never stops the dish. It logs one 'curve' event with the tick of the first row lost, keeps trying every row (reconcile again if it never succeeded, so a file repaired mid-run is picked up), and logs 'resumed' once writing works. Rows in between are missing; documented. Before this branch an OSError on append stopped the loop; that is in the changelog under Changed. A rewrite that fails part-way removes curve.csv.tmp before re-raising.
+
+## 2026-09-08
+
+Also from review: 'curve' events get an icon in the incubator log (≡, dim); the ledger test uses config.INOCULUM rather than 5; docs/curve.md says the earliest rows of a run and of a resume carry the raw phase because last_phase is None until a first reading has held 25 ticks and is not persisted.

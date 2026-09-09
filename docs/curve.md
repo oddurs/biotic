@@ -66,9 +66,12 @@ The death ledger closes. For a dish inoculated once,
 in every row; `killed` is a column so that it still holds after an antibiotic
 disc.
 
-`phase` is the phase the culture believes, not the raw reading: the raw phase
-has to hold for 25 ticks before it is logged, so the column lags the population
-by up to 25 ticks, and a row that says `log` may already be flattening.
+`phase` is the phase the culture believes: the raw phase has to hold for 25
+ticks before it is logged, so the column lags the population by up to 25 ticks,
+and a row that says `log` may already be flattening. Until a first phase has
+held that long there is nothing believed yet, and the column carries the raw
+reading; that is the earliest rows of a run, and the first rows after a resume,
+since the debounce starts over with the process.
 
 Markers are not columns. Drops, whispers, phase changes and extinctions are in
 `vessel/events.jsonl`, each with the tick it happened at; join on `tick`.
@@ -80,9 +83,19 @@ nine-column header. The first time the culture appends to such a file it widens
 it in place: the missing columns are added to the header in the order above,
 every existing row is padded with empty cells, and the file is rewritten through
 `curve.csv.tmp` and swapped in, so a crash part-way leaves the original as it
-was. It happens once per file and is logged as a `curve` event. Columns the
-apparatus does not know, from a file a newer version wrote, keep their place
-and are written empty from then on.
+was. It happens once per file and is logged as a `curve` event (`≡` in the
+incubator log). Columns the apparatus does not know, from a file a newer version
+wrote, keep their place and are written empty from then on.
+
+The file is read as UTF-8 and a leading byte-order mark, which a spreadsheet's
+"CSV UTF-8" save prefixes, is ignored, so a curve opened and re-saved in one is
+still recognised; a rewrite drops the mark. A file with no header at all, empty
+or blank lines only, gets one with the next row. A `curve.csv` the culture
+cannot read or write (a byte it cannot decode, a disk that refuses) does not
+stop the dish: the failure is logged once as a `curve` event with the tick of
+the first row that was not written, every later row is tried again, and a
+`resumed` event says when writing works, so a file repaired while the culture
+is running picks up from there. The rows in between are missing.
 
 One process appends to a vessel's curve at a time. Two cultures sharing a vessel
 is not supported.

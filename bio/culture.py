@@ -49,6 +49,7 @@ class Culture:
         self.mutation_rate = config.MUTATION_RATE
         self.lock = threading.Lock()
         self._curve_fields: list[str] | None = None  # header of curve.csv, reconciled on the first row
+        self._curve_broken = False  # the last row could not be written; said once, retried every row
         self.mutagen = Mutagen(mind, seed, self.log)
         for sid, s in registry.strains.items():
             if sid in dish.genomes:
@@ -275,11 +276,23 @@ class Culture:
         return row
 
     def _curve(self, census: dict, phase: str) -> None:
-        if self._curve_fields is None:
-            self._curve_fields, added = curve.reconcile(config.CURVE)
-            if added:
-                self.log("curve", f"growth curve widened: {len(added)} columns added ({', '.join(added)})")
-        curve.append(config.CURVE, self._curve_fields, self.metrics(census, phase))
+        row = self.metrics(census, phase)
+        try:
+            if self._curve_fields is None:
+                self._curve_fields, added = curve.reconcile(config.CURVE)
+                if added:
+                    self.log("curve", f"growth curve widened: {len(added)} columns added ({', '.join(added)})")
+            curve.append(config.CURVE, self._curve_fields, row)
+        except curve.ERRORS as e:
+            # a curve.csv the culture cannot read or write must not stop the dish: say so once,
+            # keep trying every row (reconcile again if it never succeeded), and say when it works
+            if not self._curve_broken:
+                self.log("curve", f"growth curve not written from tick {row['tick']}: {e}")
+            self._curve_broken = True
+            return
+        if self._curve_broken:
+            self._curve_broken = False
+            self.log("curve", f"growth curve resumed at tick {row['tick']}")
 
     def run(
         self, ticks: int | None = None, stop: threading.Event | None = None, tick_seconds: float = config.TICK_SECONDS

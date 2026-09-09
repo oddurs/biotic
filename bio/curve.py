@@ -39,45 +39,79 @@ COLUMNS: tuple[str, ...] = (
 DECIMALS = {"nutrient": 4, "shannon": 4, "dominance": 4, "mean_gen": 2, "pheromone": 4}
 _INT = frozenset(COLUMNS) - frozenset(DECIMALS) - {"phase"}
 
+# What a damaged or unwritable file raises out of reconcile(), append() and read().
+# A caller that must not stop on a bad curve catches these and nothing broader.
+ERRORS = (OSError, UnicodeDecodeError, csv.Error)
+_ENCODING = "utf-8"
+
+
+def _open(path: Path):
+    """The file for reading. A leading byte-order mark, which a spreadsheet's 'CSV UTF-8'
+    re-save prefixes, is dropped so the first cell reads `tick` and not `\\ufefftick`."""
+    return open(path, newline="", encoding="utf-8-sig")
+
+
+def _rows(f) -> tuple[list[str] | None, csv.DictReader]:
+    """The header of an open file, its first non-blank row, and a reader over the rows after it.
+
+    The header is None when the file has no non-blank row; the reader is then empty.
+    """
+    header = next((r for r in csv.reader(f) if r), None)
+    return header, csv.DictReader(f, fieldnames=header)
+
 
 def _header(path: Path) -> list[str] | None:
-    """The header row of an existing file; None if the file is absent or empty."""
+    """The header row of an existing file; None if the file is absent or has no header.
+
+    This is the one test of 'has a header' that reconcile, append and read share: a file
+    that is empty, or holds nothing but blank lines, has none.
+    """
     if not path.exists():
         return None
-    with open(path, newline="") as f:
-        return next(csv.reader(f), None)
+    with _open(path) as f:
+        return _rows(f)[0]
 
 
 def reconcile(path: Path) -> tuple[list[str], list[str]]:
     """Field order for appending to `path`; widens the file in place if it lacks columns.
 
-    Returns (fieldnames, added). An absent or empty file, or one whose header already
-    holds every column, is left alone. Otherwise the target header is the old header
-    followed by the columns it lacks, in COLUMNS order; the file is rewritten through a
-    temporary neighbour and swapped in, so a crash leaves the original intact. Columns
-    this apparatus does not know (a file from a newer one) keep their place.
+    Returns (fieldnames, added). A file with no header (absent, empty, blank lines only)
+    or one whose header already holds every column is left alone. Otherwise the target
+    header is the old header followed by the columns it lacks, in COLUMNS order; the file
+    is rewritten through a temporary neighbour and swapped in, so a crash leaves the
+    original intact. Columns this apparatus does not know (a file from a newer one) keep
+    their place. Raises one of ERRORS when the file cannot be read or rewritten.
     """
     header = _header(path)
-    if not header:
+    if header is None:
         return list(COLUMNS), []
     target = header + [c for c in COLUMNS if c not in header]
     if target == header:
         return target, []
     tmp = path.with_name(path.name + ".tmp")
-    with open(path, newline="") as src, open(tmp, "w", newline="") as dst:
-        writer = csv.DictWriter(dst, fieldnames=target, restval="", extrasaction="ignore")
-        writer.writeheader()
-        for row in csv.DictReader(src):
-            writer.writerow(row)
+    try:
+        with _open(path) as src, open(tmp, "w", newline="", encoding=_ENCODING) as dst:
+            writer = csv.DictWriter(dst, fieldnames=target, restval="", extrasaction="ignore")
+            writer.writeheader()
+            for row in _rows(src)[1]:
+                writer.writerow(row)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
     tmp.replace(path)
     return target, target[len(header) :]
 
 
 def append(path: Path, fieldnames: list[str], row: dict) -> None:
-    """Append one row, writing the header first if the file is absent or empty."""
-    new = not path.exists() or path.stat().st_size == 0
+    """Append one row, writing the header first if the file has none.
+
+    'Has none' is _header's test, the same one reconcile applies: absent, empty, or blank
+    lines only. Such a file is started over so that the header is its first line; nothing
+    readable is lost, since it held no row.
+    """
+    new = _header(path) is None
     out = {k: _format(k, v) for k, v in row.items()}
-    with open(path, "a", newline="") as f:
+    with open(path, "w" if new else "a", newline="", encoding=_ENCODING) as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames, restval="", extrasaction="ignore")
         if new:
             writer.writeheader()
@@ -90,14 +124,14 @@ def read(path: Path | None = None) -> list[dict]:
     Every name in COLUMNS is a key of every row: ints and floats are parsed by column,
     `phase` stays a string, and a cell the file does not have (an empty cell, or a
     column older than the file) is None. Columns this apparatus does not know are kept
-    as strings. An absent or empty file reads as []. `path` defaults to the vessel's
-    curve, resolved when called.
+    as strings. An absent file, or one with no header, reads as []. `path` defaults to
+    the vessel's curve, resolved when called.
     """
     path = config.CURVE if path is None else path
-    if not path.exists() or path.stat().st_size == 0:
+    if not path.exists():
         return []
-    with open(path, newline="") as f:
-        raw_rows = list(csv.DictReader(f))
+    with _open(path) as f:
+        raw_rows = list(_rows(f)[1])  # [] when there is no header
     rows = []
     for raw in raw_rows:
         row = {name: _parse(name, raw.get(name)) for name in COLUMNS}

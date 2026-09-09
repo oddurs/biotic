@@ -26,6 +26,7 @@ ICONS = {
     "whisper": ("✎", "magenta"),
     "phase": ("◐", "bold white"),
     "mind": ("…", "dim"),
+    "curve": ("≡", "dim"),
 }
 AGAR = [
     (0.02, " ", "grey23"),
