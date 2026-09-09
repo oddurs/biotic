@@ -15,7 +15,7 @@ from collections import deque
 from . import config, curve, prompts
 from .dish import Cell, Dish
 from .membrane import admit_isolated, inspect
-from .mind import Dormant, Mind, MindError
+from .mind import Dormant, Exhausted, Mind, MindError, parse_budget
 from .mutagen import Mutagen
 from .strains import Registry
 
@@ -40,6 +40,7 @@ class Culture:
         self.dish = dish
         self.registry = registry
         self.mind = mind
+        mind.log = self.log  # every call the dish pays for is an event in its log
         self.events: deque[dict] = deque(maxlen=200)
         self.rng = random.Random(f"{seed}::culture")
         self.started = time.time()
@@ -61,9 +62,11 @@ class Culture:
 
     # --- creation / persistence --------------------------------------------
     @classmethod
-    def germinate(cls, seed: str, mind: Mind, fresh: bool = False) -> Culture:
+    def germinate(cls, seed: str, mind: Mind, fresh: bool = False, budget: float | None = None) -> Culture:
         if config.DISH_FILE.exists() and not fresh:
             raise FileExistsError("a culture already exists in vessel/ — `biotic sterilize` first, or use --fresh")
+        if budget is not None:
+            mind.budget_usd = parse_budget(budget)
         sterilize()
         config.VESSEL.mkdir(exist_ok=True)
         config.SEED_FILE.write_text(seed.strip() + "\n")
@@ -94,6 +97,9 @@ class Culture:
                 reply = self.mind.think(
                     prompts.GENESIS_SYSTEM, prompts.genesis_user(self.seed, failures), temperature=0.9
                 )
+            except Exhausted as e:
+                self.log("mind", f"genesis call failed ({e})")
+                break
             except (Dormant, MindError) as e:
                 self.log("mind", f"genesis call failed ({e})")
                 continue
@@ -118,14 +124,21 @@ class Culture:
         return default
 
     @classmethod
-    def load(cls, mind: Mind | None = None) -> Culture:
+    def load(cls, mind: Mind | None = None, budget: float | None = None) -> Culture:
+        """Take up the dish in vessel/. The budget is the flag's if given, else what the dish
+        remembers, else what the mind was constructed with (BIOTIC_BUDGET_USD)."""
         if not config.DISH_FILE.exists():
             raise FileNotFoundError('nothing in the dish — `biotic seed "<word>"` first')
         seed = config.SEED_FILE.read_text().strip()
         blob = json.loads(config.DISH_FILE.read_text())
         dish = Dish.from_dict(blob)
         reg = Registry.load(seed)
-        cult = cls(seed, dish, reg, mind or Mind())
+        m = mind or Mind()
+        if isinstance(blob.get("mind"), dict):
+            m.restore(blob["mind"])
+        if budget is not None:
+            m.budget_usd = parse_budget(budget)
+        cult = cls(seed, dish, reg, m)
         st = (blob.get("culture") or {}).get("rng")  # absent from a dish.json written before it was saved
         if st:
             try:
@@ -146,6 +159,7 @@ class Culture:
             with self.lock:
                 blob = self.dish.to_dict()
                 blob["culture"] = {"rng": self.rng.getstate()}
+                blob["mind"] = self.mind.ledger()
                 tmp = config.DISH_FILE.with_suffix(".tmp")
                 tmp.write_text(json.dumps(blob))
                 tmp.replace(config.DISH_FILE)
@@ -395,6 +409,8 @@ class Culture:
                 "produced": self.mutagen.produced,
                 "nonviable": self.mutagen.nonviable,
                 "boosted": d.tick < self.mutagen.boost_until,
+                "failures": self.mutagen.failures,
+                "retry_in": max(0.0, self.mutagen.retry_at - time.time()),
             },
             "mind": {
                 "model": self.mind.model,
@@ -403,6 +419,9 @@ class Culture:
                 "tokens": self.mind.prompt_tokens + self.mind.completion_tokens,
                 "latency": self.mind.last_latency,
                 "error": self.mind.last_error,
+                "spent_usd": self.mind.spent_usd,
+                "budget_usd": self.mind.budget_usd,
+                "exhausted": self.mind.exhausted,
             },
             "uptime": time.time() - self.started,
         }

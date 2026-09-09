@@ -90,8 +90,9 @@ would have followed anyway, tick for tick, until the mind hands it a daughter. T
 model is the one source of novelty a seed does not fix; `docs/membrane.md` has the
 fine print.
 `BIOTIC_REPLENISH=0` gives a truly closed dish: bloom, crash, done.
-`BIOTIC_MUTATION_RATE`, `BIOTIC_MUTAGEN_INTERVAL`, `BIOTIC_TICK`, `BIOTIC_WIDTH`,
-`BIOTIC_HEIGHT` are the other knobs. The rest of the physics is in `bio/config.py`.
+`BIOTIC_MUTATION_RATE`, `BIOTIC_MUTAGEN_INTERVAL`, `BIOTIC_BUDGET_USD`, `BIOTIC_TICK`,
+`BIOTIC_WIDTH`, `BIOTIC_HEIGHT` are the other knobs. The rest of the physics is in
+`bio/config.py`.
 
 ## the mind
 
@@ -110,6 +111,14 @@ minimum interval between calls; divisions that roll a mutation take a prepared
 daughter if one is ready, otherwise queue a request and divide faithfully. So the
 rate of novelty is bounded by how fast the mind thinks, and the dish keeps its
 own time.
+
+Every call is priced — the endpoint's own figure when it reports one, else its
+price list, cached in `vessel/prices.json` — and counted against a per-dish
+budget, `BIOTIC_BUDGET_USD` (default $2.00; `--budget` on `seed`, `live` and
+`run`, `inf` for no cap). When it is spent the mutagen stops and the culture
+grows on without variation. A failing endpoint is retried with backoff, 15 s
+doubling to 10 min, and a `Retry-After` is honoured. `biotic status` shows
+spent / budget; `docs/budget.md` has the arithmetic.
 
 ## the membrane
 
@@ -137,9 +146,10 @@ string, and what the membrane cannot do.
       prompts.py    what the mutagen is told
       tui.py        the eyepiece
     soma/         every strain that ever arose. written by the culture. do not edit.
-    vessel/       the running state: seed, dish, strains, events, growth curve, whispers
+    vessel/       the running state: seed, dish, strains, events, growth curve, whispers, prices
     docs/         longer notes: docs/curve.md on reading the growth curve,
-                  docs/membrane.md on what a genome may contain and why
+                  docs/membrane.md on what a genome may contain and why,
+                  docs/budget.md on what the mind costs
     tests/        the suite; tests/fixtures/genomes/ holds ten fossils from a real run
 
 ## development

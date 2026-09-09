@@ -3,6 +3,11 @@
 The dish never blocks on it. Divisions that roll a mutation take a prepared
 genome from the pool if one exists, otherwise they queue a request and
 divide faithfully. Throughput of novelty is bounded by the mind, not the dish.
+
+A failing mind is retried on a doubling schedule (15 s, 30 s, … 10 min), reset
+by the next success; a `Retry-After` from the endpoint stretches it. A spent
+budget puts the mutagen in the `exhausted` state, logged once, and the culture
+grows on without variation.
 """
 
 from __future__ import annotations
@@ -14,7 +19,7 @@ from collections.abc import Callable
 
 from . import config, prompts
 from .membrane import admit_isolated
-from .mind import Dormant, Mind, MindError
+from .mind import Dormant, Exhausted, Mind, MindError, backoff, fmt_budget
 
 
 class Mutagen(threading.Thread):
@@ -31,12 +36,14 @@ class Mutagen(threading.Thread):
         self.rejections: deque[str] = deque(maxlen=6)
         self.context: dict = {}  # snapshot of the dish, set by the culture
         self.genomes: dict[str, tuple[str, str]] = {}  # strain -> (name, source)
-        self.state = "dormant" if not mind.awake else "idle"
+        self.state = "dormant" if not mind.awake else ("exhausted" if mind.exhausted else "idle")
         self.produced = 0
         self.nonviable = 0
         self.boost = 1.0
         self.boost_until = 0
         self.last_call = 0.0
+        self.failures = 0  # consecutive failed calls
+        self.retry_at = 0.0  # wall clock before which no call is made
 
     # --- called from the dish thread ---------------------------------------
     def request(self, strain: str) -> None:
@@ -77,14 +84,29 @@ class Mutagen(threading.Thread):
         while not self.stop.is_set():
             self.wake.wait(timeout=2.0)
             self.wake.clear()
-            strain = self._pick()
-            if strain is None:
-                continue
-            # respect the minimum interval between calls
-            gap = config.MUTAGEN_INTERVAL / max(self.boost, 1.0) - (time.time() - self.last_call)
-            if gap > 0 and self.stop.wait(gap):
+            if self._cycle():
                 return
+
+    def _cycle(self) -> bool:
+        """One pass of the loop. Returns True when told to stop."""
+        if self.mind.exhausted:
+            self._exhaust()
+            return False
+        if self.state == "exhausted":  # the budget was raised since
+            self.state = "idle"
+        strain = self._pick()
+        if strain is None:
+            return False
+        # respect the minimum interval between calls, and the backoff after a failure
+        now = time.time()
+        gap = max(config.MUTAGEN_INTERVAL / max(self.boost, 1.0) - (now - self.last_call), self.retry_at - now)
+        if gap > 0 and self.stop.wait(gap):
+            return True
+        try:
             self._mutate(strain)
+        except Exception as e:  # noqa: BLE001 — the thread must outlive any single fault
+            self._fail(f"mutagen fault: {type(e).__name__}: {e}")
+        return False
 
     def _pick(self):
         with self.lock:
@@ -106,9 +128,12 @@ class Mutagen(threading.Thread):
 
     def _mutate(self, strain: str) -> None:
         with self.lock:
-            name, source = self.genomes[strain]
+            got = self.genomes.get(strain)
             ctx = dict(self.context)
             rejections = list(self.rejections)
+        if got is None:
+            return  # went extinct while we waited
+        name, source = got
         census = ctx.get("census") or {}
         pop = max(1, sum(census.values()))
         user = prompts.mutagen_user(
@@ -131,12 +156,18 @@ class Mutagen(threading.Thread):
         except Dormant:
             self.state = "dormant"
             return
-        except MindError as e:
-            self.state = "error"
-            self.log("mind", f"mutagen call failed: {e}")
-            self.stop.wait(15)
+        except Exhausted:
+            self._exhaust()
             return
-        self.state = "idle"
+        except MindError as e:
+            self._fail(f"mutagen call failed: {e}", status=e.status, retry_after=e.retry_after)
+            return
+        self.failures = 0
+        self.retry_at = 0.0
+        if self.mind.exhausted:
+            self._exhaust()  # this call was paid for; its daughter still counts
+        else:
+            self.state = "idle"
         dname, note, src = prompts.parse_reply(reply)
         if src.strip() == source.strip():
             self.nonviable += 1
@@ -155,6 +186,39 @@ class Mutagen(threading.Thread):
         self.produced += 1
         self.log("prepared", f"a variant of {name} is ready — “{note}”" if note else f"a variant of {name} is ready")
 
+    def _fail(self, msg: str, *, status: int | None = None, retry_after: float | None = None) -> None:
+        """Record a failed call and schedule the next attempt."""
+        self.failures += 1
+        wait = backoff(self.failures)
+        if retry_after:
+            wait = max(wait, min(retry_after, config.RETRY_AFTER_MAX))
+        self.retry_at = time.time() + wait
+        self.state = "error"
+        self.log(
+            "mind", f"{msg} — next attempt in {_fmt_wait(wait)}", status=status, retry_in=wait, failures=self.failures
+        )
+
+    def _exhaust(self) -> None:
+        if self.state == "exhausted":
+            return
+        self.state = "exhausted"
+        spent, budget = self.mind.spent_usd, self.mind.budget_usd
+        self.log(
+            "mind",
+            f"mutagen exhausted at {fmt_budget(spent, budget)} — the culture grows on without variation",
+            spent_usd=spent,
+            budget_usd=budget,
+        )
+
     def close(self) -> None:
         self.stop.set()
         self.wake.set()
+
+
+def _fmt_wait(seconds: float) -> str:
+    s = int(round(seconds))
+    if s < 60:
+        return f"{s}s"
+    if s < 3600:
+        return f"{s // 60}m{s % 60:02d}s"
+    return f"{s // 3600}h{(s % 3600) // 60:02d}m"

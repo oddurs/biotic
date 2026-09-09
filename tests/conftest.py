@@ -12,22 +12,35 @@ Two more rules hold for every test in this directory:
 2. Nothing reads the real `soma/`. The membrane's positive control is the ten fossils in
    tests/fixtures/genomes/, copied verbatim from the first "tide" run (qwen/qwen3-coder,
    2026-09-08); `fixture_genomes()` below lists them.
+
+A scripted mind (FakeMind) and a clock the mutagen can be driven against live here too.
 """
 
 from __future__ import annotations
 
+import email.message
+import io
+import urllib.error
 from collections.abc import Callable
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+import bio.culture
+import bio.mutagen
 from bio import config
 from bio.culture import FALLBACK_GENESIS, Culture
 from bio.dish import Dish
+from bio.membrane import admit
 from bio.mind import Mind
+from bio.mutagen import Mutagen
 from bio.strains import Registry
 
 FIXTURES = Path(__file__).parent / "fixtures" / "genomes"
+
+# A daughter of the built-in founder that passes the membrane and differs from its parent.
+DAUGHTER = "NAME: bud\nNOTE: divides a little sooner\n---\n" + FALLBACK_GENESIS.replace("1.0", "0.9")
 
 
 def _no_network(*args, **kwargs):
@@ -54,13 +67,19 @@ def vessel(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         "EVENTS": v / "events.jsonl",
         "CURVE": v / "curve.csv",
         "WHISPERS": v / "whispers.md",
+        "PRICES_FILE": v / "prices.json",
         "SOMA": tmp_path / "soma",
     }
     for name, p in paths.items():
         monkeypatch.setattr(config, name, p)
     monkeypatch.setattr(config, "API_KEY", None)
     monkeypatch.setattr(config, "BASE_URL", "https://example.invalid/v1")  # Mind.awake -> False
+    monkeypatch.setattr(config, "BUDGET_USD", 2.0)
+    monkeypatch.setattr(config, "MUTAGEN_INTERVAL", 12.0)
     monkeypatch.setattr("urllib.request.urlopen", _no_network)
+    # the membrane in-process: the tests run on the main thread, where Budget's alarm works
+    monkeypatch.setattr(bio.mutagen, "admit_isolated", admit)
+    monkeypatch.setattr(bio.culture, "admit_isolated", admit)
     real = config.ROOT / "vessel" / "curve.csv"
     before = real.stat().st_mtime_ns if real.exists() else None
     yield v
@@ -140,3 +159,98 @@ def dish_state(d: Dish) -> tuple:
         dict(d.genomes),
         d.replenish,
     )
+
+
+class FakeMind(Mind):
+    """A mind with a scripted endpoint. Only `_request` is overridden; everything above it is real."""
+
+    def __init__(
+        self,
+        replies: list | None = None,
+        price: tuple[str, str] = ("0.000005", "0.000005"),
+        usage: tuple[int, int] = (1000, 1000),
+        budget_usd: float | None = 2.0,
+        cost=None,
+        models: list[dict] | None = None,
+    ):
+        super().__init__(model="test/model", budget_usd=budget_usd)
+        self.key = "test"
+        self.base = "https://mind.invalid/v1"
+        self.replies = list(replies or [])
+        self.price_rows = price
+        self.usage = usage
+        self.cost = cost
+        self.models_payload = models
+        self.chat_requests = 0
+        self.models_requests = 0
+        self.events: list[dict] = []
+        self.log = self._record
+
+    def _record(self, kind: str, msg: str, **data) -> None:
+        self.events.append({"kind": kind, "msg": msg, **data})
+
+    def _request(self, path: str, body: dict | None = None, timeout: float = 120) -> dict:
+        if path == "/models":
+            self.models_requests += 1
+            if self.models_payload is not None:
+                return {"data": self.models_payload}
+            p, c = self.price_rows
+            return {"data": [{"id": self.model, "pricing": {"prompt": p, "completion": c}}]}
+        if path == "/chat/completions":
+            self.chat_requests += 1
+            reply = self.replies.pop(0) if self.replies else DAUGHTER
+            if isinstance(reply, BaseException):
+                raise reply
+            pt, ct = self.usage
+            usage: dict = {"prompt_tokens": pt, "completion_tokens": ct}
+            if self.cost is not None:
+                usage["cost"] = self.cost
+            return {"choices": [{"message": {"content": reply}}], "usage": usage}
+        raise AssertionError(f"unexpected request: {path}")
+
+
+def http_error(code: int, retry_after: str | None = None, body: bytes = b'{"error":"x"}') -> urllib.error.HTTPError:
+    """A real HTTPError, with headers and a body, as urlopen would raise it."""
+    hdrs = email.message.Message()
+    if retry_after is not None:
+        hdrs["Retry-After"] = retry_after
+    return urllib.error.HTTPError("https://mind.invalid/v1/chat/completions", code, "error", hdrs, io.BytesIO(body))
+
+
+@pytest.fixture
+def clock(monkeypatch):
+    """The mutagen's wall clock, under test control. bio.mutagen only ever calls time.time()."""
+    c = SimpleNamespace(now=0.0)
+    monkeypatch.setattr(bio.mutagen, "time", SimpleNamespace(time=lambda: c.now))
+    return c
+
+
+@pytest.fixture
+def mutagen(clock):
+    """A mutagen that knows one strain and is never started as a thread. Its events land in mind.events."""
+
+    def make(mind: Mind) -> Mutagen:
+        m = Mutagen(mind, "test", mind.log)
+        m.know("f", "founder", FALLBACK_GENESIS)
+        m.context = {"census": {"f": 5}}
+        return m
+
+    return make
+
+
+@pytest.fixture
+def culture(vessel):
+    """A small culture on the built-in founder, with a mind that can afford exactly one call."""
+
+    def make(mind: Mind | None = None) -> Culture:
+        mind = mind or FakeMind(budget_usd=0.01)
+        dish = Dish("test", 24, 12)
+        reg = Registry("test")
+        s = reg.new(FALLBACK_GENESIS, None, 0, "founder", "eats where it stands")
+        dish.register(s.id, FALLBACK_GENESIS)
+        dish.inoculate(s.id)
+        vessel.mkdir(parents=True, exist_ok=True)
+        config.SEED_FILE.write_text("test\n")
+        return Culture("test", dish, reg, mind)
+
+    return make

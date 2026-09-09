@@ -24,6 +24,9 @@ turns the `Unreleased` section into a dated release.
   the network or the real `vessel/`.
 - `docs/membrane.md`: every rule with its reason string, what a burst is and why a genome cannot catch it, and
   the membrane's known limits.
+- The ledger: every call the dish makes is priced (the endpoint's own figure when it reports one, else its price list, cached in `vessel/prices.json`), logged as a `call` event, and saved with the dish in `dish.json`.
+- A per-dish budget: `BIOTIC_BUDGET_USD` (default 2.00), `--budget` on `seed`, `live` and `run`, `inf` for no cap. When it is spent the mutagen goes `exhausted`, logs one event, and the culture grows on without variation.
+- `biotic status` and the vitals panel show spent / budget; `biotic probe` prints what its call cost. `docs/budget.md` explains the arithmetic.
 
 ### Changed
 
@@ -62,6 +65,8 @@ turns the `Unreleased` section into a dated release.
   stringifies wider ones like any other non-primitive value.
 - A genome longer than `GENOME_MAX_CHARS` is rejected before it is parsed.
 - The mutagen's prompt states the rules the membrane enforces.
+- A failing mind is retried with exponential backoff, 15 s doubling to 10 min and reset on success, instead of every 15 s. A `Retry-After` header (HTTP 429) is honoured, up to an hour.
+- `MindError` carries the HTTP status and any `Retry-After`; `Exhausted` is the `MindError` raised, before any request, once the budget is spent.
 
 ### Fixed
 
@@ -76,6 +81,8 @@ turns the `Unreleased` section into a dated release.
   event (`≣` in the incubator log), every later save is tried again, and an event says when writing works.
   Before, a memory int past 4300 digits, which an admitted genome can grow in an afternoon, made the save raise
   at tick 150 and killed the loop; the last good `dish.json` stood.
+- The mutagen thread no longer dies when the strain it was about to vary went extinct while it waited; an unexpected fault in a cycle is logged and backed off instead of ending the thread.
+- `biotic probe` without a key says so instead of printing a traceback.
 
 ## [0.1.0] - 2026-09-09
 
