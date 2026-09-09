@@ -68,7 +68,8 @@ cmd_start() {
   git -C "$PRIMARY" show-ref --verify --quiet "refs/heads/$br" && die "branch $br already exists (see 'scripts/agent list')"
   [ -e "$path" ] && die "worktree path already exists: $path"
   mkdir -p "$(dirname "$path")"
-  run git -C "$PRIMARY" worktree add -b "$br" "$path" "origin/$def"
+  # git chatters on stdout; stdout is reserved for the path so `cd "$(scripts/agent start ...)"` works.
+  run git -C "$PRIMARY" worktree add --no-track -b "$br" "$path" "origin/$def" 1>&2
   say "worktree ready on $br. move there with:"
   printf 'cd %s\n' "$path"
 }
@@ -94,8 +95,8 @@ cmd_pr() {
   br=$(current_branch)
   def=$(default_branch)
   [ "$br" != "$def" ] || die "you are on $def; a PR needs a branch from 'scripts/agent start'"
-  cmd_check
-  run git -C "$ROOT" push -u origin "$br"
+  cmd_check 1>&2
+  run git -C "$ROOT" push -u origin "$br" 1>&2
   if url=$(gh pr view "$br" --json url -q .url 2>/dev/null) && [ -n "$url" ]; then
     say "PR already exists"
     printf '%s\n' "$url"
