@@ -11,20 +11,22 @@ every mutagen call, and any observer the roadmap adds later. All of them go
 through `Mind.think`, and `Mind.think` is where the budget is enforced, so
 nothing the dish does can spend past it.
 
-`biotic probe` is not a dish call. It is uncapped, prints what the one call
-cost, and records nothing.
+`biotic probe` is not a dish call. It is uncapped, prints what its one call
+cost, and records nothing against any dish.
 
 ## how a call is priced
 
 In order of preference:
 
 1. **The endpoint's own figure.** If the reply carries `usage.cost`, that is
-   the price. OpenRouter includes it on every reply; the figure is in credits,
-   and a credit is a dollar.
+   the price. OpenRouter includes it in every reply; the figure is in credits,
+   and a credit is a dollar. Nothing has to be asked for: the
+   `usage: {include: true}` parameter older clients sent is documented as
+   having no effect.
 2. **The price table.** Otherwise `prompt_tokens × prompt + completion_tokens
-   × completion + request`, with the rates for this model from
-   `vessel/prices.json` (see below). The table knows nothing of cached-prompt
-   discounts or reasoning surcharges, so a table-priced figure is an estimate.
+   × completion + request`, with this model's rates from `vessel/prices.json`
+   (below). The table knows nothing of cached-prompt discounts or reasoning
+   surcharges, so a table-priced figure is an estimate.
 3. **Nothing.** An endpoint that publishes no prices, such as Ollama, is free,
    and spend stays at `$0.000`.
 
@@ -39,14 +41,22 @@ the event says which of the three applied: `endpoint`, `table` or `none`.
 
 Rates are dollars per token (`prompt`, `completion`) and dollars per call
 (`request`). The file is written after the first *successful* call of a
-process, from one `GET /models` — not before the first request, so a dead
+process, from one `GET /models`; not before the first request, so a dead
 endpoint is never asked for its price list and never doubles its error
-events. It is read, not refetched, by every later process. It is refetched
-only when the model the dish is using is missing from it, once per process.
-An empty table means the endpoint publishes no prices, and is not refetched.
+events. Every later process reads it instead of asking again. It is fetched
+again only when the model the dish is using is missing from it, once per
+process. An empty table means the endpoint publishes no prices, and is not
+refetched.
+
+If `/models` fails and there is no cache, the question stays open: the calls
+in between are priced from `usage.cost` or not at all, `cost_source` says
+which, and the fetch is tried again after a later reply, but not more often
+than every ten minutes. The failure is logged once per process.
 
 The file belongs to the vessel: `biotic sterilize` wipes it with the rest.
-Delete it to force a fresh fetch.
+Delete it to force a fresh fetch. The first call against a new endpoint is
+worth checking by hand against this file: the format above is OpenRouter's,
+and another endpoint's `pricing` block may hold something else.
 
 ## the budget
 
@@ -96,29 +106,42 @@ capped at 10 minutes. A success resets the schedule. If the endpoint sends a
 `Retry-After` header (HTTP 429 does; so may 503) and it asks for longer than
 the schedule would wait, it is honoured, up to an hour.
 
+While the schedule says wait, the mutagen picks nothing: requests from the
+dish stay queued, and when the time comes the oldest one whose strain is
+still alive is taken. Nothing sleeps inside the failed call, so `ctrl-c` is
+never held up by it.
+
 Each failure is one event:
 
     mutagen call failed: HTTP 503: upstream unavailable — next attempt in 2m00s
 
-with `status`, `retry_in` and `failures` on the event. A dead endpoint
-produces eleven such events in its first hour, then one every ten minutes.
-The wait happens in the mutagen's loop, not inside the failed call, so
-`ctrl-c` is never held up by it. HTTP 402 — out of credits at the provider —
-is backed off like any other error; the retries cost nothing.
+with `status`, `retry_in`, `failures` and `latency` on the event. A dead
+endpoint produces eleven such events in its first hour, then one every ten
+minutes. HTTP 402 — out of credits at the provider — is backed off like any
+other error; the retries cost nothing.
 
 ## what is logged, and where
 
 - `events.jsonl`, kind `call`: `model`, `prompt_tokens`, `completion_tokens`,
-  `usd`, `spent_usd` (the running total after this call), `latency`,
-  `cost_source`. `biotic log` prints them; the eyepiece hides them.
+  `usd`, `spent_usd` and `calls` (the running totals after this call),
+  `latency`, `cost_source`. `biotic log` prints them; the eyepiece hides them.
 - `events.jsonl`, kind `mind`: the price-table message once per process, each
-  failed call with its `retry_in`, and the one `mutagen exhausted` event.
+  failed call with its `retry_in`, the one `mutagen exhausted` event, and
+  `ledger caught up from the log` when a resume found calls the last save had
+  missed (below).
 - `dish.json`, key `mind`: `model`, `budget_usd` (`null` for no cap),
   `spent_usd`, `calls`, `prompt_tokens`, `completion_tokens`. Written with the
-  dish, every 150 ticks and at exit. A process killed between saves loses at
-  most 150 ticks of ledger from `dish.json`; the `call` events are the
-  complete record, and the last one's `spent_usd` is the true total.
+  dish, every 150 ticks and at exit.
 - `biotic status`: `spent  $0.043 / $2.00  (12 calls)`, with `— exhausted`
-  when it is.
-- The vitals panel: the `mind` line ends with `$0.043 / $2.00`; the mutagen
-  line shows `· exhausted`, or `! error  retry in 45s`.
+  when it is. `biotic run` ends its progress line with the spend.
+- The vitals panel: a `spent` row beneath `mind` reads `$0.043 / $2.00`; the
+  mutagen row shows `· exhausted`, or `! error  retry in 45s`.
+
+A process killed between saves — a power cut, a `kill -9` — leaves its last
+calls in `events.jsonl` but not in `dish.json`. The next load takes the
+running totals from the last `call` event when they are ahead of what the
+dish saved, logs one `mind` event saying so, and the dish resumes with the
+true figure; if that figure is past the budget it resumes exhausted, quietly.
+The `call` events are the complete record either way. A call in flight at
+the moment of the kill is the one thing neither holds; the endpoint's own
+dashboard is the final word.

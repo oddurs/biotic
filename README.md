@@ -117,8 +117,8 @@ price list, cached in `vessel/prices.json` — and counted against a per-dish
 budget, `BIOTIC_BUDGET_USD` (default $2.00; `--budget` on `seed`, `live` and
 `run`, `inf` for no cap). When it is spent the mutagen stops and the culture
 grows on without variation. A failing endpoint is retried with backoff, 15 s
-doubling to 10 min, and a `Retry-After` is honoured. `biotic status` shows
-spent / budget; `docs/budget.md` has the arithmetic.
+doubling to 10 min, and a `Retry-After` is honoured. `biotic status` and the
+vitals panel show spent / budget; `docs/budget.md` has the arithmetic.
 
 ## the membrane
 
