@@ -129,13 +129,25 @@ def test_culture_observers_do_not_change_the_trajectory(make_culture):
     assert c.dish.births == bare.births and c.dish.deaths == bare.deaths
 
 
-def test_snapshot_reads_the_agar_once(make_culture):
-    """The vitals' agar figure and the curve's nutrient column are the same reading."""
+def test_snapshot_reads_the_agar_once(make_culture, monkeypatch):
+    """snapshot() computes the metrics row once and takes the vitals' agar figure from it, so the
+    agar is summed once per frame and the vitals and the curve's nutrient column are one reading."""
     c = make_culture()
     for _ in range(5):
         c.step()
+    expected = c.dish.nutrient_mean()
+    reads = 0
+    real = Dish.nutrient_mean
+
+    def counted(self):
+        nonlocal reads
+        reads += 1
+        return real(self)
+
+    monkeypatch.setattr(Dish, "nutrient_mean", counted)
     s = c.snapshot()
-    assert s["nutrient"] == s["metrics"]["nutrient"] == c.dish.nutrient_mean()
+    assert reads == 1  # Dish.metrics() is the only caller; a second read is the old snapshot() back
+    assert s["nutrient"] == s["metrics"]["nutrient"] == expected
     assert s["population"] == s["metrics"]["population"] == sum(s["census"].values())
 
 

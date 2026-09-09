@@ -72,3 +72,19 @@ The in-place widening was trialled on a copy of the owner's real 0.1.0 curve (12
 ## 2026-09-09
 
 Watch, not fixed here: Culture.step() runs registry.update() (peak, extinct_at) outside c.lock while the renderer reads those fields under it; attribute writes cannot raise, so at worst extinct is one frame stale. And a process killed between open and close in curve.append() can leave a partial last line that the next append glues a row onto; one buffered write per ten ticks, the same exposure the 0.1.0 writer had. Both are behaviour, not docs.
+
+## 2026-09-09
+
+Correction to the pheromone note above: 0.0964 was the pre-decay threshold. A cell's emit lands in Dish._apply and the same tick's _diffuse() multiplies every tile by (1 - PHEROMONE_DECAY) = 0.94 before any curve row or vitals frame reads the mean, so a single emission x reads x * 0.94 / 1928. Measured after the step: 0.102 reads 0.0000, 0.103 reads 0.0001; the threshold is 0.00005 x 1928 / 0.94 = 0.1026. The doc's 'below 0.1 rounds to 0.0000' stands, conservatively. The sustained figures (0.00112 at tick 100 for 0.2, 0.00041 for 0.05) reproduce. docs/curve.md now says the figures are for 1928 tiles and scale with 1/tiles: biotic seed fits the dish to the terminal, so a 120x40 bench pours 68x25 (1340 tiles) and the same emission reads 1.44x higher.
+
+## 2026-09-09
+
+Review follow-up on the replay caveat: two more wall-clock inputs qualify 'every other column reproduces'. Drops: Culture._inbox() is polled every 3 ticks and applies nutrient, antibiotic and mutagen drops as they arrive, changing the agar, population and killed, and the rate in _on_divide; a replay has to place them at their ticks from events.jsonl. The membrane's budget: every live() runs under Budget(CELL_TIME_BUDGET), 0.004 s of wall clock, and lyses on the alarm, so a genome near the limit can lyse on a slow machine and not on a fast one, and lysed, population and everything downstream diverge. docs/curve.md now says both, and 0037 carries the same note against its identical-curve criterion. 'The one column that is not a function of the dish' became 'the one column that does not read the dish', which is the claim that is true.
+
+## 2026-09-09
+
+test_snapshot_reads_the_agar_once now counts: Dish.nutrient_mean is wrapped through monkeypatch and snapshot() must call it exactly once. Confirmed red against origin/main's snapshot(), which read it twice (once directly, once through Dish.metrics()); the equality assertions alone held on both versions and guarded nothing, since nutrient_mean() is a pure function of the agar.
+
+## 2026-09-09
+
+The branch's first commit was typed docs(curve) but carried the snapshot() change. scripts/agent pr titles the PR from the first commit subject and PRs are squash-merged, so the unpushed commit was recreated as 'chore(curve): pin the header, define mean_gen, read the agar once'; open the PR under that title.

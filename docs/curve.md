@@ -34,9 +34,11 @@ previous row.
 
 Floats are written to four decimals, `mean_gen` to two. Four decimals resolve
 sustained signalling in `pheromone`: one cell emitting 0.2 every tick holds the
-mean near 0.001 on the default 72×34 dish, and 0.05 every tick near 0.0004. A
-single emission below 0.1 rounds to `0.0000`. The format is not part of the
-schema; it can be widened without a migration.
+mean near 0.001 on a 72×34 dish (1928 agar tiles), and 0.05 every tick near
+0.0004. The mean scales with 1/tiles, and `biotic seed` fits the dish to the
+terminal, so a smaller dish reads proportionally higher. A single emission
+below 0.1 rounds to `0.0000`. The format is not part of the schema; it can be
+widened without a migration.
 
 ## reading it
 
@@ -60,14 +62,19 @@ next tick still counts.
 `mutations_taken` counts strains that have a parent. The founder is the only
 strain without one, so today it equals `arisen − 1` in every row; the column is
 there for when strains can arrive some other way than a mutated division.
-`mutations_ready` is the one column that is not a function of the dish: it
-samples a pool that a background thread fills on the wall clock. Under an exact
-replay of the admitted genomes at their original ticks, every other column
-reproduces (`phase` too, if the replay is resumed at the same ticks, since the
-debounce restarts with the process); this one need not. Without such a replay,
-two runs from the same seed diverge in every column from the first variant
-taken, because when a variant is ready depends on the machine and the mind, not
-the dish. Leave `mutations_ready` out when comparing curves.
+`mutations_ready` is the one column that does not read the dish: it samples a
+pool that a background thread fills on the wall clock. Under an exact replay of
+the admitted genomes at their original ticks, and of any drops at theirs, every
+other column reproduces (`phase` too, if the replay is resumed at the same
+ticks, since the debounce restarts with the process); this one need not. Drops
+arrive on the wall clock as well and change the agar, the population and the
+mutation rate; `events.jsonl` records each with its tick, so a replay can place
+them. The reproduction holds up to the membrane's wall-clock budget: a genome
+that runs over `CELL_TIME_BUDGET` lyses on one machine and may not on another,
+and `lysed`, `population` and everything downstream follow it. Without such a
+replay, two runs from the same seed diverge in every column from the first
+variant taken, because when a variant is ready depends on the machine and the
+mind, not the dish. Leave `mutations_ready` out when comparing curves.
 
 The death ledger closes. For a dish inoculated once,
 `births − (starved + lysed + senescent + killed) = population − INOCULUM` holds
