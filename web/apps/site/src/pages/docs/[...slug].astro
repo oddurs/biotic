@@ -1,0 +1,41 @@
+---
+import { render } from "astro:content";
+import Base from "../../layouts/Base.astro";
+import { SectionLayout } from "../../components/SectionLayout";
+import { DocsFrame } from "../../components/docs/DocsFrame";
+import { mdxComponents } from "../../components/docs/mdx";
+import { docHref, docNav, orderedDocs, type Doc } from "../../lib/docs";
+import { site } from "../../../site.config";
+
+export async function getStaticPaths() {
+  const docs = await orderedDocs();
+  return docs.map((doc, i) => ({
+    params: { slug: doc.id },
+    props: { doc, prev: docs[i - 1], next: docs[i + 1], nav: docNav(docs) },
+  }));
+}
+interface Props {
+  doc: Doc;
+  prev?: Doc;
+  next?: Doc;
+  nav: ReturnType<typeof docNav>;
+}
+const { doc, prev, next, nav } = Astro.props;
+const { Content, headings } = await render(doc);
+const link = (d: Doc | undefined) => (d ? { title: d.data.title, href: docHref(d) } : undefined);
+const editHref = `${site.repo}/edit/main/web/apps/site/src/content/docs/${doc.id}.mdx`;
+---
+
+<Base title={doc.data.title} description={doc.data.description}>
+  <SectionLayout
+    section="Docs"
+    nav={nav}
+    current={docHref(doc)}
+    title={doc.data.title}
+    lede={doc.data.description}
+  >
+    <DocsFrame toc={headings} prev={link(prev)} next={link(next)} editHref={editHref}>
+      <Content components={mdxComponents} />
+    </DocsFrame>
+  </SectionLayout>
+</Base>

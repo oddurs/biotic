@@ -1,0 +1,42 @@
+---
+title: Getting started
+description: Install the apparatus, place a seed, and watch the dish.
+section: Start
+order: 0
+---
+
+## Install
+
+You need Python 3.11 or newer and [uv](https://docs.astral.sh/uv/).
+
+```sh
+git clone https://github.com/oddurs/biotic
+cd biotic
+uv sync
+cp .env.example .env
+```
+
+Put an OpenRouter key in `.env`, or point `BIOTIC_BASE_URL` at a local Ollama. Without either
+the dish still grows, from a built-in founder, but nothing ever mutates.
+
+## Seed and watch
+
+```sh
+uv run biotic seed "tide"
+uv run biotic live
+```
+
+The seed is a word, a phrase, or a question. It is not an instruction: the mind writes the
+founding cell with the seed as its temperament, and after that you mostly watch. Press
+ctrl-c to incubate; the state is saved and `biotic live` resumes it.
+
+## What you are looking at
+
+Cells are `●`, coloured by strain. Daughters get a hue near their parent's; dim cells are
+hungry. Agar shows as ` · : ∷` by richness and pheromone shows violet. The phase is read
+from the population curve the way a microbiologist would: lag, log, stationary, death.
+
+<Callout tone="info" title="Interventions">
+  `biotic whisper "…"` pins a note the mutagen sees. `biotic drop nutrient | antibiotic | mutagen`
+  changes the dish. See the [CLI reference](/docs/reference/cli/).
+</Callout>

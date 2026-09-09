@@ -9,7 +9,7 @@
   "scripts": {
     "fmt": "prettier --write .",
     "fmt:check": "prettier --check .",
-    "lint": "eslint . && pnpm -r --if-present lint",
+    "lint": "pnpm --filter @biotic/site exec astro sync && eslint . && pnpm -r --if-present lint",
     "typecheck": "pnpm -r --if-present typecheck",
     "test": "pnpm -r --if-present test",
     "build": "pnpm -r --if-present build",

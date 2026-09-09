@@ -7,6 +7,7 @@
 #   scripts/task test       full test suites
 #   scripts/task build      build the wheel and sdist into dist/, and the site into web/apps/site/dist/
 #   scripts/task check      fmt:check && lint && test && build
+#   scripts/task docs       regenerate derived documentation (the CLI reference)
 #   scripts/task version [x.y.z]  print the project version, or set it (and the lockfile)
 #
 # Two toolchains live here: uv for bio/ and pnpm for web/. Both are pinned (uv.lock,
@@ -51,9 +52,10 @@ web() {
 case "${1:-}" in
   fmt)       py ruff format . && web fmt ;;
   fmt:check) py ruff format --check . && web fmt:check ;;
-  lint)      py ruff check . && web lint && web typecheck ;;
+  lint)      py ruff check . && py python scripts/cli_reference.py --check && web lint && web typecheck ;;
   test)      py pytest && web test ;;
   build)     run uv build && web build ;;
+  docs)      py python scripts/cli_reference.py ;;
   version)   if [ -n "${2:-}" ]; then run uv version "$2"; else uv version --short; fi ;;
   check)
     "$0" fmt:check
@@ -62,7 +64,7 @@ case "${1:-}" in
     "$0" build
     ;;
   *)
-    sed -n '4,11p' "$0" >&2
+    sed -n '4,12p' "$0" >&2
     exit 2
     ;;
 esac

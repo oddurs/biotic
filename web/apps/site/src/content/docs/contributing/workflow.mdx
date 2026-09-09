@@ -1,0 +1,27 @@
+---
+title: Contributing
+description: One worktree, one branch, one pull request.
+section: Contributing
+order: 0
+---
+
+The repository enforces its workflow with hooks and branch protection rather than
+discipline. The short version:
+
+```sh
+scripts/setup                        # once
+scripts/agent start feat/my-change   # a worktree; cd into the printed path
+scripts/task check                   # what CI runs
+scripts/agent commit "feat(scope): subject"
+scripts/agent pr
+```
+
+`main` only changes through a squash-merged pull request. Commits are Conventional Commits.
+Nothing carries attribution to AI tools. The full text is in `CONTRIBUTING.md`, and
+`CLAUDE.md` is the contract for agents.
+
+## The site
+
+This site is a pnpm workspace under `web/`: a design system package and an Astro app. The
+[design pages](/design/) document the system; `scripts/task check` covers both
+toolchains.
