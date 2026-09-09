@@ -70,8 +70,8 @@ cmd_start() {
   mkdir -p "$(dirname "$path")"
   # git chatters on stdout; stdout is reserved for the path so `cd "$(scripts/agent start ...)"` works.
   run git -C "$PRIMARY" worktree add --no-track -b "$br" "$path" "origin/$def" 1>&2
-  say "worktree ready on $br. move there with:"
-  printf 'cd %s\n' "$path"
+  say "worktree ready on $br; cd into the path below, or: cd \"\$(scripts/agent start ...)\""
+  printf '%s\n' "$path"
 }
 
 cmd_check() { "$ROOT/scripts/task" check; }
@@ -140,7 +140,7 @@ cmd_done() {
   if git -C "$PRIMARY" ls-remote --exit-code --heads origin "$br" >/dev/null 2>&1; then
     run git -C "$PRIMARY" push origin --delete "$br"
   fi
-  case "$PWD/" in "$path"/*) say "your shell is inside the removed worktree. move back with:"; printf 'cd %s\n' "$PRIMARY" ;; esac
+  case "$PWD/" in "$path"/*) say "your shell is inside the removed worktree; move back to the primary checkout:"; printf '%s\n' "$PRIMARY" ;; esac
 }
 
 cmd_list() {
