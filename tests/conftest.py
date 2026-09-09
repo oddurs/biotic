@@ -2,6 +2,16 @@
 
 Every test runs against a vessel under tmp_path, with a dormant mind and the network
 unreachable, so nothing a test does can touch the repository's culture or spend from a key.
+
+Two more rules hold for every test in this directory:
+
+1. Everything runs on pytest's main thread. The cell time budget is a SIGALRM timer and
+   only the main thread receives it, so never step a dish or call `admit()` from a thread.
+   `admit_isolated()` is the one membrane call that is safe anywhere: it runs in a child
+   interpreter.
+2. Nothing reads the real `soma/`. The membrane's positive control is the ten fossils in
+   tests/fixtures/genomes/, copied verbatim from the first "tide" run (qwen/qwen3-coder,
+   2026-09-08); `fixture_genomes()` below lists them.
 """
 
 from __future__ import annotations
@@ -16,6 +26,8 @@ from bio.culture import FALLBACK_GENESIS, Culture
 from bio.dish import Dish
 from bio.mind import Mind
 from bio.strains import Registry
+
+FIXTURES = Path(__file__).parent / "fixtures" / "genomes"
 
 
 def _no_network(*args, **kwargs):
@@ -56,6 +68,18 @@ def vessel(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     assert before == after, "a test wrote the repository's vessel/curve.csv"
 
 
+@pytest.fixture(autouse=True)
+def lenient_budget(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A quarter of a second per live() call instead of four milliseconds.
+
+    A legitimate genome takes microseconds, so this costs nothing; what it removes is the
+    one flake vector, a stalled runner lysing a founder cell mid-test, which would shift a
+    trajectory and break determinism together. `Budget` reads the constant at call time,
+    so patching it is enough. Tests about the budget itself set a tight one.
+    """
+    monkeypatch.setattr(config, "CELL_TIME_BUDGET", 0.25)
+
+
 @pytest.fixture
 def make_culture() -> Callable[..., Culture]:
     """A small culture founded on FALLBACK_GENESIS, inoculated, with seed.txt written so
@@ -75,3 +99,44 @@ def make_culture() -> Callable[..., Culture]:
         return c
 
     return _make
+
+
+def fixture_genomes() -> list[tuple[str, str]]:
+    """(stem, source) for every fossil in tests/fixtures/genomes, sorted by name."""
+    return [(p.stem, p.read_text()) for p in sorted(FIXTURES.glob("*.py"))]
+
+
+def make_dish(
+    seed: str = "test",
+    w: int = 24,
+    h: int = 12,
+    replenish: float | None = None,
+    genome: str = FALLBACK_GENESIS,
+    n: int = config.INOCULUM,
+) -> Dish:
+    """A small dish inoculated with one strain, "f"."""
+    d = Dish(seed, w, h)
+    d.register("f", genome)
+    d.inoculate("f", n)
+    if replenish is not None:
+        d.replenish = replenish
+    return d
+
+
+def dish_state(d: Dish) -> tuple:
+    """Everything that determines the dish's future, as one comparable value."""
+    cells = sorted(
+        (c.x, c.y, c.strain, c.energy, c.age, c.born, tuple(sorted(c.memory.items()))) for c in d.cells.values()
+    )
+    return (
+        d.tick,
+        cells,
+        d.nutrient,
+        d.pheromone,
+        d.rng.getstate(),
+        d.births,
+        dict(d.deaths),
+        list(d.history),
+        dict(d.genomes),
+        d.replenish,
+    )

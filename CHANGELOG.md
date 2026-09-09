@@ -18,6 +18,12 @@ turns the `Unreleased` section into a dated release.
   10 ticks like the rest. `Dish.metrics()`, `Culture.metrics()` and `bio.curve.read()` expose them; the
   vitals panel and `biotic status` show diversity next to the strain count, and `biotic run` prints H in
   its progress line. See `docs/curve.md`.
+- A test suite for the membrane, `parse_action`, the physics and persistence (`scripts/task test`): one genome
+  per escape class, ten fossils from a real run as the positive control, growth phases and carrying capacity
+  under the built-in founder, determinism under a seed, and an exact resume from `dish.json`. Tests never touch
+  the network or the real `vessel/`.
+- `docs/membrane.md`: every rule with its reason string, what a burst is and why a genome cannot catch it, and
+  the membrane's known limits.
 
 ### Changed
 
@@ -28,11 +34,24 @@ turns the `Unreleased` section into a dated release.
   `curve` event, every later row is tried again, and a `resumed` event says when writing works.
 - The vitals `strains` row reads `living  arisen  extinct`; the maximum generation it used to show is
   replaced by the cell-weighted mean generation on the new `diversity` row.
+- The membrane rejects attributes beginning with `_` (`random._os`), `.format`, `.format_map` and `.mro`,
+  `finally`, `except*`, bare `except:`, and `except` clauses that name anything but the six built-in exceptions
+  a genome can see. Inside a genome, `random` is the dish's own seeded generator rather than the module, so a
+  culture is deterministic under its seed and `random.Random`/`random.SystemRandom` no longer exist there.
+- A genome can no longer catch or outlive its time budget: `Lysis` is a `BaseException`, and with no `finally`,
+  no bare `except` and no `except` outside that list, nothing in a genome runs after it is raised. The smoke
+  test also budgets module-level code.
+- A genome longer than `GENOME_MAX_CHARS` is rejected before it is parsed.
+- The mutagen's prompt states the rules the membrane enforces.
 
 ### Fixed
 
 - An empty `curve.csv`, or one holding only blank lines, is given its header with the next row instead
   of being appended to without one.
+- `dish.json` no longer rounds cell energy, so a resumed dish follows exactly the trajectory the running one
+  would have.
+- `parse_action` returns `None` instead of raising on `nan`, `inf` and other values it cannot coerce, and no
+  longer turns `("emit", nan)` into a full emission.
 
 ## [0.1.0] - 2026-09-09
 

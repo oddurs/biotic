@@ -14,13 +14,14 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from . import config
-from .membrane import Budget, compile_genome
+from .membrane import Budget, Lysis, compile_genome
 
 # clockwise from north
 DIRS = [(0, -1), (1, -1), (1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1)]
 DIR_NAMES = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
 
 _ALIASES = {"split": "divide", "sleep": "rest", "wait": "rest", "stay": "rest", "go": "move", "feed": "eat"}
+_COERCE_ERRORS = (TypeError, ValueError, OverflowError)  # int(nan), int(inf), float(10**400), int(None)
 
 
 def parse_action(out):
@@ -30,7 +31,10 @@ def parse_action(out):
     if isinstance(out, bool):
         return None
     if isinstance(out, (int, float)):
-        return ("move", int(out) % 8)
+        try:
+            return ("move", int(out) % 8)
+        except _COERCE_ERRORS:
+            return None
     if isinstance(out, str):
         s = _ALIASES.get(out.strip().lower(), out.strip().lower())
         if s in ("eat", "rest", "divide"):
@@ -51,7 +55,7 @@ def parse_action(out):
                 return ("emit", max(0.0, min(1.0, x)))
             if kind in ("eat", "rest"):
                 return (kind, None)
-        except (TypeError, ValueError):
+        except _COERCE_ERRORS:
             return None
     return None
 
@@ -195,7 +199,7 @@ class Dish:
     def _fn(self, strain: str) -> Callable:
         fn = self._compiled.get(strain)
         if fn is None:
-            fn = compile_genome(self.genomes[strain])
+            fn = compile_genome(self.genomes[strain], self.rng)
             self._compiled[strain] = fn
         return fn
 
@@ -299,7 +303,7 @@ class Dish:
                 if action is None:
                     raise ValueError("unparseable action")
                 self._apply(cell, action)
-            except Exception:  # noqa: BLE001 — anything a genome does wrong is lysis
+            except (Lysis, Exception):  # noqa: BLE001 — anything a genome does wrong is lysis
                 self._die(cell, "lysed")
                 continue
             if cell.energy <= 0:
@@ -408,10 +412,7 @@ class Dish:
             "rng": self.rng.getstate(),
             "nutrient": self.nutrient,
             "pheromone": self.pheromone,
-            "cells": [
-                [c.x, c.y, c.strain, round(c.energy, 4), c.age, c.born, _jsonable(c.memory)]
-                for c in self.cells.values()
-            ],
+            "cells": [[c.x, c.y, c.strain, c.energy, c.age, c.born, _jsonable(c.memory)] for c in self.cells.values()],
             "genomes": self.genomes,
             "history": list(self.history),
             "deaths": self.deaths,

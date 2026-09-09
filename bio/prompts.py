@@ -22,7 +22,7 @@ A genome is Python source that defines exactly one function:
     me.scent       8 floats: pheromone on neighbor tiles
     me.scent_here  pheromone on this tile
     me.memory      a dict that persists across ticks and is copied into daughters
-    me.rng         a random.Random
+    me.rng         a random.Random — the dish's own seeded generator. `random` in scope is the same object.
     me.tick        the dish clock
     me.population  how many cells are alive in the whole dish
 
@@ -45,8 +45,11 @@ unparseable, or takes too long, bursts (lysis) immediately.
 
 Hard rules of the membrane — a genome breaking any of these is discarded before it can live:
   - no import statements. `math` and `random` are already in scope; nothing else exists.
-  - no classes, no globals, no print, no getattr/eval/exec/open, no names starting with __
+  - no classes, no globals, no print, no getattr/eval/exec/open, no names starting with __,
+    no attributes starting with _ (nothing like x._private), no .format, no .mro, no bare `except:`.
   - only `def`, and simple assignments at module level. Keep it short (well under 2000 chars).
+  - live() must return within a few milliseconds every tick. A loop that does not end bursts
+    the cell, and nothing in the genome can catch that.
 """
 
 GENESIS_SYSTEM = f"""\

@@ -11,6 +11,7 @@ import ast
 import math
 import random
 import signal
+import time
 from dataclasses import dataclass, field
 
 from . import config
@@ -46,6 +47,12 @@ BANNED_NAMES = {
     "next",
     "print",
 }
+
+# Attributes with no leading underscore that still reach outside the genome.
+# .format and .format_map walk attributes through their replacement fields;
+# .mro() is the one non-dunder route from an exception class to BaseException,
+# which is what Lysis derives from.
+BANNED_ATTRS = {"format", "format_map", "mro"}
 
 SAFE_BUILTINS = {
     n: __builtins__[n] if isinstance(__builtins__, dict) else getattr(__builtins__, n)
@@ -102,14 +109,14 @@ class Verdict:
 
 def inspect(source: str) -> Verdict:
     """Static gate. Cheap, strict, and dumb on purpose."""
-    reasons: list[str] = []
-    if len(source) > config.GENOME_MAX_CHARS:
-        reasons.append(f"genome too long ({len(source)} > {config.GENOME_MAX_CHARS} chars)")
+    if len(source) > config.GENOME_MAX_CHARS:  # before parsing: parsing megabytes is itself a cost
+        return Verdict(False, [f"genome too long ({len(source)} > {config.GENOME_MAX_CHARS} chars)"])
     try:
         tree = ast.parse(source)
     except SyntaxError as e:
         return Verdict(False, [f"SyntaxError: {e.msg} (line {e.lineno})"])
 
+    reasons: list[str] = []
     has_live = False
     for node in tree.body:
         if isinstance(node, ast.Expr) and not isinstance(node.value, ast.Constant):
@@ -128,10 +135,16 @@ def inspect(source: str) -> Verdict:
             reasons.append("imports are not allowed (math and random are already in scope)")
         elif isinstance(node, ast.Name) and node.id in BANNED_NAMES:
             reasons.append(f"forbidden name: {node.id}")
-        elif isinstance(node, ast.Attribute) and node.attr.startswith("__"):
-            reasons.append(f"dunder access: .{node.attr}")
         elif isinstance(node, ast.Name) and node.id.startswith("__"):
             reasons.append(f"dunder name: {node.id}")
+        elif isinstance(node, ast.Attribute) and node.attr.startswith("__"):
+            reasons.append(f"dunder access: .{node.attr}")
+        elif isinstance(node, ast.Attribute) and node.attr.startswith("_"):
+            reasons.append(f"private attribute: .{node.attr}")
+        elif isinstance(node, ast.Attribute) and node.attr in BANNED_ATTRS:
+            reasons.append(f"forbidden attribute: .{node.attr}")
+        elif isinstance(node, ast.ExceptHandler) and node.type is None:
+            reasons.append("bare except not allowed")
         elif isinstance(node, (ast.Global, ast.Nonlocal)):
             reasons.append("global/nonlocal not allowed")
         elif isinstance(node, (ast.AsyncFunctionDef, ast.Await, ast.Yield, ast.YieldFrom)):
@@ -144,9 +157,14 @@ def inspect(source: str) -> Verdict:
     return Verdict(not reasons, reasons)
 
 
-def compile_genome(source: str):
-    """Compile into an isolated namespace. Returns the live() callable."""
-    ns = {"__builtins__": SAFE_BUILTINS, "math": math, "random": random}
+def compile_genome(source: str, rng: random.Random):
+    """Compile into an isolated namespace. Returns the live() callable.
+
+    `random` inside the genome is `rng` — the dish's own seeded generator — and
+    not the module, so a genome reaches neither the module's private state nor
+    an unseeded source of randomness.
+    """
+    ns = {"__builtins__": SAFE_BUILTINS, "math": math, "random": rng}
     code = compile(source, "<genome>", "exec")
     exec(code, ns)
     fn = ns.get("live")
@@ -155,8 +173,12 @@ def compile_genome(source: str):
     return fn
 
 
-class Lysis(Exception):
-    """The cell took too long. It bursts."""
+class Lysis(BaseException):
+    """The cell took too long. It bursts.
+
+    A BaseException, not an Exception: `Exception` is the widest name a genome
+    can catch, so nothing inside a genome can swallow the budget.
+    """
 
 
 _armed = False
@@ -184,7 +206,9 @@ class Budget:
             signal.signal(signal.SIGALRM, _alarm)
             _installed = True
         _armed = True
-        signal.setitimer(signal.ITIMER_REAL, self.seconds)
+        # A repeating timer: a genome still running after the first Lysis (in a
+        # finally block, say) receives another one every budget interval.
+        signal.setitimer(signal.ITIMER_REAL, self.seconds, self.seconds)
 
     def __exit__(self, *exc):
         global _armed
@@ -213,12 +237,25 @@ class _FakeMe:
 
 
 def smoke_test(source: str, rounds: int = 40) -> Verdict:
-    """Dynamic gate: run live() against random situations. Must never throw."""
+    """Dynamic gate: run live() against random situations. Must never throw.
+
+    Module-level code and every round run under four times the cell's budget.
+    A round that returns without bursting but still outlived its budget is
+    rejected as well: that backstop does not depend on how the alarm was
+    reached, so it holds even if something ever learns to swallow a Lysis.
+    """
+    budget = config.CELL_TIME_BUDGET * 4
+    rng = random.Random(12345)
+    t0 = time.perf_counter()
     try:
-        fn = compile_genome(source)
+        with Budget(budget):
+            fn = compile_genome(source, rng)
+    except Lysis:
+        return Verdict(False, ["too slow: module level exceeded time budget"])
     except Exception as e:  # noqa: BLE001
         return Verdict(False, [f"failed to compile: {type(e).__name__}: {e}"])
-    rng = random.Random(12345)
+    if time.perf_counter() - t0 >= budget:
+        return Verdict(False, ["too slow: module level outlived the time budget without bursting"])
     me = _FakeMe(rng, 0)
     for i in range(rounds):
         me.tick = i
@@ -227,13 +264,16 @@ def smoke_test(source: str, rounds: int = 40) -> Verdict:
         me.around = [rng.choice([0.0, rng.random()]) for _ in range(8)]
         me.crowd = [rng.random() < (i / rounds) for _ in range(8)]
         me.kin = [c and rng.random() < 0.6 for c in me.crowd]
+        t0 = time.perf_counter()
         try:
-            with Budget(config.CELL_TIME_BUDGET * 4):
+            with Budget(budget):
                 out = fn(me)
         except Lysis:
             return Verdict(False, ["too slow: exceeded time budget"])
         except Exception as e:  # noqa: BLE001
             return Verdict(False, [f"threw on tick {i}: {type(e).__name__}: {e}"])
+        if time.perf_counter() - t0 >= budget:
+            return Verdict(False, ["too slow: outlived the time budget without bursting"])
         if not _valid_action(out):
             return Verdict(False, [f"returned an unknown action: {out!r}"])
     return Verdict(True)
