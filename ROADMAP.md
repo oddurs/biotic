@@ -4,7 +4,7 @@
 
 ## dish — A dish you can leave running
 
-`#·········` 10% · 1 of 10 done · due 2026-09-21
+`##········` 18% · 2 of 11 done · due 2026-09-21
 
 The apparatus exists and a culture evolves in it. It is not yet an instrument:
 
@@ -23,6 +23,7 @@ The apparatus exists and a culture evolves in it. It is not yet an instrument:
 ### done
 
 - [x] `0003` Diversity and turnover metrics in the growth curve <sup>feature · p0</sup>
+- [x] `0045` Growth curve: pin the header and sharpen docs/curve.md <sup>chore · p3</sup>
 
 ## biotic-env — The environment is other cells
 

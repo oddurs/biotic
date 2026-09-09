@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import math
+import threading
 
 import pytest
 from rich.console import Console
@@ -18,6 +20,7 @@ from bio.tui import events as log_panel
 from bio.tui import vitals
 
 OLD_HEADER = "tick,population,strains,nutrient,phase,births,starved,lysed,senescent"
+NEW_HEADER = OLD_HEADER + ",killed,shannon,dominance,mean_gen,arisen,extinct,pheromone,mutations_ready,mutations_taken"
 OLD_ROWS = [
     "10,5,1,0.7103,lag,0,0,0,0",
     "20,10,1,0.7314,lag,5,0,0,0",
@@ -126,6 +129,28 @@ def test_culture_observers_do_not_change_the_trajectory(make_culture):
     assert c.dish.births == bare.births and c.dish.deaths == bare.deaths
 
 
+def test_snapshot_reads_the_agar_once(make_culture, monkeypatch):
+    """snapshot() computes the metrics row once and takes the vitals' agar figure from it, so the
+    agar is summed once per frame and the vitals and the curve's nutrient column are one reading."""
+    c = make_culture()
+    for _ in range(5):
+        c.step()
+    expected = c.dish.nutrient_mean()
+    reads = 0
+    real = Dish.nutrient_mean
+
+    def counted(self):
+        nonlocal reads
+        reads += 1
+        return real(self)
+
+    monkeypatch.setattr(Dish, "nutrient_mean", counted)
+    s = c.snapshot()
+    assert reads == 1  # Dish.metrics() is the only caller; a second read is the old snapshot() back
+    assert s["nutrient"] == s["metrics"]["nutrient"] == expected
+    assert s["population"] == s["metrics"]["population"] == sum(s["census"].values())
+
+
 def test_metrics_survive_a_round_trip():
     d = _dish()
     d.register("f", FALLBACK_GENESIS)
@@ -195,7 +220,8 @@ def test_curve_has_the_new_columns(make_culture):
         c.step()
     header = config.CURVE.read_text().splitlines()[0].split(",")
     assert header == list(curve.COLUMNS)
-    assert header[:9] == OLD_HEADER.split(",")
+    assert header[:9] == OLD_HEADER.split(",")  # the prefix rule: what 0.1.0 wrote, in its order
+    assert header == NEW_HEADER.split(",")  # the full order docs/curve.md promises is stable
     rows = curve.read()
     assert [r["tick"] for r in rows] == [10, 20]
     first = rows[0]
@@ -428,3 +454,19 @@ def test_run_reports_diversity_in_its_progress_line(make_culture, capsys):
     assert "tick     20" in err
     assert "H 0.00" in err
     assert [r["tick"] for r in curve.read()] == [10, 20]
+
+
+def test_run_starts_the_mutagen_thread_and_a_dormant_one_exits(make_culture, capsys):
+    """Culture.run() is the one path in the suite that starts the mutagen thread. With no key the
+    mind is dormant, so the thread says so once and returns; nothing outlives the run."""
+    c = make_culture()
+    c.save()
+    main(["run", "--ticks", "10", "--tick", "0", "--quiet"])
+    capsys.readouterr()
+    for t in threading.enumerate():
+        if t.name == "mutagen":
+            t.join(1.0)  # close() sets the stop flag and does not join; give a live one a moment
+    assert not any(t.name == "mutagen" and t.is_alive() for t in threading.enumerate())
+    said = [json.loads(ln) for ln in config.EVENTS.read_text().splitlines()]
+    dormant = [ev for ev in said if ev["kind"] == "mind" and ev["msg"].startswith("mutagen dormant")]
+    assert len(dormant) == 1
