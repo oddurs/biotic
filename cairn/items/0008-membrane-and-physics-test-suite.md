@@ -6,7 +6,7 @@ status: done
 milestone: dish
 assignee: Oddur Sigurdsson
 created: 2026-09-08
-updated: 2026-09-08
+updated: 2026-09-09
 priority: p0
 effort: m
 area: tests/
@@ -86,3 +86,15 @@ Follow-ups not done here: C-level work (sum(range(10**12)), big-int **, [0]*10**
 ## 2026-09-08
 
 scripts/task check is green: 114 tests in 4.4 s (criterion: under 30 s); the slowest single test is the 1 s isolated-timeout case. Follow-ups opened: 0042 (resource bombs the budget cannot interrupt, p1), 0043 (genome memory fidelity across a save, p2), 0044 (per-cell generator derived from the dish rng, p3).
+
+## 2026-09-09
+
+Rebased onto main after 0003 landed (tests/conftest.py, test_metrics.py, bio/curve.py) and reconciled with the revised plan. The guarantee that nothing in a genome runs after a Lysis is now static, in inspect: finally ('finally not allowed'), except* ('except* not allowed'), bare except, and any except clause that does not name one of the six SAFE_BUILTINS exception classes by name, alone or as a tuple ('except may only name ...', built from SAFE_BUILTINS so the list cannot drift). This supersedes the repeating timer and the clock backstop ('outlived the time budget without bursting') described in the earlier note: both are gone. The timer is one shot again because a second alarm could land while the first Lysis is still unwinding through Dish.step's handler and escape the tick; test_budget_is_one_shot pins it. .mro stays banned: it is the only non-dunder route to BaseException and object, and a genome must not be able to raise a BaseException either, since the dish catches only Lysis and Exception.
+
+## 2026-09-09
+
+Red evidence for the reconciliation, on the code as rebased: inspect admitted all six new cases (a return in finally, except BaseException, except me.oops, except err, except (ValueError, BaseException), except* ValueError); parse_action(('emit', nan)) returned ('emit', 1.0), now None; Budget's timer had an interval; and the finally-return and except-laundering genomes were stopped only by the clock backstop, not by the gate. All red before, green after, and all 17 fossils in soma/ of the tide run are still admitted; none uses except, finally, random., ._ or .format. Watch the nonviable rate in the first run after merge: a model that habitually writes bare except or finally sees more rejections, and the prompt now states the rule so they feed back.
+
+## 2026-09-09
+
+tests/conftest.py is main's autouse vessel fixture extended, not replaced: lenient_budget (0.25 s), fixture_genomes, make_dish and dish_state are added; dormant_mind and a separate no_network fixture are gone because the autouse fixture already leaves Mind() dormant and turns urlopen into an AssertionError, which test_network_guard_is_armed relies on. test_culture no longer pins the curve header (18 columns now; test_metrics owns it). The mask/tiles test left test_physics: geometry is 0009/0006. Suite after the rebase: 146 tests in about 5 s; the slowest is still the 1 s isolated-timeout case.

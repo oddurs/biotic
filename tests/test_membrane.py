@@ -20,9 +20,19 @@ from conftest import fixture_genomes, make_dish
 from bio import config, membrane
 from bio.culture import FALLBACK_GENESIS
 from bio.dish import Dish
-from bio.membrane import Budget, Lysis, admit, admit_isolated, compile_genome, inspect
+from bio.membrane import (
+    ALLOWED_EXCEPTIONS,
+    SAFE_BUILTINS,
+    Budget,
+    Lysis,
+    admit,
+    admit_isolated,
+    compile_genome,
+    inspect,
+)
 
 LIVE_REST = "def live(me):\n    return 'rest'\n"
+EXCEPT_RULE = "except may only name"
 
 
 @pytest.fixture
@@ -74,12 +84,42 @@ REJECTED = [
     (
         "mro_route_to_base_exception",
         "def live(me):\n    try:\n        while True:\n            pass\n    except Exception.mro()[1]:\n        return 'rest'\n",
-        "forbidden attribute: .mro",
+        ("forbidden attribute: .mro", EXCEPT_RULE),
     ),
     (
         "bare_except",
         "def live(me):\n    try:\n        return 'eat'\n    except:\n        return 'rest'\n",
         "bare except not allowed",
+    ),
+    (
+        "finally",
+        "def live(me):\n    try:\n        return 'eat'\n    finally:\n        return 'rest'\n",
+        "finally not allowed",
+    ),
+    (
+        "except_base_exception",
+        "def live(me):\n    try:\n        return 'eat'\n    except BaseException:\n        return 'rest'\n",
+        EXCEPT_RULE,
+    ),
+    (
+        "except_attribute",
+        "def live(me):\n    try:\n        return 'eat'\n    except me.oops:\n        return 'rest'\n",
+        EXCEPT_RULE,
+    ),
+    (
+        "except_local_name",
+        "def live(me):\n    err = ValueError\n    try:\n        return 'eat'\n    except err:\n        return 'rest'\n",
+        EXCEPT_RULE,
+    ),
+    (
+        "except_tuple_with_a_stranger",
+        "def live(me):\n    try:\n        return 'eat'\n    except (ValueError, BaseException):\n        return 'rest'\n",
+        EXCEPT_RULE,
+    ),
+    (
+        "except_star",
+        "def live(me):\n    try:\n        return 'eat'\n    except* ValueError:\n        return 'rest'\n",
+        "except* not allowed",
     ),
     ("two_args", "def live(me, other):\n    return 'rest'\n", "live() must take exactly one argument"),
     ("no_live", "def grow(me):\n    return 'eat'\n", "no live(me) function"),
@@ -91,7 +131,17 @@ REJECTED = [
 def test_escape_class_is_rejected_and_named(name, source, expected):
     v = inspect(source)
     assert not v
-    assert any(expected in r for r in v.reasons), (expected, v.reasons)
+    for want in (expected,) if isinstance(expected, str) else expected:
+        assert any(want in r for r in v.reasons), (want, v.reasons)
+
+
+def test_except_rule_lists_every_name_a_genome_may_catch():
+    """The reason string is built from the whitelist, so the two cannot drift apart."""
+    assert ALLOWED_EXCEPTIONS == {"Exception", "ValueError", "KeyError", "IndexError", "ZeroDivisionError", "TypeError"}
+    v = inspect("def live(me):\n    try:\n        return 'eat'\n    except BaseException:\n        return 'rest'\n")
+    (reason,) = v.reasons
+    assert reason.startswith(EXCEPT_RULE)
+    assert all(name in reason for name in ALLOWED_EXCEPTIONS)
 
 
 def test_too_long_source_is_rejected_without_parsing(monkeypatch):
@@ -115,10 +165,14 @@ def test_reasons_are_deduplicated():
 # --- dynamic gate: the budget and the smoke test ----------------------------
 
 
-def test_lysis_is_not_an_exception():
-    """Nothing a genome can name catches it: `Exception` is the widest name in scope."""
+def test_lysis_is_not_a_catchable_builtin():
+    """Nothing a genome can name catches a burst. `Exception` is the widest class in scope,
+    and every class the except whitelist admits sits below it."""
     assert issubclass(Lysis, BaseException)
     assert not issubclass(Lysis, Exception)
+    assert "BaseException" not in SAFE_BUILTINS
+    assert not any(isinstance(v, type) and issubclass(Lysis, v) for v in SAFE_BUILTINS.values())
+    assert all(issubclass(SAFE_BUILTINS[n], Exception) for n in ALLOWED_EXCEPTIONS)
 
 
 def test_budget_bursts_a_loop_and_disarms_the_timer_on_exit():
@@ -127,6 +181,14 @@ def test_budget_bursts_a_loop_and_disarms_the_timer_on_exit():
             while True:
                 pass
     assert signal.getitimer(signal.ITIMER_REAL) == (0.0, 0.0)
+
+
+def test_budget_is_one_shot():
+    """One alarm per call. A repeating interval could raise a second Lysis while the first
+    is still unwinding through the dish's handler, and that one would escape the tick."""
+    with Budget(0.5):
+        _, interval = signal.getitimer(signal.ITIMER_REAL)
+    assert interval == 0.0
 
 
 def test_while_true_is_too_slow(tight_budget):
@@ -141,49 +203,37 @@ def test_except_exception_cannot_swallow_lysis(tight_budget):
     )
     v = admit(src)
     assert not v
-    assert v.reasons[0].startswith("too slow")
+    assert v.reasons == ["too slow: exceeded time budget"]
 
 
-def test_finally_cannot_outlive_lysis(tight_budget):
-    """The timer repeats: a finally block that keeps looping receives a second burst."""
-    src = "def live(me):\n    try:\n        while True:\n            pass\n    finally:\n        while True:\n            pass\n"
+def test_finally_return_is_rejected_before_it_can_run(tight_budget):
+    """A `return` in `finally` discards the exception on its way out, Lysis included, and it is
+    instant, so no timer can help. The static gate refuses the construct; nothing is executed."""
+    src = "def live(me):\n    try:\n        while True:\n            pass\n    finally:\n        return 'rest'\n"
     t0 = time.perf_counter()
     v = admit(src)
-    assert time.perf_counter() - t0 < 2.0
-    assert not v
-    assert v.reasons[0].startswith("too slow")
+    assert time.perf_counter() - t0 < 0.5
+    assert v.reasons == ["finally not allowed"]
 
 
-@pytest.mark.parametrize(
-    "source,expected",
-    [
-        (
-            "def live(me):\n    x = sum(range(3 * 10**6))\n    return 'rest'\n",
-            "too slow: outlived the time budget without bursting",
-        ),
-        ("x = sum(range(3 * 10**6))\n" + LIVE_REST, "too slow: module level outlived the time budget without bursting"),
-    ],
-    ids=["live", "module_level"],
-)
-def test_work_that_outlives_its_budget_is_rejected_even_without_a_burst(monkeypatch, source, expected):
-    """The backstop behind the alarm. If the alarm never fires, or something ever
-    finds a way to swallow it, the smoke test still measures the round."""
-
-    class NoAlarm:
-        def __init__(self, seconds):
-            pass
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *exc):
-            return False
-
-    monkeypatch.setattr(membrane, "Budget", NoAlarm)
-    monkeypatch.setattr(config, "CELL_TIME_BUDGET", 0.0005)
-    v = admit(source)
-    assert not v
-    assert v.reasons == [expected]
+def test_except_laundering_is_rejected_before_it_can_run(tight_budget):
+    """`except BaseException` is a NameError inside a genome, which an outer `except Exception`
+    would catch after the loop has burst. The whitelist stops it at the inner handler."""
+    src = (
+        "def live(me):\n"
+        "    try:\n"
+        "        try:\n"
+        "            while True:\n"
+        "                pass\n"
+        "        except BaseException:\n"
+        "            pass\n"
+        "    except Exception:\n"
+        "        return 'rest'\n"
+    )
+    t0 = time.perf_counter()
+    v = admit(src)
+    assert time.perf_counter() - t0 < 0.5
+    assert len(v.reasons) == 1 and v.reasons[0].startswith(EXCEPT_RULE)
 
 
 def test_recursion_bomb_throws():
@@ -233,7 +283,9 @@ def test_fixture_genomes_are_admitted(stem, source):
     assert v.reasons == []
 
 
-BENIGN = """\
+BENIGN = '''\
+"""A genome may carry a docstring."""
+
 THRESH = 0.5
 LIMIT: int = 3
 
@@ -248,16 +300,21 @@ def live(me):
         n = int("x")
     except ValueError:
         n = LIMIT
+    try:
+        me.memory["seen"] = me.around[me.memory["dir"]]
+    except (KeyError, IndexError) as e:
+        me.memory["dir"] = len(str(e)) % 8
     label = f"{me.energy:.2f}"
     if random.random() < 0.5 and len(label) > n:
         return ("move", random.choice(range(8)))
     return "eat" if _helper(me, 0.0) >= 0 else "rest"
-"""
+'''
 
 
 def test_benign_constructs_are_admitted():
-    """Generator expressions, try/except, f-strings, local underscore names,
-    module-level constants and the random functions in scope are all legal."""
+    """Generator expressions, try/except on the whitelisted names (alone, as a tuple, with `as`),
+    f-strings, local underscore names, module-level constants, a docstring and the random
+    functions in scope are all legal."""
     v = admit(BENIGN)
     assert v, v.reasons
 
@@ -344,8 +401,7 @@ def test_throwing_genome_is_lysed_in_the_dish(monkeypatch):
     assert d.tick == 5
 
 
-def test_busy_genome_is_lysed_within_a_tick(monkeypatch):
-    monkeypatch.setattr(config, "CELL_TIME_BUDGET", 0.004)
+def test_busy_genome_is_lysed_within_a_tick(tight_budget):
     d = make_dish(genome="def live(me):\n    while True:\n        pass\n", n=1)
     t0 = time.perf_counter()
     d.step()

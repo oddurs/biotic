@@ -52,6 +52,8 @@ def parse_action(out):
                 return ("divide", None if arg is None else int(arg) % 8)
             if kind == "emit":
                 x = 0.2 if arg is None else float(arg)
+                if x != x:  # nan: nonsense, not "emit everything"
+                    return None
                 return ("emit", max(0.0, min(1.0, x)))
             if kind in ("eat", "rest"):
                 return (kind, None)

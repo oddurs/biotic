@@ -31,7 +31,10 @@ returns without parsing, because parsing megabytes of model output is itself a c
 | any attribute beginning with `__` (`me.__class__`, `[].__class__.__subclasses__()`, `me.rng.__dict__`) | `dunder access: .<attr>` |
 | any attribute beginning with `_` (`random._os`) | `private attribute: .<attr>` |
 | `.format`, `.format_map`, `.mro` | `forbidden attribute: .<attr>` |
+| `try` with a `finally:` | `finally not allowed` |
+| `except*` | `except* not allowed` |
 | `except:` with no type | `bare except not allowed` |
+| `except` naming anything but `Exception`, `ValueError`, `KeyError`, `IndexError`, `ZeroDivisionError`, `TypeError`, alone or as a tuple (`except BaseException:`, `except me.oops:`, `except err:`, `except Exception.mro()[1]:`) | `except may only name Exception, IndexError, KeyError, TypeError, ValueError, ZeroDivisionError` |
 | `global`, `nonlocal` | `global/nonlocal not allowed` |
 | `async def`, `await`, `yield`, `yield from` | `async/generators not allowed` |
 | `class` | `classes not allowed` |
@@ -39,8 +42,20 @@ returns without parsing, because parsing megabytes of model output is itself a c
 Why those three attributes: `str.format` and `str.format_map` read attributes named
 inside their replacement fields, so `"{0.__class__}".format(me)` would reach a dunder
 the syntax tree never shows. `.mro()` is the one attribute without a leading underscore
-that leads from an exception class to `BaseException`, and `BaseException` is what a
-burst is (below).
+that leads from an exception class to `BaseException` and `object`; `BaseException` is
+what a burst is (below), and a genome must be able neither to catch one nor to raise one.
+
+Why the `except` rules: a burst is an exception, and there are three ways a genome
+could run on after one. A `finally:` block runs whatever is propagating, and a `return`
+there discards it, instantly, so no timer can help. A bare `except:` catches
+everything. And an `except` whose expression is not a plain name can evaluate to
+something wider than the genome should be able to name: `Exception.mro()[1]` is
+`BaseException`, and `except BaseException:` itself is a `NameError` inside a genome,
+which an outer `except Exception:` would catch after the loop has burst. So `except`
+may name only the exception classes in the namespace, by name, alone or as a tuple,
+and every one of those is a subclass of `Exception`. The list in the reason string is
+built from `SAFE_BUILTINS`, so adding an exception class there widens `except` in the
+same step; the suite pins that no class in that namespace is a superclass of `Lysis`.
 
 Names with a single leading underscore (`_`, `_tmp`, `def _helper`) stay legal. The
 rule is about attributes, which are how a genome would reach out of its namespace.
@@ -66,27 +81,27 @@ Time is measured with the same wall-clock budget the dish uses, `CELL_TIME_BUDGE
 |---|---|
 | module-level code ran past its budget | `too slow: module level exceeded time budget` |
 | a round ran past its budget | `too slow: exceeded time budget` |
-| a round returned, but only after its budget had run out | `too slow: outlived the time budget without bursting` |
 | an exception escaped `live` | `threw on tick N: <Type>: <msg>` |
 | a return value `parse_action` rejects | `returned an unknown action: <repr>` |
 | the source did not compile | `failed to compile: <Type>: <msg>` |
 
 ## Lysis: why a genome cannot catch the budget
 
-`Budget` arms a repeating `SIGALRM` interval timer; when it fires, the handler raises
-`Lysis`. Three things make that uncatchable from inside a genome:
+`Budget` arms a one-shot `SIGALRM` timer; when it fires, the handler raises `Lysis`.
+Nothing inside a genome can catch it or run after it:
 
 - `Lysis` derives from `BaseException`, not `Exception`. `Exception` is the widest
-  name a genome can write, and `except Exception:` does not see it.
-- Every route from a name a genome does have to `BaseException` is closed: `.mro()`,
-  every `__dunder__`, `type`, `object`, and the bare `except:` that would catch
-  anything at all.
-- The timer repeats. A `finally:` block that keeps looping after the first `Lysis`
-  receives another one a budget later, and cannot outlive it.
+  class a genome can name, and `except Exception:` does not see it.
+- The static gate refuses every construct that would run code after it: `finally:`,
+  bare `except:`, `except*`, and any `except` that does not name one of the six
+  built-in exception classes directly. Every route from a name a genome has to
+  `BaseException` is closed too (`.mro()`, every `__dunder__`, `type`, `object`), so
+  a genome cannot raise one either, and the dish's own handler, which catches `Lysis`
+  and `Exception`, sees everything a genome can throw.
 
-Behind those, the smoke test also measures each round with a clock. A round that
-returns without bursting, but after its budget has passed, is rejected regardless of
-how that came about, so the guarantee does not rest on the route analysis alone.
+The timer is one shot on purpose. Nothing can run after the first `Lysis`, so a second
+alarm would add nothing, and a repeating one could fire while the first is still
+unwinding through the dish's handler, where it would escape the tick.
 
 Because the alarm is a signal, `Budget` only works on the main thread, which is where
 the dish runs. In the dish a `Lysis` is a death like any other: the cell bursts,
@@ -120,10 +135,24 @@ done today.
 ## The fixture set
 
 `tests/fixtures/genomes/` holds ten fossils copied verbatim from `soma/` of the first
-"tide" run: the founder, `tide_drifter`, and nine of its descendants. They are the
-membrane's positive control. Every one must be admitted, and the suite names the one
+"tide" run (seed "tide", model `qwen/qwen3-coder`, 2026-09-08): the founder,
+`tide_drifter`, and nine of its descendants. They are the membrane's positive control. Every one must be admitted, and the suite names the one
 that stops being when a rule changes. Do not edit them; ruff is told to leave them
 alone, and their trailing whitespace is part of the record.
+
+## What the suite guarantees
+
+`tests/test_membrane.py` holds one genome per escape class, each asserting the reason
+string above by name, so a rule that quietly stops firing is caught by name and not by
+a count. The dynamic gate is exercised at the real 4 ms budget: a busy loop, a loop
+inside `except Exception:`, a recursion bomb, module-level work, and the `finally` and
+laundering genomes, which are refused before anything runs. `admit_isolated` is
+exercised with a Python-level loop, which the child's own budget answers, and a
+C-level one, which the ceiling ends, leaving no process behind. The built-in founder
+and the ten fossils are the positive control, and one genome using every benign
+construct at once — generator expressions, `try/except` on the whitelisted names
+alone, as a tuple and with `as`, f-strings, underscore-prefixed locals, module-level
+constants, a docstring, `random.random()` and `random.choice()` — must be admitted.
 
 ## Known limits
 

@@ -115,8 +115,9 @@ Genomes are untrusted code from a language model running on your machine, so
 they pass through `bio/membrane.py` before they can live: no imports (only
 `math` and `random` exist, and `random` is the dish's own seeded generator), no
 classes, no dunders or private attributes, no `open`/`eval`/`getattr`, no
-`.format`, no bare `except:`, a size cap, and a wall-clock budget per call that
-nothing in a genome can catch. Then forty ticks against random situations
+`.format`, no `finally`, `except` only on the six built-in exceptions a genome can
+see, a size cap, and a wall-clock budget per call that nothing in a genome can
+catch or outlive. Then forty ticks against random situations
 without throwing. A genome that throws inside the dish bursts the cell; it
 doesn't touch anything else. `docs/membrane.md` has every rule with its reason
 string, and what the membrane cannot do.
@@ -134,7 +135,9 @@ string, and what the membrane cannot do.
       tui.py        the eyepiece
     soma/         every strain that ever arose. written by the culture. do not edit.
     vessel/       the running state: seed, dish, strains, events, growth curve, whispers
-    docs/         longer notes: docs/curve.md on reading the growth curve
+    docs/         longer notes: docs/curve.md on reading the growth curve,
+                  docs/membrane.md on what a genome may contain and why
+    tests/        the suite; tests/fixtures/genomes/ holds ten fossils from a real run
 
 ## development
 

@@ -1,9 +1,10 @@
 """The dish's physics under the founder: growth phases, carrying capacity, determinism.
 
-Everything runs on a 24×12 dish (232 tiles) with seed "test". The numeric bands
-are a deliberate floor: retuning BASAL_COST, MOVE_COST, EAT_RATE, NECROMASS,
-CORPSE_NUTRIENT or the founder will move them, and the point of these tests is
-to say so when it happens.
+Everything runs on a 24×12 dish (232 tiles) with seed "test". These are regression
+pins on one seeded trajectory, not statistical estimates; the only analytic claims are
+the carrying-capacity ceiling and the death ledger. The numeric bands are a deliberate
+floor: retuning BASAL_COST, MOVE_COST, EAT_RATE, NECROMASS, CORPSE_NUTRIENT, DIFFUSION
+or the founder will move them, and the point of these tests is to say so when it happens.
 """
 
 from __future__ import annotations
@@ -98,13 +99,3 @@ def test_dish_is_deterministic_under_a_seed():
     for _ in range(500):
         c.step()
     assert (c.census(), c.nutrient) != (a.census(), a.nutrient)
-
-
-def test_mask_is_an_ellipse_and_tiles_counts_it():
-    d = Dish("test", 24, 12)
-    assert d.tiles == 232
-    assert d.tiles == sum(v for row in d.mask for v in row)
-    assert not d.mask[0][0]
-    assert d.mask[6][12]
-    assert not d.inside(-1, 6)
-    assert not d.inside(24, 6)

@@ -2,7 +2,10 @@
 
 A genome is Python source defining `live(me)`. Before it can run inside the
 dish it has to pass through here: no imports, no dunders, no escape hatches,
-and it must survive a few dozen simulated ticks without throwing.
+and it must survive a few dozen simulated ticks without throwing. No attribute
+beginning with `_`, no `.format`, no `finally`, no `except*`, and `except` may
+name only the built-in exceptions a genome can see, so nothing in a genome runs
+on after its time budget bursts it.
 """
 
 from __future__ import annotations
@@ -11,7 +14,6 @@ import ast
 import math
 import random
 import signal
-import time
 from dataclasses import dataclass, field
 
 from . import config
@@ -50,8 +52,8 @@ BANNED_NAMES = {
 
 # Attributes with no leading underscore that still reach outside the genome.
 # .format and .format_map walk attributes through their replacement fields;
-# .mro() is the one non-dunder route from an exception class to BaseException,
-# which is what Lysis derives from.
+# .mro() is the one non-dunder route from an exception class to BaseException and
+# object; BaseException is what Lysis derives from, and what a genome must never raise.
 BANNED_ATTRS = {"format", "format_map", "mro"}
 
 SAFE_BUILTINS = {
@@ -95,6 +97,14 @@ SAFE_BUILTINS = {
     )
 }
 
+# What an `except` clause may name: the exception classes in SAFE_BUILTINS and nothing
+# else, derived from the namespace so the two cannot drift apart. Every one of them is a
+# subclass of Exception, so none of them sees a Lysis.
+ALLOWED_EXCEPTIONS = frozenset(
+    n for n, v in SAFE_BUILTINS.items() if isinstance(v, type) and issubclass(v, BaseException)
+)
+_EXCEPT_RULE = "except may only name " + ", ".join(sorted(ALLOWED_EXCEPTIONS))
+
 ALLOWED_TOP_LEVEL = (ast.FunctionDef, ast.Assign, ast.AnnAssign, ast.Expr)
 
 
@@ -105,6 +115,12 @@ class Verdict:
 
     def __bool__(self) -> bool:
         return self.ok
+
+
+def _names_only(t: ast.expr) -> bool:
+    """True if an except clause names only whitelisted exceptions, alone or as a tuple."""
+    names = t.elts if isinstance(t, ast.Tuple) else [t]
+    return bool(names) and all(isinstance(n, ast.Name) and n.id in ALLOWED_EXCEPTIONS for n in names)
 
 
 def inspect(source: str) -> Verdict:
@@ -143,8 +159,16 @@ def inspect(source: str) -> Verdict:
             reasons.append(f"private attribute: .{node.attr}")
         elif isinstance(node, ast.Attribute) and node.attr in BANNED_ATTRS:
             reasons.append(f"forbidden attribute: .{node.attr}")
-        elif isinstance(node, ast.ExceptHandler) and node.type is None:
-            reasons.append("bare except not allowed")
+        elif isinstance(node, (ast.Try, ast.TryStar)):
+            if node.finalbody:
+                reasons.append("finally not allowed")
+            if isinstance(node, ast.TryStar):
+                reasons.append("except* not allowed")
+        elif isinstance(node, ast.ExceptHandler):
+            if node.type is None:
+                reasons.append("bare except not allowed")
+            elif not _names_only(node.type):
+                reasons.append(_EXCEPT_RULE)
         elif isinstance(node, (ast.Global, ast.Nonlocal)):
             reasons.append("global/nonlocal not allowed")
         elif isinstance(node, (ast.AsyncFunctionDef, ast.Await, ast.Yield, ast.YieldFrom)):
@@ -206,9 +230,10 @@ class Budget:
             signal.signal(signal.SIGALRM, _alarm)
             _installed = True
         _armed = True
-        # A repeating timer: a genome still running after the first Lysis (in a
-        # finally block, say) receives another one every budget interval.
-        signal.setitimer(signal.ITIMER_REAL, self.seconds, self.seconds)
+        # One shot. Nothing in a genome can run after Lysis is raised (no finally, no
+        # bare or foreign except), and a second alarm could land while the first is
+        # still unwinding through the dish's handler, where it would escape the tick.
+        signal.setitimer(signal.ITIMER_REAL, self.seconds)
 
     def __exit__(self, *exc):
         global _armed
@@ -239,14 +264,11 @@ class _FakeMe:
 def smoke_test(source: str, rounds: int = 40) -> Verdict:
     """Dynamic gate: run live() against random situations. Must never throw.
 
-    Module-level code and every round run under four times the cell's budget.
-    A round that returns without bursting but still outlived its budget is
-    rejected as well: that backstop does not depend on how the alarm was
-    reached, so it holds even if something ever learns to swallow a Lysis.
+    Module-level code and every round run under four times the cell's budget,
+    so a genome that is merely slow on the stand-in is still admitted.
     """
     budget = config.CELL_TIME_BUDGET * 4
     rng = random.Random(12345)
-    t0 = time.perf_counter()
     try:
         with Budget(budget):
             fn = compile_genome(source, rng)
@@ -254,8 +276,6 @@ def smoke_test(source: str, rounds: int = 40) -> Verdict:
         return Verdict(False, ["too slow: module level exceeded time budget"])
     except Exception as e:  # noqa: BLE001
         return Verdict(False, [f"failed to compile: {type(e).__name__}: {e}"])
-    if time.perf_counter() - t0 >= budget:
-        return Verdict(False, ["too slow: module level outlived the time budget without bursting"])
     me = _FakeMe(rng, 0)
     for i in range(rounds):
         me.tick = i
@@ -264,7 +284,6 @@ def smoke_test(source: str, rounds: int = 40) -> Verdict:
         me.around = [rng.choice([0.0, rng.random()]) for _ in range(8)]
         me.crowd = [rng.random() < (i / rounds) for _ in range(8)]
         me.kin = [c and rng.random() < 0.6 for c in me.crowd]
-        t0 = time.perf_counter()
         try:
             with Budget(budget):
                 out = fn(me)
@@ -272,8 +291,6 @@ def smoke_test(source: str, rounds: int = 40) -> Verdict:
             return Verdict(False, ["too slow: exceeded time budget"])
         except Exception as e:  # noqa: BLE001
             return Verdict(False, [f"threw on tick {i}: {type(e).__name__}: {e}"])
-        if time.perf_counter() - t0 >= budget:
-            return Verdict(False, ["too slow: outlived the time budget without bursting"])
         if not _valid_action(out):
             return Verdict(False, [f"returned an unknown action: {out!r}"])
     return Verdict(True)

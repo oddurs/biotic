@@ -59,6 +59,7 @@ REJECTED = [
     float("inf"),
     ("move", float("inf")),
     ("divide", float("nan")),
+    ("emit", float("nan")),  # nan is nonsense, not "emit everything"
     ("emit", 10**400),
 ]
 
