@@ -31,7 +31,7 @@ if [ "$new" != "$current" ]; then
   newest=$(printf '%s\n%s\n' "$current" "$new" | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1)
   [ "$newest" = "$new" ] || die "$new is older than the current version $current"
 fi
-notes=$(awk '/^## \[Unreleased\]/{on=1; next} /^## /{on=0} on' CHANGELOG.md | grep -v '^[[:space:]]*$' || true)
+notes=$(awk '/^## \[Unreleased\]/{on=1; next} /^## |^\[[^]]+\]: /{on=0} on' CHANGELOG.md | grep -v '^[[:space:]]*$' || true)
 [ -n "$notes" ] || die "nothing under '## [Unreleased]' in CHANGELOG.md; write the notes first"
 
 path=$(scripts/agent start "chore/release-$new")
