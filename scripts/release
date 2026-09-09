@@ -21,7 +21,7 @@ primary=$(git worktree list --porcelain | sed -n '1s/^worktree //p')
 [ "$root" = "$primary" ] || die "run this from the primary checkout: $primary"
 def=$(scripts/default-branch)
 [ "$(git symbolic-ref -q --short HEAD)" = "$def" ] || die "switch to $def first"
-[ -z "$(git status --porcelain)" ] || die "working tree is not clean"
+[ -z "$(git status --porcelain --untracked-files=no)" ] || die "tracked files have uncommitted changes"
 git fetch origin --tags
 [ "$(git rev-parse HEAD)" = "$(git rev-parse "origin/$def")" ] || die "$def is not up to date with origin; git pull first"
 current=$(scripts/task version)
