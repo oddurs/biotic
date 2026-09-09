@@ -7,6 +7,8 @@ turns the `Unreleased` section into a dated release.
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-09-09
+
 ### Added
 
 - The dish: an elliptical agar grid with nutrient diffusion, pheromone, energetics, senescence, and lysis.
@@ -16,4 +18,5 @@ turns the `Unreleased` section into a dated release.
 - `biotic seed | live | run | status | strains | genome | log | whisper | drop | minds | probe | sterilize`.
 - The fossil record: every strain that ever arose is written to `soma/`.
 
-[Unreleased]: https://github.com/oddurs/biotic/commits/main
+[Unreleased]: https://github.com/oddurs/biotic/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/oddurs/biotic/releases/tag/v0.1.0
