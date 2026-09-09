@@ -95,8 +95,8 @@ cmd_pr() {
   br=$(current_branch)
   def=$(default_branch)
   [ "$br" != "$def" ] || die "you are on $def; a PR needs a branch from 'scripts/agent start'"
-  cmd_check
-  run git -C "$ROOT" push -u origin "$br"
+  cmd_check 1>&2
+  run git -C "$ROOT" push -u origin "$br" 1>&2
   if url=$(gh pr view "$br" --json url -q .url 2>/dev/null) && [ -n "$url" ]; then
     say "PR already exists"
     printf '%s\n' "$url"
