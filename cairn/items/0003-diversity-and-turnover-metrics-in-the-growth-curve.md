@@ -113,3 +113,7 @@ reconcile() copies through csv.reader and refuses a row with more cells than the
 ## 2026-09-16
 
 Criterion 1 reworded to what was proven here: an old nine-column file reads through bio.curve.read() with None in the new columns and is widened in place on the next append. biotic curve is 0004's to prove.
+
+## 2026-09-16
+
+Landed after a rebase over #26-#29. Widening a nine-column file now adds ten columns (0005's branch), so the ragged-row test asserts len(curve.COLUMNS) - 9 like the sibling test rather than a literal. The generous_budget fixture this follow-up proposed for the two lockstep tests was dropped: main's autouse lenient_budget (CELL_TIME_BUDGET = 0.25) already removes the alarm as a second clock. What stays: reconcile() refuses a row wider than the header with csv.Error naming the line and leaves the file and no .tmp; ValueError is in curve.ERRORS and read() raises it naming line and column; the culture says either once and resumes after a repair.
