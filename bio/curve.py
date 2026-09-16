@@ -11,6 +11,7 @@ visited.
 from __future__ import annotations
 
 import csv
+import json
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -171,6 +172,49 @@ def read(path: Path | None = None) -> list[dict]:
             row.update((name, v) for name, v in raw.items() if name not in row)
             rows.append(row)
     return rows
+
+
+def branches(rows: list[dict]) -> dict[int, list[dict]]:
+    """Rows by branch, each list in file order; a row with no branch (older than the column)
+    is branch 0. Keys come out in the order the branches first appear, which is climbing."""
+    by: dict[int, list[dict]] = {}
+    for r in rows:
+        b = r.get("branch")
+        by.setdefault(0 if b is None else int(b), []).append(r)
+    return by
+
+
+def events(path: Path | None = None) -> list[dict]:
+    """events.jsonl as dicts, each with a `branch` key so that events join the curve on
+    (branch, tick).
+
+    A dish `revived` event (one with `from` and `was`) opens a branch: the events after it are
+    on the branch it carries, and it keeps that `branch` itself, since the culture logs it after
+    the swap. Before any such event everything is branch 0. An event that already has a
+    `branch` (not null) keeps it. A line that does not parse, or is not an object, is skipped: the torn
+    tail while an incubator writes. An absent file reads as []. `path` defaults to the vessel's
+    log, resolved when called."""
+    path = config.EVENTS if path is None else path
+    if not path.exists():
+        return []
+    out: list[dict] = []
+    branch = 0
+    with open(path, encoding=_ENCODING, errors="replace") as f:
+        for line in f:
+            if not line.strip():
+                continue
+            try:
+                ev = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(ev, dict):
+                continue
+            if ev.get("kind") == "revived" and "from" in ev and "was" in ev:
+                branch = int(ev["branch"]) if isinstance(ev.get("branch"), int) else branch + 1
+            if ev.get("branch") is None:
+                ev["branch"] = branch
+            out.append(ev)
+    return out
 
 
 def _format(name: str, v):

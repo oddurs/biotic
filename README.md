@@ -25,6 +25,7 @@ Python 3.11 or newer and [uv](https://docs.astral.sh/uv/):
     cd biotic
     uv sync
     cp .env.example .env         # add an OpenRouter key, or point BIOTIC_BASE_URL at Ollama
+    uv sync --extra plot         # optional: matplotlib, for `biotic curve --png`
 
 `uv run biotic` runs it from the checkout; `uv tool install .` puts `biotic` on your PATH.
 
@@ -89,6 +90,7 @@ And look at what has grown:
 ## experiments
 
     biotic run --ticks 5000 --tick 0     # headless, as fast as it goes
+    biotic curve [--cols population,shannon] [--png out.png]   # the growth curve, in the terminal or as a figure
     open vessel/curve.csv                # population, diversity, turnover by tick; docs/curve.md
 
 A dish is deterministic under its seed, in any process, and `vessel/dish.json`
@@ -167,6 +169,7 @@ string, and what the membrane cannot do.
       mutagen.py    the background thread that asks the mind for variants
       culture.py    dish + strains + mutagen + your interventions; owns vessel/
       curve.py      the growth curve: its columns, its reader, widening older files
+      plot.py       the growth curve drawn: braille in the terminal, PNG with matplotlib
       freezer.py    the sample files: names, format, listing
       strains.py    lineage, colour, the fossil record
       prompts.py    what the mutagen is told
