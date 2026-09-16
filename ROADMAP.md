@@ -91,9 +91,13 @@ The hallmark of open-endedness the field has not convincingly hit: new levels
 
 ## instrument — An instrument others can use
 
-`··········` 0% · 0 of 4 done · due 2027-03-31
+`··········` 0% · 0 of 5 done · due 2027-03-31
 
 By now a run produces a strain library, a lab notebook, curves, a freezer and
+
+### backlog
+
+- [ ] `0046` Site e2e reuses any server already on port 6969 <sup>bug · p2</sup>
 
 ### planned
 
