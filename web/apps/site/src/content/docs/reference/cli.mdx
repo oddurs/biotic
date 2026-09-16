@@ -95,8 +95,40 @@ Check the mind answers.
 
 ## sterilize
 
-Autoclave everything.
+Autoclave everything (the freezer is kept unless --freezer).
 
 | Argument | Meaning |
 | --- | --- |
 | `--yes, -y` | — |
+| `--freezer` | empty the freezer too |
+
+## freeze
+
+Put the dish, or one strain, in the freezer.
+
+| Argument | Meaning |
+| --- | --- |
+| `--label LABEL` | a-z, 0-9, _ and -; default `manual` |
+| `--strain ID` | freeze one strain's genome and a cell's memory instead |
+
+## revive
+
+Replace the dish with a frozen sample, or inoculate a frozen strain.
+
+| Argument | Meaning |
+| --- | --- |
+| `key` | a tick, or a sample name from `biotic freezer` |
+| `--label LABEL` | with a tick: which of the samples at that tick |
+| `--strain ID|SAMPLE` | a strain sample instead of a dish sample |
+| `--into INTO` | a fresh dish (default; the incubator must be stopped) or the current one One of `fresh`, `current` |
+| `--n N` | cells to inoculate, fresh or current (default 5) |
+| `--at AT` | x,y — where in the current dish (default: the centre); --into current only |
+| `--yes, -y` | do not ask before replacing the dish |
+
+## freezer
+
+What is in the freezer.
+
+| Argument | Meaning |
+| --- | --- |
+| `--json` | — |

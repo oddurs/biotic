@@ -35,6 +35,22 @@ turns the `Unreleased` section into a dated release.
 - `biotic status` prints `spent  $0.043 / $2.00  (12 calls)`, the vitals panel has a `spent` row,
   `biotic run` opens with the budget (not under `--quiet`) and ends its progress line with the spend, and
   `biotic probe` prints what its call cost.
+- The freezer: `biotic freeze [--label L] [--strain ID]`, `biotic revive TICK | --strain ID [--into fresh|current]
+  [--n N] [--at x,y]` and `biotic freezer [--json]`. The dish is frozen at genesis and every `BIOTIC_FREEZE_EVERY`
+  ticks (default 2000) as `vessel/freezer/<tick>-<label>.json.gz`; samples are never overwritten. A revive freezes
+  the current dish first as `pre-revive`, passes every genome through the membrane again and logs a `revived`
+  event; a revived strain is watched for 300 ticks and the log says whether it took. Samples are checked field
+  by field when read, so a hand edit that breaks one is refused by name before anything changes. See
+  `docs/freezer.md`.
+- `vessel/curve.csv` gains a `branch` column after the columns above: 0 until the first dish revive and one
+  more after each, so `(branch, tick)` names a row uniquely once a revive has sent `tick` back through values
+  already in the file. An older file is widened with the rest; its rows read as empty, which means branch 0.
+- `vessel/incubator.lock` is held while a culture runs: freezer commands go through the inbox when the incubator
+  is running, and a second `biotic live` or `biotic run` on the same vessel refuses to start, as do `biotic seed`
+  and `biotic sterilize`.
+- `biotic status` shows the freezer's size and the latest frozen tick, and the incubator's pid when one is running.
+- A `freezer` event when an automatic sample cannot be written: said once, tried again at the next cadence, and
+  the log says when the freezer is writable again. The dish does not stop for it.
 
 ### Changed
 
@@ -59,7 +75,7 @@ turns the `Unreleased` section into a dated release.
 - A dish loaded from `dish.json` compiles its genomes again, so module-level code runs a second time. With module
   level held to constants and attributes read-only, everything a genome can change between ticks is in `me.memory`
   or the dish's generator, both of which the save carries, so a resumed dish is an exact twin of the running one
-  for any genome the membrane admits (primitive memory values; `docs/membrane.md` has the limit).
+  for any genome the membrane admits (memory JSON can carry; `docs/membrane.md` has the limit).
 - The membrane refuses sets: `set()`, `frozenset`, set displays and set comprehensions, and `set` is no longer in a
   genome's namespace. A set of strings iterates in an order the interpreter's hash seed picks, which differs from
   process to process, so a genome that walked one was the one admitted thing that could diverge from its twin
@@ -70,7 +86,7 @@ turns the `Unreleased` section into a dated release.
   `biotic status` and the other readers do not screen, so they show the dish as it is on disk.
 - `dish.json` carries the culture's own generator, which rolls the mutations, so a resumed culture rolls them
   at the divisions the running one would have. Of `me.memory` it keeps ints in `[-2**63, 2**63)` exactly and
-  stringifies wider ones like any other non-primitive value.
+  stringifies wider ones like any other value JSON cannot carry.
 - A genome longer than `GENOME_MAX_CHARS` is rejected before it is parsed.
 - The mutagen's prompt states the rules the membrane enforces.
 - A failing mind is retried with exponential backoff, 15 s doubling to 10 min and reset on success, instead
@@ -81,6 +97,13 @@ turns the `Unreleased` section into a dated release.
 - `call` and `prepared` events are kept in `events.jsonl` only, not among the recent events the eyepiece
   shows, so bookkeeping cannot crowd the incubator log. Lowering a dish's budget below what it has spent
   exhausts it at once, with one event saying why.
+- `dish.json` stores cell energy at full precision and carries the culture's own state (the mutation-roll RNG,
+  the phase detector, a running mutagen boost) under a `culture` key, so a resumed or revived dish continues on
+  exactly the trajectory it left. A dish saved before this change resumes, but not bit-for-bit.
+- A daughter's memory is a deep copy of its mother's: nested lists and dicts are no longer shared between kin.
+  Memory values JSON can carry, lists and dicts included, survive a save unchanged up to 200 characters each
+  instead of becoming strings; sets, longer containers and ints outside `[-2**63, 2**63)` still become strings.
+- `biotic sterilize` keeps `vessel/freezer/`; `biotic sterilize --freezer` empties it too.
 
 ### Fixed
 

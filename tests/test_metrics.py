@@ -20,7 +20,9 @@ from bio.tui import events as log_panel
 from bio.tui import vitals
 
 OLD_HEADER = "tick,population,strains,nutrient,phase,births,starved,lysed,senescent"
-NEW_HEADER = OLD_HEADER + ",killed,shannon,dominance,mean_gen,arisen,extinct,pheromone,mutations_ready,mutations_taken"
+NEW_HEADER = (
+    OLD_HEADER + ",killed,shannon,dominance,mean_gen,arisen,extinct,pheromone,mutations_ready,mutations_taken,branch"
+)
 OLD_ROWS = [
     "10,5,1,0.7103,lag,0,0,0,0",
     "20,10,1,0.7314,lag,5,0,0,0",
@@ -229,6 +231,7 @@ def test_curve_has_the_new_columns(make_culture):
     assert isinstance(first["phase"], str) and first["phase"] in ("lag", "log")
     assert first["killed"] == 0 and first["arisen"] == 1 and first["extinct"] == 0
     assert first["mutations_ready"] == 0 and first["mutations_taken"] == 0
+    assert first["branch"] == 0  # no dish revive yet
     assert isinstance(first["nutrient"], float) and isinstance(first["mean_gen"], float)
     assert (
         first["population"]
@@ -254,7 +257,7 @@ def test_old_curve_is_widened_in_place(make_culture):
     assert isinstance(new["shannon"], float) and new["killed"] == 0
     widened = _events(c, "curve")
     assert len(widened) == 1
-    assert "9 columns added" in widened[0]["msg"] and "shannon" in widened[0]["msg"]
+    assert f"{len(curve.COLUMNS) - 9} columns added" in widened[0]["msg"] and "shannon" in widened[0]["msg"]
     assert not config.CURVE.with_name("curve.csv.tmp").exists()
     with open(config.CURVE, newline="") as f:
         assert {len(r) for r in csv.reader(f)} == {len(curve.COLUMNS)}
@@ -277,7 +280,7 @@ def test_read_tolerates_an_old_curve(tmp_path):
 def test_unknown_columns_are_kept(make_culture):
     header = list(curve.COLUMNS) + ["mystery"]
     row = ["10", "5", "1", "0.7000", "lag", "0", "0", "0", "0", "0", "0.0000", "1.0000", "0.00", "1", "0"]
-    row += ["0.0000", "0", "0", "x"]
+    row += ["0.0000", "0", "0", "0", "x"]
     config.CURVE.write_text(",".join(header) + "\n" + ",".join(row) + "\n")
     c = make_culture()
     for _ in range(10):
@@ -289,7 +292,7 @@ def test_unknown_columns_are_kept(make_culture):
     assert rows[0]["mystery"] == "x" and rows[0]["tick"] == 10
     assert rows[1]["mystery"] == "" and rows[1]["tick"] == 10
     with open(config.CURVE, newline="") as f:
-        assert {len(r) for r in csv.reader(f)} == {19}
+        assert {len(r) for r in csv.reader(f)} == {len(curve.COLUMNS) + 1}
     assert not _events(c, "curve")
 
 
@@ -343,7 +346,7 @@ def test_a_spreadsheets_byte_order_mark_is_not_a_column(make_culture):
     assert config.CURVE.read_bytes().startswith(b"tick,")  # rewritten without the mark
     assert curve.read()[0]["tick"] == 10
     # a file with every column and a mark is read in place, not rewritten
-    row = "10,5,1,0.7000,lag,0,0,0,0,0,0.0000,1.0000,0.00,1,0,0.0000,0,0"
+    row = "10,5,1,0.7000,lag,0,0,0,0,0,0.0000,1.0000,0.00,1,0,0.0000,0,0,0"
     config.CURVE.write_bytes((bom + ",".join(curve.COLUMNS) + "\n" + row + "\n").encode())
     assert curve.reconcile(config.CURVE) == (list(curve.COLUMNS), [])
     assert config.CURVE.read_bytes().startswith(bom.encode())

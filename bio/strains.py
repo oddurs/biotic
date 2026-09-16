@@ -7,7 +7,7 @@ import hashlib
 import json
 import random
 import re
-from dataclasses import asdict, dataclass
+from dataclasses import MISSING, asdict, dataclass, fields
 
 from . import config
 
@@ -101,28 +101,126 @@ class Registry:
         return list(reversed(out))
 
     # --- persistence --------------------------------------------------------
-    def save(self) -> None:
-        config.STRAINS_FILE.write_text(
-            json.dumps(
-                {"n": self._n, "rng": self._rng.getstate(), "strains": [asdict(s) for s in self.strains.values()]}
-            )
-        )
+    def to_dict(self) -> dict:
+        return {"n": self._n, "rng": self._rng.getstate(), "strains": [asdict(s) for s in self.strains.values()]}
 
     @classmethod
-    def load(cls, seed: str) -> Registry:
+    def from_dict(cls, seed: str, d: dict) -> Registry:
         reg = cls(seed)
-        if not config.STRAINS_FILE.exists():
-            return reg
-        d = json.loads(config.STRAINS_FILE.read_text())
         reg._n = d.get("n", 0)
         try:
             st = d["rng"]
             reg._rng.setstate((st[0], tuple(st[1]), st[2]))
         except Exception:  # noqa: BLE001
             pass
-        for sd in d["strains"]:
-            reg.strains[sd["id"]] = Strain(**sd)
+        for sd in d.get("strains", []):
+            s = _strain_from(sd)
+            reg.strains[s.id] = s
         return reg
+
+    def save(self) -> None:
+        config.STRAINS_FILE.write_text(json.dumps(self.to_dict()))
+
+    @classmethod
+    def load(cls, seed: str) -> Registry:
+        if not config.STRAINS_FILE.exists():
+            return cls(seed)
+        return cls.from_dict(seed, json.loads(config.STRAINS_FILE.read_text()))
+
+    def check(self, sd: dict) -> None:
+        """Whether adopt() would take this record: every field a Strain needs is there, and its
+        id is free or already holds the same genome. Raises ValueError; changes nothing, so a
+        caller can ask before it does anything it would rather not undo."""
+        check_record(sd)
+        have = self.strains.get(sd["id"])
+        if have is not None and have.source != sd["source"]:
+            raise ValueError(f"strain id {sd['id']} is already taken by a different genome")
+
+    def adopt(self, sd: dict, tick: int) -> Strain:
+        """Take in a strain from a sample. Its id, name, note, genome, hue and generation are kept;
+        it is born now, with no peak and not extinct. A strain already registered under that id
+        with the same genome is simply marked living again; a different genome under the same
+        id is refused (see check)."""
+        self.check(sd)
+        have = self.strains.get(sd["id"])
+        if have is not None:
+            have.extinct_at = None
+            return have
+        s = _strain_from({**sd, "born": tick, "extinct_at": None, "peak": 0})
+        if any(x.name == s.name for x in self.strains.values()):
+            s.name = f"{s.name[: NAME_MAX - 5]}_{s.id}"  # still a name check_record admits
+        self.strains[s.id] = s
+        self.fossilize(s)
+        return s
+
+
+_FIELDS = {f.name for f in fields(Strain)}
+_REQUIRED = [f.name for f in fields(Strain) if f.default is MISSING and f.default_factory is MISSING]
+NAME_MAX = 64
+_ID = re.compile(r"^[0-9a-f]{4}$")  # what new() derives: four hex characters
+_NAME = re.compile(rf"^[a-z0-9_]{{1,{NAME_MAX}}}$")  # what _clean_name() makes, with room for the _<id> a clash adds
+
+
+def _is_int(v) -> bool:
+    return isinstance(v, int) and not isinstance(v, bool)
+
+
+def _is_tick(v) -> bool:
+    return _is_int(v) and v >= 0
+
+
+def _is_id(v) -> bool:
+    return isinstance(v, str) and bool(_ID.match(v))
+
+
+def _is_hue(v) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and 0.0 <= v < 1.0
+
+
+# field -> (accepts, what a refusal calls it). Every field a Strain has, so a record is taken
+# only when each value is what the culture will do arithmetic, file names and colours with.
+_SHAPE: dict[str, tuple] = {
+    "id": (_is_id, "a strain id (four hex characters)"),
+    "parent": (lambda v: v is None or _is_id(v), "a strain id or null"),
+    "name": (
+        lambda v: isinstance(v, str) and bool(_NAME.match(v)),
+        f"a strain name (a-z, 0-9 and _, up to {NAME_MAX})",
+    ),
+    "note": (lambda v: isinstance(v, str), "text"),
+    "source": (lambda v: isinstance(v, str), "a genome (text)"),
+    "born": (_is_tick, "a tick (an integer, 0 or more)"),
+    "hue": (_is_hue, "a hue (a number from 0 up to, not including, 1)"),
+    "extinct_at": (lambda v: v is None or _is_tick(v), "a tick or null"),
+    "peak": (_is_tick, "a count (an integer, 0 or more)"),
+    "generation": (_is_tick, "a generation (an integer, 0 or more)"),
+}
+assert set(_SHAPE) == _FIELDS
+
+
+def check_record(sd: dict) -> None:
+    """A strain record — from a sample, or from strains.json — must carry every field a Strain
+    has no default for, and every field it carries must be what a Strain holds there: adopt()
+    and from_dict() take the values as they are, the culture sums generations and subtracts
+    birth ticks, and the id names a fossil under soma/. Samples are edited by hand; a missing
+    or malformed field is a refusal that names it, before anything is frozen or written, not
+    a traceback ticks later."""
+    if not isinstance(sd, dict):
+        raise ValueError("strain record is not a record")
+    missing = [k for k in _REQUIRED if k not in sd]
+    if missing:
+        raise ValueError(f"strain record is missing {', '.join(repr(k) for k in missing)}")
+    for k, (accepts, what) in _SHAPE.items():
+        if k in sd and not accepts(sd[k]):
+            got = repr(sd[k])
+            raise ValueError(f"strain record {k!r} is not {what}: {got if len(got) <= 40 else got[:37] + '...'}")
+
+
+def _strain_from(sd: dict) -> Strain:
+    """A Strain from a dict, ignoring keys this version does not know."""
+    check_record(sd)
+    d = {k: v for k, v in sd.items() if k in _FIELDS}
+    d["hue"] = float(d["hue"])  # JSON may carry 0 as an integer
+    return Strain(**d)
 
 
 def _clean_name(name: str) -> str:

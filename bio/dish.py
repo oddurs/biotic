@@ -7,6 +7,8 @@ and a strain id; the strain id resolves to a genome, and the genome is a
 
 from __future__ import annotations
 
+import copy
+import json
 import math
 import random
 from collections import deque
@@ -213,19 +215,33 @@ class Dish:
     ) -> Cell | None:
         if not self.inside(x, y) or (x, y) in self.cells:
             return None
-        c = Cell(x, y, strain, energy, born=self.tick, memory=dict(memory or {}))
+        c = Cell(x, y, strain, energy, born=self.tick, memory=_inherit(memory))
         self.cells[(x, y)] = c
         return c
 
-    def inoculate(self, strain: str, n: int = config.INOCULUM) -> int:
-        cx, cy = self.center()
+    def inoculate(
+        self, strain: str, n: int = config.INOCULUM, at: tuple[int, int] | None = None, memory: dict | None = None
+    ) -> int:
+        """Place up to `n` cells of `strain`, each with its own copy of `memory`. With no `at`, they
+        scatter around the centre using the dish's own RNG (as at genesis). With `at`, they take
+        the `n` free tiles nearest that point, in a fixed order, and the RNG is not touched."""
+        if at is None:
+            cx, cy = self.center()
+            placed = 0
+            tries = 0
+            while placed < n and tries < 200:
+                tries += 1
+                x = cx + self.rng.randint(-2, 2)
+                y = cy + self.rng.randint(-1, 1)
+                if self.place(x, y, strain, memory=memory):
+                    placed += 1
+            return placed
+        ax, ay = at
+        free = [(x, y) for y in range(self.h) for x in range(self.w) if self.mask[y][x] and (x, y) not in self.cells]
+        free.sort(key=lambda t: (((t[0] - ax) / 2) ** 2 + (t[1] - ay) ** 2, t[1], t[0]))
         placed = 0
-        tries = 0
-        while placed < n and tries < 200:
-            tries += 1
-            x = cx + self.rng.randint(-2, 2)
-            y = cy + self.rng.randint(-1, 1)
-            if self.place(x, y, strain):
+        for x, y in free[:n]:
+            if self.place(x, y, strain, memory=memory):
                 placed += 1
         return placed
 
@@ -463,14 +479,30 @@ class Dish:
 MEMORY_KEYS = 64
 MEMORY_CHARS = 80
 MEMORY_INT = 2**63
+MEMORY_JSON = 200  # a list or a dict whose JSON is this long or shorter is kept as a value, not a string
+
+
+def _inherit(memory: dict | None) -> dict:
+    """What a new cell gets of the memory it is given: a deep copy, so a mother and her daughter
+    never share a list or a dict. Anything deepcopy cannot take (a genome may keep odd things in
+    memory) is shared, as a shallow copy would have shared it."""
+    if not memory:
+        return {}
+    try:
+        return copy.deepcopy(memory)
+    except Exception:  # noqa: BLE001
+        return dict(memory)
 
 
 def _jsonable(m: dict) -> dict:
     """A cell's memory as `dish.json` keeps it.
 
     Floats, strings, bools, None and ints in [-2**63, 2**63) are kept as they are, so they come
-    back exactly. Anything else — a list, a dict, a tuple, a wider int — comes back as the first
-    80 characters of its str(). bool is tested first because it is an int.
+    back exactly. A list, a tuple or a dict that JSON can carry in MEMORY_JSON characters or
+    fewer is kept as JSON carries it (a tuple comes back as a list, a nested key as a string), so
+    a genome's trail survives a save, a freeze and a revive. Anything else — a wider int, a set,
+    a dict keyed by tuples, a longer container — comes back as the first 80 characters of its
+    str(). bool is tested first because it is an int.
     """
     out = {}
     for k, v in list(m.items())[:MEMORY_KEYS]:
@@ -479,9 +511,21 @@ def _jsonable(m: dict) -> dict:
             out[key] = v
         elif isinstance(v, int) and -MEMORY_INT <= v < MEMORY_INT:
             out[key] = v
+        elif isinstance(v, (list, tuple, dict)) and (enc := _encoded(v)) is not None:
+            out[key] = json.loads(enc)
         else:
             out[key] = _text(v)[:MEMORY_CHARS]
     return out
+
+
+def _encoded(v) -> str | None:
+    """json.dumps(v) if JSON can carry v in MEMORY_JSON characters, else None. An int past the
+    decimal limit, a container nested past the recursion limit and a tuple key all refuse."""
+    try:
+        enc = json.dumps(v)
+    except (TypeError, ValueError, RecursionError):
+        return None
+    return enc if len(enc) <= MEMORY_JSON else None
 
 
 def _text(v) -> str:

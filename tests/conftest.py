@@ -1,7 +1,8 @@
 """Fixtures shared by the suite.
 
 Every test runs against a vessel under tmp_path, with a dormant mind and the network
-unreachable, so nothing a test does can touch the repository's culture or spend from a key.
+unreachable, so nothing a test does can touch the repository's culture, its freezer, or
+spend from a key.
 
 Two more rules hold for every test in this directory:
 
@@ -19,6 +20,7 @@ live here too.
 
 from __future__ import annotations
 
+import copy
 import email.message
 import io
 import urllib.error
@@ -41,10 +43,37 @@ FIXTURES = Path(__file__).parent / "fixtures" / "genomes"
 
 # A daughter of the built-in founder that passes the membrane and differs from its parent.
 DAUGHTER = "NAME: bud\nNOTE: divides a little sooner\n---\n" + FALLBACK_GENESIS.replace("1.0", "0.9")
+# The founder, one threshold away: what the fake mutagen hands out on every mutation.
+VARIANT = FALLBACK_GENESIS.replace("me.energy > 1.0", "me.energy > 1.1")
+
+# A genome that leans on everything a naive save loses: it draws from the dish RNG, keeps a
+# counter and a list in memory, mutates that list in place (the aliasing case: before daughters
+# got a deep copy, mother and daughter shared it), and reads the list to decide what to do.
+WANDERER = """\
+def live(me):
+    m = me.memory
+    m["n"] = m.get("n", 0) + 1
+    trail = m.setdefault("trail", [])
+    trail.append(int(me.here * 1000))
+    if len(trail) > 6:
+        del trail[0]
+    free = [d for d in range(8) if not me.crowd[d]]
+    if me.energy > 1.0 and free:
+        return ("divide", free[int(me.rng.random() * len(free))])
+    if me.here > 0.04 and (len(trail) < 2 or trail[-1] >= trail[-2]):
+        return "eat"
+    if free and me.rng.random() < 0.5:
+        return ("move", free[int(me.rng.random() * len(free))])
+    return "rest"
+"""
 
 
 def _no_network(*args, **kwargs):
     raise AssertionError("a test reached for the network")
+
+
+def _listing(d: Path) -> list[str] | None:
+    return sorted(p.name for p in d.iterdir()) if d.exists() else None
 
 
 @pytest.fixture(autouse=True)
@@ -52,8 +81,8 @@ def vessel(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Point every path the culture writes at tmp_path and put the mind to sleep.
 
     Modules read config.<NAME> at call time, so patching the module attributes is enough;
-    the mtime assertion at teardown catches any future import-time binding that would
-    write the repository's own growth curve.
+    the assertions at teardown catch any future import-time binding that would write the
+    repository's own growth curve or freezer.
     """
     v = tmp_path / "vessel"
     v.mkdir()
@@ -68,20 +97,29 @@ def vessel(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         "CURVE": v / "curve.csv",
         "WHISPERS": v / "whispers.md",
         "PRICES_FILE": v / "prices.json",
+        "FREEZER": v / "freezer",
+        "LOCK_FILE": v / "incubator.lock",
         "SOMA": tmp_path / "soma",
     }
     for name, p in paths.items():
         monkeypatch.setattr(config, name, p)
+    monkeypatch.setattr(config, "FREEZE_EVERY", 0)  # tests that want automatic samples set the cadence
+    monkeypatch.setattr(config, "REVIVE_WATCH", 100)
     monkeypatch.setattr(config, "API_KEY", None)
     monkeypatch.setattr(config, "BASE_URL", "https://example.invalid/v1")  # Mind.awake -> False
     monkeypatch.setattr(config, "BUDGET_USD", 2.0)  # whatever .env says, a test's default budget is $2.00
     monkeypatch.setattr(config, "MUTAGEN_INTERVAL", 12.0)
     monkeypatch.setattr("urllib.request.urlopen", _no_network)
-    real = config.ROOT / "vessel" / "curve.csv"
-    before = real.stat().st_mtime_ns if real.exists() else None
+    monkeypatch.setenv("BIOTIC_WIDTH", "24")  # germinate() sizes the dish from these
+    monkeypatch.setenv("BIOTIC_HEIGHT", "12")
+    real_curve = config.ROOT / "vessel" / "curve.csv"
+    real_freezer = config.ROOT / "vessel" / "freezer"
+    before = real_curve.stat().st_mtime_ns if real_curve.exists() else None
+    frozen = _listing(real_freezer)
     yield v
-    after = real.stat().st_mtime_ns if real.exists() else None
+    after = real_curve.stat().st_mtime_ns if real_curve.exists() else None
     assert before == after, "a test wrote the repository's vessel/curve.csv"
+    assert _listing(real_freezer) == frozen, "a test wrote the repository's vessel/freezer"
 
 
 @pytest.fixture(autouse=True)
@@ -109,19 +147,21 @@ def no_subprocess(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture
 def make_culture() -> Callable[..., Culture]:
-    """A small culture founded on FALLBACK_GENESIS, inoculated, with seed.txt written so
-    Culture.load() works after save(). Built directly, so the mutagen thread starts only in
-    tests that go through Culture.run(); with the mind dormant it logs once and exits. `mind`
-    defaults to a dormant Mind()."""
+    """A small culture founded on FALLBACK_GENESIS (or `genome`), inoculated, with seed.txt
+    written so Culture.load() works after save(). Built directly, so the mutagen thread starts
+    only in tests that go through Culture.run() (with the mind dormant it logs once and exits),
+    and nothing is saved or frozen until a test says so. `mind` defaults to a dormant Mind()."""
 
-    def _make(seed: str = "test", w: int = 24, h: int = 12, mind: Mind | None = None) -> Culture:
+    def _make(
+        seed: str = "test", w: int = 24, h: int = 12, mind: Mind | None = None, genome: str = FALLBACK_GENESIS
+    ) -> Culture:
         config.VESSEL.mkdir(exist_ok=True)
         config.SEED_FILE.write_text(seed + "\n")
         dish = Dish(seed, w, h)
         reg = Registry(seed)
         c = Culture(seed, dish, reg, mind or Mind())
-        s = reg.new(FALLBACK_GENESIS, None, 0, "founder", "")
-        dish.register(s.id, FALLBACK_GENESIS)
+        s = reg.new(genome, None, 0, "founder", "")
+        dish.register(s.id, genome)
         dish.inoculate(s.id)
         c.mutagen.know(s.id, s.name, s.source)
         return c
@@ -259,3 +299,38 @@ def mutagen(clock: Clock) -> Callable[[Mind], Mutagen]:
         return m
 
     return make
+
+
+@pytest.fixture
+def culture(vessel: Path) -> Culture:
+    """A germinated culture with the built-in founder, as `biotic seed` leaves it: saved, with
+    tick 0 in the freezer as genesis. No mind, no trial, no network."""
+    return Culture.germinate("test", Mind())
+
+
+@pytest.fixture
+def fake_mutagen(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A mutagen that always has a variant ready: every mutation roll the culture's RNG grants
+    registers a new strain, which makes the culture RNG and the registry's counter and RNG
+    load-bearing for the trajectory."""
+    monkeypatch.setattr(Mutagen, "take", lambda self, strain: ("var", "one threshold higher", VARIANT))
+
+
+def state(c: Culture) -> tuple:
+    """Everything that decides the next tick of a culture, copied: the dish mutates its nutrient
+    rows and the cells' memories in place, so a recorded state must not share them."""
+    d = c.dish
+    return (
+        d.tick,
+        [(k, v.strain, v.energy, v.age, v.born, copy.deepcopy(v.memory)) for k, v in d.cells.items()],
+        d.rng.getstate(),
+        [row[:] for row in d.nutrient],
+        [row[:] for row in d.pheromone],
+        list(d.history),
+        d.births,
+        dict(d.deaths),
+        c.registry.to_dict(),
+        c.rng.getstate(),
+        (c.last_phase, c._candidate, c._candidate_for),
+        (c.mutagen.boost, c.mutagen.boost_until),
+    )

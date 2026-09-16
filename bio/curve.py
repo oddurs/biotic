@@ -3,6 +3,9 @@
 One row every CADENCE ticks. Columns are only ever appended. A file written by an
 older apparatus is widened in place, once, with empty cells for what it did not
 record. Markers (drops, revives, incubation gaps) belong in events.jsonl, not here.
+`branch` is not a marker but a coordinate: with it, (branch, tick) names a row
+uniquely after a revive has sent the tick column back through ticks it had already
+visited.
 """
 
 from __future__ import annotations
@@ -35,6 +38,8 @@ COLUMNS: tuple[str, ...] = (
     "pheromone",
     "mutations_ready",
     "mutations_taken",
+    # the timeline: 0 until the first dish revive, one more at each; empty in rows older than the column
+    "branch",
 )
 DECIMALS = {"nutrient": 4, "shannon": 4, "dominance": 4, "mean_gen": 2, "pheromone": 4}
 _INT = frozenset(COLUMNS) - frozenset(DECIMALS) - {"phase"}

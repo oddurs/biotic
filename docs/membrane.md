@@ -230,11 +230,13 @@ announced again when writing works; the dish keeps stepping meanwhile, and the l
 `dish.json` that was written stands.
 
 Of `me.memory` the freezer keeps at most 64 keys. Floats, strings, bools, `None` and
-ints in `[-2**63, 2**63)` are kept as they are and come back exactly; anything else, a
-list, a dict, a tuple, an int wider than that, comes back as the first 80 characters of
-its `str()`. The bound on ints is what keeps a save writable: `json.dumps` refuses an int
-past 4300 digits, and a genome that multiplies a counter every tick gets there in an
-afternoon. Before the bound such a genome made the save raise and the loop die with it.
+ints in `[-2**63, 2**63)` are kept as they are and come back exactly; a list, a tuple or
+a dict that JSON can write in 200 characters or fewer comes back as JSON carries it (a
+tuple as a list, a nested key as a string); anything else, a set, a longer container, an
+int wider than that, comes back as the first 80 characters of its `str()`. The bound on
+ints is what keeps a save writable: `json.dumps` refuses an int past 4300 digits, and a
+genome that multiplies a counter every tick gets there in an afternoon. Before the bound
+such a genome made the save raise and the loop die with it.
 
 Every strain in a thawed dish is held against the static gate again when the culture
 starts to run. A dish saved under older rules may hold strains admitted with a bare
@@ -265,11 +267,12 @@ harder one.
 - **The stand-in cell is not the dish.** Forty rounds against random situations find
   genomes that throw on ordinary inputs. They do not find one that throws on a state
   only a real dish produces; that is what lysis in the dish is for.
-- **The twin holds for primitive memory.** `dish.json` keeps ints in `[-2**63, 2**63)`,
-  floats, strings, bools and `None` in `me.memory`, at most 64 keys, and stringifies the
-  rest (above); a genome that keeps a list there, or an int wider than that, gets a
-  string back after a resume. Module level and attributes are closed, so this is the one
-  place a genome's state can differ from its save.
+- **The twin holds for memory JSON can carry.** `dish.json` keeps ints in `[-2**63, 2**63)`,
+  floats, strings, bools and `None` in `me.memory`, and lists and dicts of them up to 200
+  characters each, at most 64 keys, and stringifies the rest (above); a genome that keeps
+  a set there, a long list, or an int wider than that, gets a string back after a resume.
+  Module level and attributes are closed, so this is the one place a genome's state can
+  differ from its save.
 - **A thawed strain is inspected, not smoke-tested.** The screening at the start of a run
   applies the static rules only. A genome that a newer smoke test would refuse but the
   older one admitted keeps living until the dish itself lyses it.

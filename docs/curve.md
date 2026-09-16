@@ -31,6 +31,7 @@ previous row.
 | `pheromone` | float | mean pheromone over the agar, 0 to 1 |
 | `mutations_ready` | int, gauge | prepared daughters waiting in the mutagen's pool at that tick |
 | `mutations_taken` | int, cumulative | divisions that produced a new strain; the count of `arose` events |
+| `branch` | int | the vessel's timeline: 0 until the first `biotic revive` of a dish sample, one more after each. A coordinate, not a marker: `(branch, tick)` names a row uniquely once a revive has sent `tick` back through values already in the file. Empty in rows written before the column existed; those were all branch 0 |
 
 Floats are written to four decimals, `mean_gen` to two. Four decimals resolve
 sustained signalling in `pheromone`: one cell emitting 0.2 every tick holds the
@@ -88,8 +89,27 @@ held that long there is nothing believed yet, and the column carries the raw
 reading; that is the earliest rows of a run, and the first rows after a resume,
 since the debounce starts over with the process.
 
-Markers are not columns. Drops, whispers, phase changes and extinctions are in
-`vessel/events.jsonl`, each with the tick it happened at; join on `tick`.
+Markers are not columns. Drops, whispers, phase changes, extinctions and revives are
+in `vessel/events.jsonl`, each with the tick it happened at; join on `tick` within
+a branch.
+
+`biotic revive` of a dish sample writes no row of its own. The rows that follow
+carry the next `branch` number, and `tick` starts again from the sample's tick:
+
+    tick    branch
+    5390    0
+    5400    0
+    4010    1
+    4020    1
+
+A revive to a sample *later* than the dish was at leaves `tick` monotone, so
+nothing in that column shows the seam; `branch` shows it either way. Within a
+branch `tick` is unique and climbs; across the file it is not, so join events on
+`(branch, tick)`. The `revived` dish event — the one with `from` and `was` in its
+data — carries the `branch` it opens, and any event's branch is the number of such
+events before it in the file, since the log is written in order. When only the
+current timeline matters, keep the rows of the last branch. `docs/freezer.md` has
+the rest.
 
 ## older files
 

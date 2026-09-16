@@ -6,7 +6,7 @@ status: done
 milestone: dish
 assignee: Oddur Sigurdsson
 created: 2026-09-08
-updated: 2026-09-08
+updated: 2026-09-16
 priority: p0
 effort: s
 area: bio/dish.py, bio/culture.py
@@ -97,3 +97,7 @@ Culture._curve catches curve.ERRORS (OSError, UnicodeDecodeError, csv.Error) and
 ## 2026-09-08
 
 Also from review: 'curve' events get an icon in the incubator log (≡, dim); the ledger test uses config.INOCULUM rather than 5; docs/curve.md says the earliest rows of a run and of a resume carry the raw phase because last_phase is None until a first reading has held 25 ticks and is not persisted.
+
+## 2026-09-16
+
+0005 appended a nineteenth column, branch, to curve.COLUMNS: the vessel's timeline, 0 at genesis and one more after every dish revive. It is a coordinate, not a marker — markers stay in events.jsonl — and exists because after a revive tick alone no longer names a row. NEW_HEADER in tests/test_metrics.py is extended; older files are widened as before and read None there, which means branch 0.
