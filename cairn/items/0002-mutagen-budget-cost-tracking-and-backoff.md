@@ -134,3 +134,7 @@ backoff() clamps its exponent at 60: a week of a dead endpoint is past the thous
 ## 2026-09-16
 
 Rebased onto main after the cairn format 3 migration. The CLI reference (web/apps/site/src/content/docs/reference/cli.mdx) is generated from argparse and checked by scripts/task lint; regenerated for --budget on seed, live and run.
+
+## 2026-09-16
+
+For 0040 (synchronous mutate_now on the main thread): Mind.think may run on the main thread while the mutagen thread is also in think; Mind._lock covers the counters only, and the call must stay outside Dish._apply's SIGALRM Budget block, which is main-thread only and would interrupt the request.
