@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import http.client
 import json
 import urllib.error
 from email.utils import formatdate
@@ -189,6 +190,7 @@ def test_http_errors_carry_status_and_retry_after(monkeypatch):
             http_error(429, formatdate(clk.now + 1.0 + 90, usegmt=True)),
             http_error(500),
             urllib.error.URLError("connection refused"),
+            http.client.IncompleteRead(b""),
             "fine",
         ]
     )
@@ -212,6 +214,12 @@ def test_http_errors_carry_status_and_retry_after(monkeypatch):
         m.think("s", "u")
     assert (e.value.status, e.value.retry_after) == (None, None)
     assert str(e.value).startswith("URLError")
+
+    with pytest.raises(MindError) as e:  # a reply cut short: an HTTPException, which is not an OSError
+        m.think("s", "u")
+    assert (e.value.status, e.value.retry_after) == (None, None)
+    assert str(e.value).startswith("IncompleteRead")
+    assert m.last_error == str(e.value) and m.last_latency == 0.5
 
     assert m.think("s", "u") == "fine"
     assert m.last_latency == 0.5

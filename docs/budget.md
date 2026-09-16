@@ -12,7 +12,8 @@ through `Mind.think`, and `Mind.think` is where the budget is enforced, so
 nothing the dish does can spend past it.
 
 `biotic probe` is not a dish call. It is uncapped, prints what its one call
-cost, and records nothing against any dish.
+cost, and records nothing in any dish's ledger; it does fetch and cache the
+price list in `vessel/prices.json` like any other call.
 
 ## how a call is priced
 
@@ -100,8 +101,13 @@ exhausts the dish at once, and the run says why:
 
     mutagen exhausted at $0.500 / $0.25 — the budget was lowered below the spend; the culture grows on without variation
 
-`biotic seed --budget 0` with a key does the same at inoculation: the founder
-is the built-in one, and the one event reads `nothing to spend`.
+A budget that is gone at inoculation is said by `biotic seed`, once, after
+the `genesis` event. With `--budget 0` and a key the founder is the built-in
+one, a `genesis stopped` event says why, and the exhaustion event reads
+`nothing to spend`. When the founding calls themselves spend it — one founder
+call that costs the whole budget, or attempts that did not take until nothing
+was left — it reads `spent by the founding calls`. `biotic live` and `biotic
+run` then take the dish up exhausted and say nothing more.
 
 ## backoff
 
@@ -136,9 +142,10 @@ other error; the retries cost nothing.
   incubator log. `prepared` events are kept the same way.
 - `events.jsonl`, kind `mind`: the price-table message once per process, each
   failed call with its `retry_in`, the one `mutagen exhausted` event (with
-  its reason, when the budget was lowered below the spend), and `ledger
-  caught up from the log` when a run found calls the last save had missed
-  (below).
+  its reason when the budget did not run out in the ordinary way: `nothing
+  to spend`, `spent by the founding calls`, `the budget was lowered below the
+  spend`), and `ledger caught up from the log` when a run found calls the
+  last save had missed (below).
 - `dish.json`, key `mind`: `model`, `budget_usd` (`null` for no cap),
   `spent_usd`, `calls`, `prompt_tokens`, `completion_tokens`. Written with the
   dish, every 150 ticks and at exit.
@@ -158,6 +165,7 @@ process that spent the money said so. The `call` events are the complete
 record either way. A call in flight at the moment of the kill is the one
 thing neither holds; the endpoint's own dashboard is the final word.
 
-The log is read from its end: the last 64 KiB, which is hours of a busy dish,
-and the whole file only when that holds no `call` at all. A week's log is
-tens of megabytes, and a load should not have to read it.
+The log is read from its end: the last 64 KiB — tens of minutes of a busy
+dish, and always its most recent calls — and the whole file only when that
+holds no `call` at all. A week's log is tens of megabytes, and a load should
+not have to read it.

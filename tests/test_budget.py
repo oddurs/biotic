@@ -3,6 +3,7 @@ spent; the culture persists the ledger, grows on without variation, and shows sp
 
 from __future__ import annotations
 
+import http.client
 import json
 import re
 import threading
@@ -93,6 +94,19 @@ def test_dead_endpoint_backs_off_exponentially(mutagen, clock):
     assert events[0]["msg"].endswith("next attempt in 15s")
     assert events[-1]["msg"].endswith("next attempt in 10m00s")
     assert m.mind.spent_usd == 0.0 and m.mind.calls == 0
+
+
+def test_a_reply_cut_short_is_a_failed_call(mutagen, clock):
+    """`IncompleteRead` is an `HTTPException`, not an `OSError`: it must still come out of `think`
+    as a `MindError`, so the mutagen backs off with a status and a latency instead of catching
+    it as a fault, and genesis does not end `biotic seed` with a traceback."""
+    m = mutagen(FakeMind(replies=[http.client.IncompleteRead(b"")]))
+    m._mutate("f")
+    assert m.state == "error" and m.failures == 1
+    failed = _failures(m.mind.events)
+    assert len(failed) == 1 and "IncompleteRead" in failed[0]["msg"]
+    assert not [ev for ev in m.mind.events if ev["msg"].startswith("mutagen fault")]
+    assert m.mind.last_error is not None and m.mind.last_error.startswith("IncompleteRead")
 
 
 def test_retry_after_is_honoured_and_capped(mutagen, clock):
@@ -315,7 +329,10 @@ def test_exhausted_dish_keeps_growing(make_culture, no_subprocess, monkeypatch):
     assert c.dish.tick == 150
     assert len(c.dish.cells) > before >= config.INOCULUM
     assert c.dish.births > 0
-    assert c.mind.calls == 1, "no call after the budget was spent"
+    c.mutagen.request(_founder(c))  # a division rolled a mutation with nothing in the pool
+    assert c.mutagen._cycle() is False
+    assert (c.mind.calls, c.mind.chat_requests) == (1, 1), "no call after the budget was spent"
+    assert c.mutagen.pending() == 1, "the request waits, in case the budget is raised"
     assert len(_exhaustions(c.events)) == 1
     snap = c.snapshot()
     assert snap["mind"]["exhausted"] is True and snap["mutagen"]["state"] == "exhausted"
@@ -501,15 +518,56 @@ def test_genesis_calls_are_costed(monkeypatch, no_subprocess):
     assert broke.chat_requests == 0
     founder = next(iter(c.registry.strains.values()))
     assert founder.name == "founder" and founder.source == FALLBACK_GENESIS
-    failed = [ev for ev in c.events if ev["msg"].startswith("genesis call failed")]
-    assert len(failed) == 1 and "budget spent" in failed[0]["msg"]
+    stopped = [ev for ev in c.events if ev["msg"].startswith("genesis stopped")]
+    assert len(stopped) == 1 and "budget spent: $0.000 / $0.00" in stopped[0]["msg"]
+    assert not [ev for ev in c.events if "could not write a founder" in ev["msg"]], "it never tried; it had nothing"
     said = _exhaustions(c.events)
     assert len(said) == 1 and "nothing to spend" in said[0]["msg"] and "$0.000 / $0.00" in said[0]["msg"]
+    assert [ev["kind"] for ev in c.events if ev["kind"] == "mind"] == ["mind", "mind"], "stopped, and exhausted"
     assert c.mutagen.state == "exhausted"
     back = Culture.load(mind=FakeMind(budget_usd=None))
     assert back.mutagen.state == "exhausted"
     _run_a_tick(back)
     assert len(_said("mutagen exhausted")) == 1, "taken up again, nothing more is said"
+
+
+def test_a_budget_spent_by_the_founding_calls_is_said_once(monkeypatch, no_subprocess):
+    """The founder call can cost the whole budget, or attempts that did not take can spend it
+    before one does. Either way the dish would grow for a week without variation, so `seed` says
+    why, once, after the genesis event; the resumed dish is built exhausted from the ledger and
+    neither load() nor run() says it again."""
+    monkeypatch.setattr(bio.culture, "trial", lambda seed, src: (20, 20, 500))
+    monkeypatch.setattr(bio.culture, "_fit_dish", lambda: (24, 12))
+
+    mind = FakeMind(replies=[DAUGHTER], budget_usd=0.01)  # the founder call is the one call it can afford
+    c = Culture.germinate("test", mind, fresh=True)
+    assert (mind.calls, mind.exhausted) == (1, True)
+    assert next(iter(c.registry.strains.values())).name == "bud"
+    said = _exhaustions(c.events)
+    assert len(said) == 1 and "$0.010 / $0.01" in said[0]["msg"] and "spent by the founding calls" in said[0]["msg"]
+    assert (said[0]["spent_usd"], said[0]["budget_usd"]) == (pytest.approx(0.01), 0.01)
+    assert [ev["kind"] for ev in c.events][-2:] == ["genesis", "mind"], "said after the genesis event"
+    assert c.mutagen.state == "exhausted"
+    back = Culture.load(mind=FakeMind(budget_usd=None))
+    assert back.mutagen.state == "exhausted"
+    _run_a_tick(back)
+    assert len(_said("mutagen exhausted")) == 1, "taken up again, nothing more is said"
+
+    reaching = "NAME: escapee\nNOTE: reaches out of the dish\n---\nimport os\n\ndef live(me):\n    return 'rest'\n"
+    mind = FakeMind(replies=[reaching], budget_usd=0.02)  # two attempts the membrane rejects, then nothing left
+    c = Culture.germinate("test", mind, fresh=True)
+    assert (mind.calls, mind.chat_requests, mind.exhausted) == (2, 2, True)
+    founder = next(iter(c.registry.strains.values()))
+    assert founder.name == "founder" and founder.source == FALLBACK_GENESIS
+    assert len([ev for ev in c.events if ev["kind"] == "nonviable"]) == 2
+    stopped = _said("genesis stopped")
+    assert len(stopped) == 1 and "budget spent: $0.020 / $0.02" in stopped[0]["msg"]
+    assert "built-in default" in stopped[0]["msg"]
+    assert not _said("mind could not write a founder"), "it did not try and fail; it ran out of money"
+    said = _exhaustions(c.events)
+    assert len(said) == 1 and "$0.020 / $0.02" in said[0]["msg"] and "spent by the founding calls" in said[0]["msg"]
+    _run_a_tick(Culture.load(mind=FakeMind(budget_usd=None)))
+    assert len(_said("mutagen exhausted")) == 1
 
 
 # --- status, run, the eyepiece --------------------------------------------------
@@ -541,15 +599,18 @@ def test_budget_flag_sticks_after_a_headless_run(make_culture, monkeypatch, caps
     c = make_culture(mind=_dormant())
     c.save()
     monkeypatch.setattr(bio.culture, "Mind", lambda: _dormant(budget_usd=None))
-    cli.main(["run", "--ticks", "3", "--tick", "0", "--quiet", "--budget", "0.25"])
+    cli.main(["run", "--ticks", "3", "--tick", "0", "--budget", "0.25"])
     err = capsys.readouterr().err
-    assert "budget $0.000 / $0.25" in err
+    assert err.startswith("budget $0.000 / $0.25\n"), err
     assert re.search(r"^tick\s+3 .* \$0\.000$", err, re.M), err
     assert json.loads(config.DISH_FILE.read_text())["mind"]["budget_usd"] == 0.25
     cli.main(["status"])
     assert re.search(r"^spent\s+\$0\.000 / \$0\.25  \(0 calls\)$", capsys.readouterr().out, re.M)
     cli.main(["run", "--ticks", "1", "--tick", "0", "--quiet", "--budget", "inf"])
-    assert "budget $0.000 / uncapped" in capsys.readouterr().err
+    lines = capsys.readouterr().err.splitlines()
+    assert not [ln for ln in lines if ln.startswith("budget")], "--quiet: no budget line and no progress reports"
+    assert len(lines) == 2 and lines[1].startswith("done in"), "only the summary at the end"
+    assert re.search(r"^tick\s+4 .* \$0\.000$", lines[0]), lines
     assert json.loads(config.DISH_FILE.read_text())["mind"]["budget_usd"] is None
 
 

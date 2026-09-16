@@ -29,10 +29,12 @@ turns the `Unreleased` section into a dated release.
   with the running total, and saved with the dish in `dish.json`. A dish killed between saves catches its
   ledger up from the log on the next run; `biotic status` shows the caught-up figure without writing anything.
 - A per-dish budget: `BIOTIC_BUDGET_USD` (default 2.00), `--budget` on `seed`, `live` and `run`, `inf` for
-  no cap, remembered in `dish.json`. When it is spent the mutagen goes `exhausted`, logs one event, and the
-  culture grows on without variation. See `docs/budget.md`.
+  no cap, remembered in `dish.json`. When it is spent — by the mutagen, or already by the founding calls at
+  `biotic seed` — the mutagen goes `exhausted`, logs one event saying so, and the culture grows on without
+  variation. See `docs/budget.md`.
 - `biotic status` prints `spent  $0.043 / $2.00  (12 calls)`, the vitals panel has a `spent` row,
-  `biotic run` ends its progress line with the spend, and `biotic probe` prints what its call cost.
+  `biotic run` opens with the budget (not under `--quiet`) and ends its progress line with the spend, and
+  `biotic probe` prints what its call cost.
 
 ### Changed
 
@@ -96,6 +98,9 @@ turns the `Unreleased` section into a dated release.
 - The mutagen thread no longer dies when the strain it was about to vary went extinct while it waited; an
   unexpected fault in a cycle is logged and backed off instead of ending the thread.
 - `biotic probe` without a key says so instead of printing a traceback.
+- A reply the endpoint cut short (`http.client.IncompleteRead`, a malformed status line) is a failed call
+  like any other — backed off by the mutagen with its status and latency recorded, one more attempt during
+  genesis — instead of an exception that escaped `Mind.think` and could end `biotic seed` with a traceback.
 
 ## [0.1.0] - 2026-09-09
 

@@ -138,3 +138,23 @@ Rebased onto main after the cairn format 3 migration. The CLI reference (web/app
 ## 2026-09-16
 
 For 0040 (synchronous mutate_now on the main thread): Mind.think may run on the main thread while the mutagen thread is also in think; Mind._lock covers the counters only, and the call must stay outside Dish._apply's SIGALRM Budget block, which is main-thread only and would interrupt the request.
+
+## 2026-09-16
+
+Review fix: the genesis exhaustion event is decided after _genesis(), not before it, so a budget the founding calls spend (one founder call that costs it all, or attempts that did not take until nothing was left) is said at seed time. The reason is 'nothing to spend' when mind.calls == 0, else 'spent by the founding calls'. germinate also sets the mutagen's state to exhausted so a run on the same Culture object says nothing more; load() already rebuilt it exhausted from the saved ledger. Exhausted during genesis returns the default with one 'genesis stopped' event instead of breaking out to 'could not write a founder that grows'.
+
+## 2026-09-16
+
+Review fix: http.client.HTTPException (IncompleteRead, BadStatusLine) joined Mind.think's except tuple. It is not an OSError, so a reply cut short escaped think as itself: caught as a 'mutagen fault' with no status or latency on the mutagen thread, and uncaught in genesis, where it would have ended biotic seed with a traceback. Pre-existing on main; fixed here because docs/budget.md defines a reply that cannot be read as a failed call.
+
+## 2026-09-16
+
+Review fix: biotic run --quiet prints no budget line. --quiet keeps the meaning it had on main: no reporter while it runs; the summary line and 'done in' at the end still print (tests/test_metrics.py pins the summary under --quiet, so stderr is not made empty). The flag has a help string now and the CLI reference was regenerated.
+
+## 2026-09-16
+
+Review fixes to docs: the site's configuration table had BIOTIC_TICK 0.35 and BIOTIC_REPLENISH 0.0004 where bio/config.py reads 0.5 and 0.0025, corrected in place since this branch reflowed the table; docs/budget.md says probe writes vessel/prices.json (the price cache) though it records nothing in a dish's ledger, and that the 64 KiB tail is tens of minutes of a busy dish (a call event is about 300 bytes, so about 220 calls), not hours.
+
+## 2026-09-16
+
+Review fix to tests: test_exhausted_dish_keeps_growing queues a request and turns _cycle by hand after its 150 ticks, so 'no call after the budget was spent' is shown on a path that could have called, not asserted on one that could not; test_a_budget_spent_by_the_founding_calls_is_said_once covers both founding-call cases through germinate, load and one tick of run.

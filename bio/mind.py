@@ -11,6 +11,7 @@ is spent, `think` raises `Exhausted` before any request is made.
 
 from __future__ import annotations
 
+import http.client
 import json
 import math
 import threading
@@ -186,7 +187,9 @@ class Mind:
             self.last_latency = time.time() - t0
             self.last_error = f"HTTP {e.code}: {_detail(e)}"
             raise MindError(self.last_error, status=e.code, retry_after=_retry_after(e.headers)) from None
-        except (urllib.error.URLError, TimeoutError, OSError, ValueError) as e:
+        except (urllib.error.URLError, TimeoutError, OSError, ValueError, http.client.HTTPException) as e:
+            # HTTPException is not an OSError: a reply cut short (IncompleteRead) or a malformed status
+            # line would otherwise escape as itself, past the mutagen's backoff and out of genesis
             self.last_latency = time.time() - t0
             self.last_error = f"{type(e).__name__}: {e}"
             raise MindError(self.last_error) from None

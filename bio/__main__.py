@@ -40,7 +40,6 @@ def cmd_live(a):
 def cmd_run(a):
     c = _culture(a.budget)
     t0 = time.time()
-    print(f"budget {fmt_budget(c.mind.spent_usd, c.mind.budget_usd)}", file=sys.stderr)
 
     def progress():
         with c.lock:  # the dish steps on the main thread; a snapshot must not read it mid-tick
@@ -55,6 +54,7 @@ def cmd_run(a):
 
     stop = threading.Event()
     if not a.quiet:
+        print(f"budget {fmt_budget(c.mind.spent_usd, c.mind.budget_usd)}", file=sys.stderr)
 
         def rep():
             while not stop.wait(5):
@@ -225,7 +225,9 @@ def main(argv=None):
     s = sub.add_parser("run", help="run headless, e.g. for an experiment")
     s.add_argument("--ticks", type=int)
     s.add_argument("--tick", type=float, help="seconds per tick (0 = as fast as possible)")
-    s.add_argument("--quiet", action="store_true")
+    s.add_argument(
+        "--quiet", action="store_true", help="no budget line or progress reports; the summary at the end still prints"
+    )
     s.add_argument("--budget", type=float, help=budget_help)
     s.set_defaults(f=cmd_run)
 

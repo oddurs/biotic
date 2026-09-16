@@ -79,7 +79,6 @@ class Culture:
         dish = Dish(seed, w, h)
         reg = Registry(seed)
         cult = cls(seed, dish, reg, mind)
-        broke = mind.awake and mind.exhausted  # a budget of nothing: the mutagen never had a call to make
         name, note, src = cult._genesis()
         s = reg.new(src, None, 0, name, note)
         dish.register(s.id, src)
@@ -89,10 +88,16 @@ class Culture:
         cult.log(
             "genesis", f"inoculated {n} cells of {s.name} — “{note}”" if note else f"inoculated {n} cells of {s.name}"
         )
-        if broke:
+        if mind.awake and mind.exhausted:
+            # The budget went at the founding — there was none, or the founding calls spent it —
+            # so the mutagen never has a call to make. Said here, once, or the dish would run for
+            # a week without variation and the log would never say why: load() builds the mutagen
+            # exhausted from the saved ledger, and neither it nor run() says it again.
+            why = "nothing to spend" if mind.calls == 0 else "spent by the founding calls"
+            cult.mutagen.state = "exhausted"
             cult.log(
                 "mind",
-                exhausted_msg(mind.spent_usd, mind.budget_usd, "nothing to spend"),
+                exhausted_msg(mind.spent_usd, mind.budget_usd, why),
                 spent_usd=mind.spent_usd,
                 budget_usd=mind.budget_usd,
             )
@@ -111,8 +116,9 @@ class Culture:
                     prompts.GENESIS_SYSTEM, prompts.genesis_user(self.seed, failures), temperature=0.9
                 )
             except Exhausted as e:
-                self.log("mind", f"genesis call failed ({e})")
-                break
+                # nothing left to try with: not a founder that would not grow, so not that message
+                self.log("mind", f"genesis stopped ({e}) — founding cell is the built-in default")
+                return default
             except (Dormant, MindError) as e:
                 self.log("mind", f"genesis call failed ({e})")
                 continue
