@@ -19,6 +19,15 @@ otherwise the division is faithful and the request waits. A minimum interval bet
 `BIOTIC_MUTAGEN_INTERVAL`, bounds the rate of novelty by how fast the mind thinks, and the
 dish keeps its own time.
 
+## The budget
+
+Every call is priced — the endpoint's own figure when it reports one, else its price list,
+cached in `vessel/prices.json` — and counted against a per-dish budget: `BIOTIC_BUDGET_USD`,
+default $2.00, `--budget` on `seed`, `live` and `run`, `inf` for no cap. When it is spent the
+mutagen stops and the culture grows on without variation. A failing endpoint is retried with
+backoff, 15 s doubling to 10 min, and a `Retry-After` header is honoured. `biotic status` and
+the vitals panel show spent / budget; `docs/budget.md` in the repository has the arithmetic.
+
 ## The mind
 
 Any OpenAI-compatible chat endpoint. Configure it in `.env`:

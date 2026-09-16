@@ -16,7 +16,6 @@ import sys
 import time
 
 import pytest
-from conftest import fixture_genomes, make_dish
 
 from bio import config, membrane
 from bio.culture import FALLBACK_GENESIS
@@ -32,6 +31,8 @@ from bio.membrane import (
     inspect,
     smoke_test,
 )
+
+from .conftest import fixture_genomes, make_dish
 
 LIVE_REST = "def live(me):\n    return 'rest'\n"
 EXCEPT_RULE = "except may only name"

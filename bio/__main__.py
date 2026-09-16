@@ -9,7 +9,7 @@ import time
 
 from . import config
 from .culture import Culture, sterilize
-from .mind import Mind, MindError
+from .mind import Dormant, Mind, MindError, fmt_budget, fmt_usd
 
 
 def cmd_seed(a):
@@ -20,24 +20,25 @@ def cmd_seed(a):
             file=sys.stderr,
         )
     try:
-        c = Culture.germinate(a.seed, mind, fresh=a.fresh)
+        c = Culture.germinate(a.seed, mind, fresh=a.fresh, budget=a.budget)
     except FileExistsError as e:
         sys.exit(str(e))
     s = next(iter(c.registry.strains.values()))
     print(f"seeded “{a.seed}” — founding strain {s.id} {s.name}: {s.note}")
     print(f"  {config.SOMA / (s.id + '_' + s.name + '.py')}")
+    print(f"  budget {fmt_budget(mind.spent_usd, mind.budget_usd)}")
     print("  `biotic live` to watch it grow")
 
 
 def cmd_live(a):
     from .tui import observe
 
-    c = _culture()
+    c = _culture(a.budget)
     observe(c, tick_seconds=a.tick if a.tick else config.TICK_SECONDS)
 
 
 def cmd_run(a):
-    c = _culture()
+    c = _culture(a.budget)
     t0 = time.time()
 
     def progress():
@@ -45,7 +46,7 @@ def cmd_run(a):
             s = c.snapshot()
         print(
             f"tick {s['tick']:>6}  pop {s['population']:>5}  strains {len(s['census']):>3}  "
-            f"H {s['metrics']['shannon']:.2f}  agar {s['nutrient']:.2f}  {s['phase']}",
+            f"H {s['metrics']['shannon']:.2f}  agar {s['nutrient']:.2f}  {s['phase']}  {fmt_usd(s['mind']['spent_usd'])}",
             file=sys.stderr,
         )
 
@@ -53,6 +54,7 @@ def cmd_run(a):
 
     stop = threading.Event()
     if not a.quiet:
+        print(f"budget {fmt_budget(c.mind.spent_usd, c.mind.budget_usd)}", file=sys.stderr)
 
         def rep():
             while not stop.wait(5):
@@ -81,7 +83,11 @@ def cmd_status(a):
     )
     print(f"agar        {s['nutrient']:.3f}")
     print(f"births      {s['births']}   deaths {s['deaths']}")
-    print(f"mind        {s['mind']['model']}  {'awake' if s['mind']['awake'] else 'dormant'}")
+    m = s["mind"]
+    print(f"mind        {m['model']}  {'awake' if m['awake'] else 'dormant'}")
+    calls = f"{m['calls']} call{'s' if m['calls'] != 1 else ''}"
+    exhausted = "  — exhausted" if m["awake"] and m["exhausted"] else ""  # a dormant mind is dormant, whatever its cap
+    print(f"spent       {fmt_budget(m['spent_usd'], m['budget_usd'])}  ({calls}){exhausted}")
 
 
 def cmd_strains(a):
@@ -165,12 +171,12 @@ def cmd_minds(a):
 
 
 def cmd_probe(a):
-    """Ask the mind one question, to check the wiring."""
-    m = Mind()
+    """Ask the mind one question, to check the wiring. Not a dish call: no budget applies."""
+    m = Mind(budget_usd=float("inf"))
     try:
         print(m.think("Reply in five words or fewer.", "Are you there?", max_tokens=20))
-        print(f"ok · {m.model} · {m.last_latency:.1f}s")
-    except MindError as e:
+        print(f"ok · {m.model} · {m.last_latency:.1f}s · {fmt_usd(m.last_usd)}")
+    except (Dormant, MindError) as e:
         sys.exit(f"mind error: {e}")
 
 
@@ -183,9 +189,9 @@ def cmd_sterilize(a):
     print("sterile")
 
 
-def _culture() -> Culture:
+def _culture(budget: float | None = None) -> Culture:
     try:
-        return Culture.load()
+        return Culture.load(budget=budget)
     except FileNotFoundError as e:
         sys.exit(str(e))
 
@@ -200,20 +206,29 @@ def _intervene(req: dict) -> None:
 def main(argv=None):
     p = argparse.ArgumentParser(prog="biotic", description=__doc__)
     sub = p.add_subparsers(dest="cmd")
+    budget_help = (
+        "dollars this dish may spend on the mind "
+        "(default: what the dish remembers, else BIOTIC_BUDGET_USD, else 2.00; inf for no cap)"
+    )
 
     s = sub.add_parser("seed", help="inoculate a fresh dish from a word, phrase, or question")
     s.add_argument("seed")
     s.add_argument("--fresh", action="store_true", help="autoclave first if a culture exists")
+    s.add_argument("--budget", type=float, help=budget_help)
     s.set_defaults(f=cmd_seed)
 
     s = sub.add_parser("live", help="watch the dish (default)")
     s.add_argument("--tick", type=float, help="seconds per tick")
+    s.add_argument("--budget", type=float, help=budget_help)
     s.set_defaults(f=cmd_live)
 
     s = sub.add_parser("run", help="run headless, e.g. for an experiment")
     s.add_argument("--ticks", type=int)
     s.add_argument("--tick", type=float, help="seconds per tick (0 = as fast as possible)")
-    s.add_argument("--quiet", action="store_true")
+    s.add_argument(
+        "--quiet", action="store_true", help="no budget line or progress reports; the summary at the end still prints"
+    )
+    s.add_argument("--budget", type=float, help=budget_help)
     s.set_defaults(f=cmd_run)
 
     sub.add_parser("status").set_defaults(f=cmd_status)
@@ -245,7 +260,7 @@ def main(argv=None):
     a = p.parse_args(argv)
     if not a.cmd:
         if config.DISH_FILE.exists():
-            return cmd_live(argparse.Namespace(tick=None))
+            return cmd_live(argparse.Namespace(tick=None, budget=None))
         p.print_help()
         return
     return a.f(a)

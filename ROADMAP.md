@@ -4,7 +4,7 @@
 
 ## dish — A dish you can leave running
 
-`##········` 20% · 3 of 15 done · due 2026-09-21
+`###·······` 27% · 4 of 15 done · due 2026-09-21
 
 The apparatus exists and a culture evolves in it. It is not yet an instrument:
 
@@ -17,7 +17,6 @@ The apparatus exists and a culture evolves in it. It is not yet an instrument:
 
 ### planned
 
-- [ ] `0002` Mutagen budget, cost tracking and backoff <sup>feature · p0</sup>
 - [ ] `0004` `biotic curve` — plot a run <sup>feature · p1</sup>
 - [ ] `0005` The freezer: `biotic freeze` and `biotic revive` <sup>feature · p0</sup>
 - [ ] `0006` Replicate flasks: many dishes from one install <sup>feature · p1</sup>
@@ -28,6 +27,7 @@ The apparatus exists and a culture evolves in it. It is not yet an instrument:
 
 ### done
 
+- [x] `0002` Mutagen budget, cost tracking and backoff <sup>feature · p0</sup>
 - [x] `0003` Diversity and turnover metrics in the growth curve <sup>feature · p0</sup>
 - [x] `0008` Membrane and physics test suite <sup>chore · p0</sup>
 - [x] `0045` Growth curve: pin the header and sharpen docs/curve.md <sup>chore · p3</sup>
@@ -91,9 +91,13 @@ The hallmark of open-endedness the field has not convincingly hit: new levels
 
 ## instrument — An instrument others can use
 
-`··········` 0% · 0 of 4 done · due 2027-03-31
+`··········` 0% · 0 of 5 done · due 2027-03-31
 
 By now a run produces a strain library, a lab notebook, curves, a freezer and
+
+### backlog
+
+- [ ] `0047` Site e2e reuses any server already on port 6969 <sup>bug · p2</sup>
 
 ### planned
 

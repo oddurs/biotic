@@ -24,10 +24,10 @@ from __future__ import annotations
 
 import functools
 
-from conftest import dish_state, make_dish
-
 from bio import config
 from bio.dish import Dish
+
+from .conftest import dish_state, make_dish
 
 
 def test_founding_strain_grows_from_the_inoculum():

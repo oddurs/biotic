@@ -8,12 +8,12 @@ import os
 import subprocess
 import sys
 
-from conftest import dish_state, make_dish
-
 from bio import config
 from bio.culture import FALLBACK_GENESIS
 from bio.dish import MEMORY_CHARS, MEMORY_INT, MEMORY_KEYS, Dish, _jsonable
 from bio.membrane import admit, inspect
+
+from .conftest import dish_state, make_dish
 
 # the founder, remembering how many ticks it has lived, so primitive memory is exercised
 MEMORY_GENOME = FALLBACK_GENESIS.replace(

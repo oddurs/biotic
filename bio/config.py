@@ -17,6 +17,7 @@ STRAINS_FILE = VESSEL / "strains.json"
 EVENTS = VESSEL / "events.jsonl"
 CURVE = VESSEL / "curve.csv"
 WHISPERS = VESSEL / "whispers.md"
+PRICES_FILE = VESSEL / "prices.json"
 
 
 def _load_dotenv() -> None:
@@ -46,6 +47,10 @@ API_KEY = env("OPENROUTER_API_KEY") or env("BIOTIC_API_KEY")
 MODEL = env("BIOTIC_MODEL", "qwen/qwen3-coder")
 MUTAGEN_INTERVAL = float(env("BIOTIC_MUTAGEN_INTERVAL", "12"))  # min seconds between LLM calls
 MUTAGEN_TEMP = float(env("BIOTIC_MUTAGEN_TEMP", "1.0"))
+BUDGET_USD = max(0.0, float(env("BIOTIC_BUDGET_USD", "2.00")))  # dollars a dish may spend on the mind; inf = no cap
+MUTAGEN_BACKOFF = 15.0  # seconds after the first failed call; doubles per consecutive failure
+MUTAGEN_BACKOFF_MAX = 600.0  # cap on the doubling
+RETRY_AFTER_MAX = 3600.0  # the most a Retry-After header is honoured for
 
 # --- the dish ------------------------------------------------------------
 WIDTH = int(env("BIOTIC_WIDTH") or 72)  # defaults; `biotic seed` fits the dish to the terminal

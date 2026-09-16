@@ -17,6 +17,7 @@ Inoculate a fresh dish from a word, phrase, or question.
 | --- | --- |
 | `seed` | — |
 | `--fresh` | autoclave first if a culture exists |
+| `--budget BUDGET` | dollars this dish may spend on the mind (default: what the dish remembers, else BIOTIC_BUDGET_USD, else 2.00; inf for no cap) |
 
 ## live
 
@@ -25,6 +26,7 @@ Watch the dish (default).
 | Argument | Meaning |
 | --- | --- |
 | `--tick TICK` | seconds per tick |
+| `--budget BUDGET` | dollars this dish may spend on the mind (default: what the dish remembers, else BIOTIC_BUDGET_USD, else 2.00; inf for no cap) |
 
 ## run
 
@@ -34,7 +36,8 @@ Run headless, e.g. for an experiment.
 | --- | --- |
 | `--ticks TICKS` | — |
 | `--tick TICK` | seconds per tick (0 = as fast as possible) |
-| `--quiet` | — |
+| `--quiet` | no budget line or progress reports; the summary at the end still prints |
+| `--budget BUDGET` | dollars this dish may spend on the mind (default: what the dish remembers, else BIOTIC_BUDGET_USD, else 2.00; inf for no cap) |
 
 ## status
 

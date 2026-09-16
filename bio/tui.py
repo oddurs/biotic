@@ -13,7 +13,8 @@ from rich.table import Table
 from rich.text import Text
 
 from . import config
-from .culture import Culture
+from .culture import HIDDEN, Culture  # HIDDEN: bookkeeping kinds, kept out of the incubator log
+from .mind import fmt_budget
 
 SPARK = "▁▂▃▄▅▆▇█"
 ICONS = {
@@ -123,9 +124,12 @@ def vitals(c: Culture, snap: dict) -> Table:
         "idle": ("○ idle", "dim"),
         "dormant": ("· dormant", "dim red"),
         "error": ("! error", "red"),
+        "exhausted": ("· exhausted", "yellow"),
     }.get(m["state"], (m["state"], ""))
     mut = Text(state[0], style=state[1])
     mut.append(f"  {m['ready']} ready · {m['pending']} queued", style="dim")
+    if m["state"] == "error" and m.get("retry_in", 0) > 0:
+        mut.append(f"  retry in {int(m['retry_in'])}s", style="dim")
     if m["boosted"]:
         mut.append("  ×6", style="bold magenta")
     t.add_row("mutagen", mut)
@@ -136,6 +140,8 @@ def vitals(c: Culture, snap: dict) -> Table:
             f" · {mind['calls']} calls · {mind['tokens'] / 1000:.1f}k tok · {mind['latency']:.0f}s", style="dim"
         )
     t.add_row("mind", mind_line)
+    if mind["awake"] or mind["calls"]:
+        t.add_row("spent", Text(fmt_budget(mind["spent_usd"], mind["budget_usd"]), style="dim"))
     if mind["error"]:
         t.add_row("", Text(mind["error"][:60], style="red"))
     return t
@@ -166,7 +172,7 @@ def census_table(c: Culture, snap: dict) -> Table:
 
 def events(c: Culture, n: int) -> Text:
     t = Text(no_wrap=True, overflow="ellipsis")
-    shown = [ev for ev in c.events if ev["kind"] != "prepared"]
+    shown = [ev for ev in c.events if ev["kind"] not in HIDDEN]
     for ev in shown[-n:]:
         icon, style = ICONS.get(ev["kind"], ("·", "dim"))
         t.append(time.strftime("%H:%M:%S ", time.localtime(ev["t"])), style="dim")
