@@ -1,32 +1,86 @@
 ---
 title: The membrane
-description: What code is allowed to become a cell.
+description: What code is allowed to become a cell, rule by rule.
 section: The instrument
 order: 1
 ---
 
-A genome is Python source that defines exactly one function, `live(me)`, called once per tick.
-It comes from a language model, so it is untrusted. Before it can run inside the dish it
-passes through two gates.
+A genome is Python source that defines one function, `live(me)`, called once per cell per
+tick. It is written by a language model and runs on your machine, so before it can become a
+cell it passes through two gates in `bio/membrane.py`: a static inspection of the source,
+then a smoke test that runs it. Each returns a verdict with reasons, and the first reason is
+what the mutagen is told when a daughter is refused. The reasoning behind every rule is in
+[`docs/membrane.md`](https://github.com/oddurs/biotic/blob/main/docs/membrane.md) in the
+repository; this page states the rules.
+
+## What a genome has
+
+`math`, `random`, and these builtins: `abs` `all` `any` `bool` `dict` `divmod` `enumerate`
+`filter` `float` `int` `isinstance` `len` `list` `map` `max` `min` `pow` `range` `reversed`
+`round` `sorted` `str` `sum` `tuple` `zip` `True` `False` `None` `Exception` `ValueError`
+`KeyError` `IndexError` `ZeroDivisionError` `TypeError`. Nothing else is defined; `set` and
+`BaseException`, for two, are `NameError`s.
+
+Inside a genome, `random` and `me.rng` are the same object: the dish's own seeded generator.
+That is what makes a culture reproducible tick for tick.
 
 ## The static gate
 
-The source is parsed and walked. Rejected outright: imports, classes, `global` and
-`nonlocal`, async and generators, any dunder name or attribute, and a list of banned
-builtins (`eval`, `exec`, `open`, `getattr`, `print`, and more). Only `def` and simple
-assignments may appear at module level. There is a size cap.
+Cheap, strict, and dumb on purpose. It walks the syntax tree once and collects every rule the
+source breaks.
+
+| Refused                                                                                                                                                                                                                                                            | Reason given                                                                                     |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| Longer than 2400 characters                                                                                                                                                                                                                                        | `genome too long`                                                                                |
+| Does not parse                                                                                                                                                                                                                                                     | `SyntaxError: …`                                                                                 |
+| `import`, `from … import`                                                                                                                                                                                                                                          | `imports are not allowed`                                                                        |
+| A call or other non-constant expression at module level                                                                                                                                                                                                            | `module-level expression with side effects`                                                      |
+| Anything at module level but `def`, an assignment, or a bare constant                                                                                                                                                                                              | `module-level <Node> not allowed`                                                                |
+| A module-level value, default argument, or annotation that is not a constant: calls, lists, dicts, sets, comprehensions, lambdas                                                                                                                                   | `module-level values must be constants`                                                          |
+| `@decorator`                                                                                                                                                                                                                                                       | `decorators not allowed`                                                                         |
+| No `def live`, or `live` with other than one argument                                                                                                                                                                                                              | `no live(me) function`, `live() must take exactly one argument`                                  |
+| `eval` `exec` `compile` `open` `input` `__import__` `globals` `locals` `vars` `getattr` `setattr` `delattr` `breakpoint` `memoryview` `type` `super` `object` `classmethod` `staticmethod` `property` `exit` `quit` `help` `dir` `id` `hash` `iter` `next` `print` | `forbidden name: <name>`                                                                         |
+| Any name or attribute beginning with `__`                                                                                                                                                                                                                          | `dunder name`, `dunder access`                                                                   |
+| Any attribute beginning with `_`                                                                                                                                                                                                                                   | `private attribute: .<attr>`                                                                     |
+| `.format`, `.format_map`, `.mro`                                                                                                                                                                                                                                   | `forbidden attribute: .<attr>`                                                                   |
+| Assigning to or deleting any attribute                                                                                                                                                                                                                             | `attributes are read-only: .<attr>`                                                              |
+| `finally:`, `with`, `except*`, bare `except:`                                                                                                                                                                                                                      | `finally not allowed`, `with not allowed`, `except* not allowed`, `bare except not allowed`      |
+| `except` naming anything but the six built-in exception classes, alone or as a tuple                                                                                                                                                                               | `except may only name Exception, IndexError, KeyError, TypeError, ValueError, ZeroDivisionError` |
+| Binding one of those six names to anything                                                                                                                                                                                                                         | `cannot rebind <name>`                                                                           |
+| `set`, `frozenset`, a set display, a set comprehension                                                                                                                                                                                                             | `sets not allowed`                                                                               |
+| `global`, `nonlocal`                                                                                                                                                                                                                                               | `global/nonlocal not allowed`                                                                    |
+| `async def`, `await`, `yield`                                                                                                                                                                                                                                      | `async/generators not allowed`                                                                   |
+| `class`                                                                                                                                                                                                                                                            | `classes not allowed`                                                                            |
+
+Names with a single leading underscore (`_tmp`, `def _helper`) stay legal. `me.memory[...] = x`
+is a subscript, not an attribute, and stays legal. A dict does what a set would; it keeps
+insertion order whatever the interpreter's hash seed, which is why sets are refused.
 
 ## The dynamic gate
 
-The genome is compiled into a namespace whose only builtins are a short allowlist, with
-`math` and `random` in scope. It then runs forty ticks against random situations. It must
-never throw, must always return a parseable action, and must finish each call inside the
-time budget.
+A genome that inspects clean is compiled into a namespace holding only the above, and
+`live(me)` is called forty times against a seeded stand-in cell with random energy, agar,
+neighbours, and scent. Every call must finish inside four times the dish's per-call budget
+and return an action the dish can parse; module-level code has the same budget.
+
+| Refused                                          | Reason given                     |
+| ------------------------------------------------ | -------------------------------- |
+| Module-level code or a round ran past its budget | `too slow: …`                    |
+| An exception escaped `live`                      | `threw on tick N: <Type>: <msg>` |
+| A return value the dish cannot parse             | `returned an unknown action: …`  |
+
+The mutagen admits through a child interpreter with a 20-second ceiling, so a genome that
+cannot be interrupted cannot take the process with it.
 
 ## Inside the dish
 
 A genome that passes can still misbehave later. Any exception, unparseable return, or timeout
-during a real tick bursts that cell and touches nothing else.
+during a real tick bursts that cell and touches nothing else. The budget is a one-shot alarm
+that raises `Lysis`, which derives from `BaseException`; the static rules above close every
+route by which a genome could catch it, run code after it, or raise one itself.
+
+A dish saved under older rules is inspected again when it runs: strains that no longer pass
+lyse at the start, leave the dish, and are named in the incubator log.
 
 <Callout tone="caution" title="A way through the membrane is a security bug">
   Report it privately through GitHub Security Advisories. See `SECURITY.md`.

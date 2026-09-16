@@ -2,7 +2,7 @@
 id: 46
 title: 'Site membrane page: state the rules the membrane enforces'
 type: docs
-status: backlog
+status: done
 milestone: dish
 created: 2026-09-16
 updated: 2026-09-16
