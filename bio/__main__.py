@@ -199,6 +199,8 @@ def cmd_curve(a):
         return
     width = max(40, a.width or shutil.get_terminal_size((100, 30)).columns)
     Console(width=width).print(plot.render(fig, width, a.height), highlight=False, soft_wrap=False)
+
+
 def cmd_notes(a):
     """The naturalist's notebook, last entries first in time order. Reads the file only: no dish
     is loaded, so it works beside a running incubator."""
