@@ -20,7 +20,6 @@ The apparatus exists and a culture evolves in it. It is not yet an instrument:
 - [ ] `0004` `biotic curve` — plot a run <sup>feature · p1</sup>
 - [ ] `0006` Replicate flasks: many dishes from one install <sup>feature · p1</sup>
 - [ ] `0007` The naturalist: periodic field notes from an observer model <sup>feature · p1</sup>
-- [ ] `0009` Survive small and resized terminals <sup>feature · p2</sup>
 - [ ] `0010` Incubation gaps: record wall-clock absence, do not fake ticks <sup>feature · p2</sup>
 - [ ] `0040` Tick-clocked mutation supply for headless runs <sup>feature · p0</sup>
 
@@ -30,6 +29,7 @@ The apparatus exists and a culture evolves in it. It is not yet an instrument:
 - [x] `0003` Diversity and turnover metrics in the growth curve <sup>feature · p0</sup>
 - [x] `0005` The freezer: `biotic freeze` and `biotic revive` <sup>feature · p0</sup>
 - [x] `0008` Membrane and physics test suite <sup>chore · p0</sup>
+- [x] `0009` Survive small and resized terminals <sup>feature · p2</sup>
 - [x] `0045` Growth curve: pin the header and sharpen docs/curve.md <sup>chore · p3</sup>
 
 ## biotic-env — The environment is other cells
