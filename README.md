@@ -84,6 +84,7 @@ And look at what has grown:
     biotic strains [--all]     # census, with the mutagen's one-line note per strain
     biotic genome top          # the dominant strain's code and lineage
     biotic log                 # the incubator log
+    biotic notes [-n 5]        # the naturalist's field notes: what changed since the last look, hedged
     biotic status
     cat soma/*.py              # the fossil record
 
@@ -99,9 +100,9 @@ would have followed anyway, tick for tick, until the mind hands it a daughter. T
 model is the one source of novelty a seed does not fix; `docs/membrane.md` has the
 fine print.
 `BIOTIC_REPLENISH=0` gives a truly closed dish: bloom, crash, done.
-`BIOTIC_MUTATION_RATE`, `BIOTIC_MUTAGEN_INTERVAL`, `BIOTIC_BUDGET_USD`, `BIOTIC_TICK`,
-`BIOTIC_WIDTH`, `BIOTIC_HEIGHT` are the other knobs. The rest of the physics is in
-`bio/config.py`.
+`BIOTIC_MUTATION_RATE`, `BIOTIC_MUTAGEN_INTERVAL`, `BIOTIC_BUDGET_USD`, `BIOTIC_NOTES_EVERY`,
+`BIOTIC_TICK`, `BIOTIC_WIDTH`, `BIOTIC_HEIGHT` are the other knobs. The rest of the physics
+is in `bio/config.py`.
 
 ### the freezer
 
@@ -147,6 +148,15 @@ grows on without variation. A failing endpoint is retried with backoff, 15 s
 doubling to 10 min, and a `Retry-After` is honoured. `biotic status` and the
 vitals panel show spent / budget; `docs/budget.md` has the arithmetic.
 
+The same mind is also the **naturalist**: every `BIOTIC_NOTES_EVERY` ticks
+(default 600; `0` turns it off) it is shown the readings, the census, the log
+since its last entry and its own previous entry, and writes three to eight
+hedged sentences to `vessel/fieldnotes.md` — the lab notebook. It observes; it
+never sees a genome, never grades, never advises, and nothing it writes reaches
+the mutagen. Its calls come out of the same budget, about a tenth of a cent
+each. `biotic notes` prints the notebook and the eyepiece's footer shows the
+latest entry's first sentence; `docs/naturalist.md` has the rest.
+
 ## the membrane
 
 Genomes are untrusted code from a language model running on your machine, so
@@ -167,21 +177,24 @@ string, and what the membrane cannot do.
       dish.py       agar, cells, physics
       membrane.py   what code is allowed to become a cell
       mutagen.py    the background thread that asks the mind for variants
+      naturalist.py the observer thread that keeps the field notes
       culture.py    dish + strains + mutagen + your interventions; owns vessel/
       curve.py      the growth curve: its columns, its reader, widening older files
       plot.py       the growth curve drawn: braille in the terminal, PNG with matplotlib
       freezer.py    the sample files: names, format, listing
       strains.py    lineage, colour, the fossil record
-      prompts.py    what the mutagen is told
+      prompts.py    what the mutagen and the naturalist are told
       tui.py        the eyepiece
     soma/         every strain that ever arose. written by the culture. do not edit.
-    vessel/       the running state: seed, dish, strains, events, growth curve, whispers, prices
+    vessel/       the running state: seed, dish, strains, events, growth curve, whispers, prices,
+                  and fieldnotes.md, the naturalist's notebook
       freezer/      frozen samples of the dish and of strains; survives `biotic sterilize`
     docs/         longer notes: docs/curve.md on reading the growth curve,
                   docs/membrane.md on what a genome may contain and why,
                   docs/budget.md on what the mind costs,
                   docs/freezer.md on the freezer,
-                  docs/eyepiece.md on what the eyepiece shows and how it fits the window
+                  docs/eyepiece.md on what the eyepiece shows and how it fits the window,
+                  docs/naturalist.md on the field notes: what the observer is shown and what it costs
     tests/        the suite; tests/fixtures/genomes/ holds ten fossils from a real run
 
 ## development

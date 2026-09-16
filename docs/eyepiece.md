@@ -47,10 +47,16 @@ list below is the reference.
   leave beside the agar, and its last line counts the rest. `biotic strains`
   prints all of them with the mutagen's note.
 - **incubator log**: the last events: strains arising and going extinct,
-  nonviable mutations, drops, whispers, phase changes. `biotic log` has more.
+  nonviable mutations, drops, whispers, phase changes, and the naturalist's
+  notes (`¶`, the entry's first sentence). `biotic log` has more.
 - **footer**: the interventions you can make from another shell, and how to
   leave. One row: a narrow window drops the commands from the left, and
-  `ctrl-c to incubate` is the last thing to go.
+  `ctrl-c to incubate` is the last thing to go. Once the naturalist has written
+  a note, the latest entry's first sentence takes the commands' place —
+  `¶ 1800  The colony has doubled to 483 cells…` — with the `ctrl-c` hint to
+  its right while there is room; in a narrow window the hint yields first and
+  the note is cut with an ellipsis. `biotic notes` has the whole entry;
+  `docs/naturalist.md` has the naturalist.
 
 ## fitting the window
 

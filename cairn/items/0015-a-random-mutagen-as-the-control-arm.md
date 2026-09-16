@@ -5,7 +5,7 @@ type: feature
 status: planned
 milestone: biotic-env
 created: 2026-09-08
-updated: 2026-09-08
+updated: 2026-09-16
 priority: p0
 effort: m
 area: bio/mutagen_random.py
@@ -37,3 +37,7 @@ mutagen is both the control and the countermeasure.
 - [ ] A `--mutagen random` dish evolves (strain count > 1 after 5,000 ticks) with zero API calls
 - [ ] Every strain carries its origin; curve splits arisen by origin
 - [ ] Random mutations respect the membrane (fuzz 1,000 mutations of the fallback founder; all admitted or rejected, none crash)
+
+## 2026-09-16
+
+The naturalist makes calls of its own: a zero-call control arm needs BIOTIC_NOTES_EVERY=0, or count only call events with role=mutagen.

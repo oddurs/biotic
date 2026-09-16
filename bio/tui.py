@@ -21,6 +21,7 @@ from rich.text import Text
 from . import config
 from .culture import HIDDEN, Culture  # HIDDEN: bookkeeping kinds, kept out of the incubator log
 from .mind import fmt_budget
+from .naturalist import first_sentence
 
 SPARK = "▁▂▃▄▅▆▇█"
 ICONS = {
@@ -38,6 +39,7 @@ ICONS = {
     "freezer": ("▫", "dim red"),
     "revived": ("↺", "bold cyan"),
     "eyepiece": ("!", "yellow"),
+    "note": ("¶", "magenta"),
 }
 AGAR = [
     (0.02, " ", "grey23"),
@@ -342,7 +344,7 @@ def events(c: Culture, n: int) -> Text:
         t.append(f"{icon} ", style=style)
         t.append(
             ev["msg"] + "\n",
-            style="" if ev["kind"] in ("arose", "extinct", "drop", "phase", "genesis", "revived") else "dim",
+            style="" if ev["kind"] in ("arose", "extinct", "drop", "phase", "genesis", "revived", "note") else "dim",
         )
     return t
 
@@ -391,15 +393,30 @@ FOOTER = (
 )
 
 
-def footer(cols: int) -> Text:
+def footer(cols: int, note: dict | None = None) -> Text:
     """The interventions you can make from another shell, then how to leave. One row,
     never wrapped: when `cols` cannot hold every command they are dropped from the left,
-    and the ctrl-c hint is the last to go, cut with an ellipsis."""
-    parts = list(FOOTER)
-    while len(parts) > 1 and cell_len("  " + "   ".join(parts)) > cols:
-        parts.pop(0)
-    t = Text(no_wrap=True, overflow="ellipsis", style="dim")
-    t.append("  " + "   ".join(parts))
+    and the ctrl-c hint is the last to go, cut with an ellipsis.
+
+    Once the naturalist has written a note, its latest entry's first sentence takes the
+    commands' place (`¶ tick  sentence`; the commands are in the README and `biotic --help`).
+    Here the hint yields first and the note is cut with an ellipsis: the note is the point."""
+    if note is None:
+        parts = list(FOOTER)
+        while len(parts) > 1 and cell_len("  " + "   ".join(parts)) > cols:
+            parts.pop(0)
+        t = Text(no_wrap=True, overflow="ellipsis", style="dim")
+        t.append("  " + "   ".join(parts))
+        return t
+    t = Text(no_wrap=True, overflow="ellipsis")
+    t.append("  ¶ ", style="magenta")
+    t.append(f"{note['tick']}  ", style="dim")
+    t.append(first_sentence(note["text"], 200))
+    hint = FOOTER[-1]
+    if cell_len(t.plain) + 3 + cell_len(hint) <= cols:
+        t.append("   " + hint, style="dim")
+    else:
+        t.truncate(cols, overflow="ellipsis")
     return t
 
 
@@ -452,7 +469,7 @@ def build(c: Culture, size: tuple[int, int]) -> Layout | Text:
         root["strip"].update(vitals_strip(c, snap))
     if f.log_h:
         root["log"].update(Panel(events(c, f.log_h - 2), title="[dim]incubator log[/]", border_style="grey35"))
-    root["foot"].update(footer(cols))
+    root["foot"].update(footer(cols, snap.get("note")))
     return root
 
 

@@ -1,4 +1,4 @@
-"""What the mutagen is told."""
+"""What the mutagen and the naturalist are told."""
 
 from __future__ import annotations
 
@@ -175,3 +175,118 @@ def _strip_fences(s: str) -> str:
             if s.startswith(("python", "py")):
                 s = s.split("\n", 1)[1] if "\n" in s else ""
     return s.strip("\n")
+
+
+# --- the naturalist ----------------------------------------------------------
+# An observer, not a mutagen: it is shown readings, never a genome, and nothing it writes reaches
+# the culture. The cell API and the mutagen's rules are deliberately absent from this prompt.
+
+NATURALIST_SYSTEM = """\
+You keep the lab notebook for a bacterial culture growing in a simulated petri dish. At
+intervals you are shown what the instruments record: the dish clock, the growth phase, the
+population and diversity now and at your last entry, the census of living strains with the
+one-line note the mutagen wrote when each arose, births and deaths by cause, the incubator
+log since your last entry, a coarse sketch of the dish, and your previous entry.
+
+Write the next entry: three to eight sentences in the plain voice of a field notebook.
+Report what is observable and what changed since the last entry, with the numbers that
+matter. Where you interpret, mark it as interpretation ("this resembles", "one reading is")
+and offer no more than one. Do not invent mechanisms the record does not show: what a strain
+does is what its note says and what the counts do, nothing more. Do not rank strains as
+better or worse, and do not advise anyone to do anything; you observe, you do not run the
+experiment. Continue the record: when the previous entry raised something, say what became
+of it. The incubator runs at a fixed pace while it is on; wall-clock time well beyond what
+the ticks account for is time it was off, and the dish does not run while it is off. If
+nothing changed, say so in two sentences.
+
+Reply with the entry only: no heading, no preamble, no list, no code.
+"""
+
+
+def naturalist_user(p: dict) -> str:
+    """Render a composed observation packet (bio.naturalist.compose) as the naturalist's prompt."""
+    m = p["metrics"]
+    tiles = max(1, int(p.get("tiles") or 1))
+    since = p.get("since")
+    lines = [
+        f"The dish was seeded with: {p['seed']}",
+        "",
+        f"tick {p['tick']} · phase {p['phase']} · {m['population']} cells ({m['population'] / tiles:.0%} of the agar)"
+        f" · {_n(m['strains'], 'living strain')}",
+    ]
+    vitals = (
+        f"diversity H {m['shannon']:.2f} · dominance {m['dominance']:.0%} · mean generation {m['mean_gen']:.1f}"
+        f" · agar {m['nutrient']:.2f}"
+    )
+    if m.get("pheromone", 0.0) >= 0.0005:
+        vitals += f" · pheromone {m['pheromone']:.3f}"
+    lines += [vitals, ""]
+    if since is None:
+        lines.append("This is the first entry; there is nothing earlier to compare with.")
+    elif since.get("seam"):
+        lines.append(
+            f"Since the last entry (tick {since['prev_tick']}) the dish was replaced with a frozen sample; "
+            "the counts above are not comparable with that entry's."
+        )
+    else:
+        pace = f", about {since['pace']} at the incubator's pace" if since.get("pace") else ""
+        lines.append(
+            f"Since the last entry (tick {since['prev_tick']}, {since['ticks']} ticks{pace}; "
+            f"{since['wall']} of wall-clock time):"
+        )
+        (pa, pb), (sa, sb) = since["population"], since["strains"]
+        (ha, hb), (da, db) = since["shannon"], since["dominance"]
+        lines.append(
+            f"  population {pa} → {pb} · strains {sa} → {sb} · H {ha:.2f} → {hb:.2f} · dominance {da:.0%} → {db:.0%}"
+        )
+        deaths = f"{since['starved']} starved, {since['lysed']} lysed, {since['senescent']} of age"
+        if since["killed"]:
+            deaths += f", {since['killed']} killed"
+        lines.append(f"  births {since['births']} · deaths {deaths}")
+        lines.append(f"  strains arisen {since['arisen']} · gone extinct {since['extinct']}")
+    if p.get("remarks"):
+        lines += ["", "Changes worth noting:"] + [f"  - {r}" for r in p["remarks"]]
+    compare = since is not None and not since.get("seam")
+    lines += [
+        "",
+        "Census (share now → share at the last entry; the note is the mutagen's, from when the strain arose):",
+    ]
+    if not p["census"]:
+        lines.append("  (no living cells)")
+    for r in p["census"]:
+        was = ""
+        if compare:
+            was = " (new since the last entry)" if r.get("was") is None else f" (was {r['was']:.0%})"
+        note = f" — “{r['note']}”" if r.get("note") else ""
+        lines.append(
+            f"  {r['name']} ({r['id']}) gen {r['generation']} · {_n(r['cells'], 'cell')} · {r['share']:.0%}{was}{note}"
+        )
+    if p.get("more"):
+        k, cells = p["more"]
+        lines.append(f"  … {k} more strain{'s' if k != 1 else ''}, {_n(cells, 'cell')} between them")
+    lines += ["", "Incubator log since the last entry (oldest first):"]
+    if p.get("events"):
+        lines += [f"  tick {e['tick']} {e['kind']}: {e['msg']}" for e in p["events"]]
+    else:
+        lines.append("  (nothing was logged)")
+    sk = p["sketch"]
+    k = sk["scale"]
+    block = "one glyph per tile" if k == 1 else f"each glyph a {k}×{k} block of tiles"
+    lines += [
+        "",
+        f"The dish, {block}; letters are strains by census rank, '.' ':' '#' agar by richness, "
+        "blank is bare agar or glass:",
+    ]
+    if sk["legend"]:
+        lines.append("  " + ", ".join(f"{letter} {name}" for letter, name in sk["legend"]))
+    lines += ["  " + row for row in sk["rows"]]
+    prev = p.get("previous")
+    if prev:
+        lines += ["", f"Your previous entry (tick {prev['tick']}):"]
+        lines += ["  " + ln for ln in prev["text"].splitlines()]
+    lines += ["", "Write the next entry."]
+    return "\n".join(lines)
+
+
+def _n(n: int, word: str) -> str:
+    return f"{n} {word}" if n == 1 else f"{n} {word}s"

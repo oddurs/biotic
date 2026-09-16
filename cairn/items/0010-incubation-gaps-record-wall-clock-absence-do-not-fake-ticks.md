@@ -7,7 +7,7 @@ milestone: dish
 depends_on:
 - 7
 created: 2026-09-08
-updated: 2026-09-08
+updated: 2026-09-16
 priority: p2
 effort: s
 area: bio/culture.py
@@ -30,3 +30,7 @@ and the naturalist should not describe a 12-hour gap as "since the last note".
 
 - [ ] A resumed dish logs the gap once
 - [ ] `biotic curve` shows the gap marker
+
+## 2026-09-16
+
+The composed packet carries since.seconds, since.ticks and since.pace (ticks at the incubator's pace) and the prompt says wall time beyond the ticks is time the incubator was off; add the measured gap to compose() when saved_at exists.

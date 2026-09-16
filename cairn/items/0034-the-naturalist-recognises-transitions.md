@@ -8,7 +8,7 @@ depends_on:
 - 7
 - 30
 created: 2026-09-08
-updated: 2026-09-08
+updated: 2026-09-16
 priority: p2
 effort: m
 area: bio/culture.py
@@ -33,3 +33,7 @@ mutator emergence are only visible if the observation packet computes them.
 
 - [ ] Each detector has a unit test on synthetic histories
 - [ ] A note following a detected sweep names the strain
+
+## 2026-09-16
+
+Detectors extend bio.naturalist.remarks(prev_census, census_rows); compose() is where a detector's output enters the prompt ('Changes worth noting'). Today only the one-interval sweep (<10 % -> >70 %) is flagged; a sweep spread over more than one note interval is not.

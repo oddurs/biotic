@@ -21,6 +21,7 @@ from .dish import Cell, Dish, _jsonable
 from .membrane import admit, admit_isolated, inspect
 from .mind import Dormant, Exhausted, Mind, MindError, fmt_usd, parse_budget
 from .mutagen import Mutagen, exhausted_msg
+from .naturalist import EVENTS_KEPT, NOTE_EVENTS, Naturalist, sketch
 from .strains import Registry, check_record
 
 # Bookkeeping events: every one is in events.jsonl, but none is kept among the recent events
@@ -66,6 +67,8 @@ class Culture:
         self._save_broken = False  # the last dish.json could not be written; said once, retried every save
         self._freezer_broken = False  # the last unattended freeze failed; said once, retried at every cadence
         self.mutagen = Mutagen(mind, seed, self.log)
+        self.naturalist = Naturalist(mind, seed, self.log)  # the observer; it reads packets, never the dish
+        self.tick_seconds = config.TICK_SECONDS  # the pace run() was given; the naturalist is told it
         for sid, s in registry.strains.items():
             if sid in dish.genomes:
                 self.mutagen.know(sid, s.name, s.source)
@@ -172,7 +175,7 @@ class Culture:
         for attempt in range(4):
             try:
                 reply = self.mind.think(
-                    prompts.GENESIS_SYSTEM, prompts.genesis_user(self.seed, failures), temperature=0.9
+                    prompts.GENESIS_SYSTEM, prompts.genesis_user(self.seed, failures), temperature=0.9, role="genesis"
                 )
             except Exhausted as e:
                 # nothing left to try with: not a founder that would not grow, so not that message
@@ -229,6 +232,9 @@ class Culture:
             m.budget_usd = parse_budget(budget)
         cult = cls(seed, dish, reg, m)
         cult.restore_state(blob.get("culture") or {})  # absent from a dish.json written before it was saved
+        note = _last_note(config.EVENTS)  # a note the last save missed: in the log and the notebook, not dish.json
+        if note is not None:
+            cult.naturalist.reconcile(note)
         if m.spent_usd > saved:
             msg = f"ledger caught up from the log — {fmt_usd(saved)} saved, {fmt_usd(m.spent_usd)} spent"
             cult._unsaid.append(("mind", msg, {}))
@@ -267,7 +273,9 @@ class Culture:
     def state_dict(self) -> dict:
         """The culture's own state — everything outside the dish and the registry that decides
         the next tick: the mutation-roll RNG, the phase detector, the mutagen boost — plus the
-        revival chain, the branch and the watch list. Rides in dish.json and in every dish sample."""
+        revival chain, the branch, the watch list and the naturalist's baseline (the last note
+        and what it measured; nothing the dish depends on). Rides in dish.json and in every
+        dish sample."""
         return {
             "rng": list(self.rng.getstate()),
             "last_phase": self.last_phase,
@@ -278,6 +286,7 @@ class Culture:
             "revivals": [dict(r) for r in self.revivals],
             "branch": self.branch,
             "watching": [dict(w) for w in self.watching],
+            "naturalist": self.naturalist.baseline(),
         }
 
     def restore_state(self, d: dict) -> None:
@@ -296,6 +305,7 @@ class Culture:
         self.revivals = [dict(r) for r in d.get("revivals") or []]
         self.branch = int(d.get("branch") or 0)
         self.watching = [dict(w) for w in d.get("watching") or []]
+        self.naturalist.restore(d.get("naturalist"))
 
     # --- events -------------------------------------------------------------
     def log(self, kind: str, msg: str, **data) -> None:
@@ -510,12 +520,15 @@ class Culture:
         return path
 
     def _swap(self, dish: Dish, registry: Registry, state: dict) -> None:
-        """Replace the dish and registry in one motion, so the eyepiece never sees half of each."""
+        """Replace the dish and registry in one motion, so the eyepiece never sees half of each.
+        The naturalist keeps the vessel's baseline (the caller put it in `state`) and marks it
+        with a seam: the next note compares nothing across the replacement."""
         with self.lock:
             self.dish, self.registry = dish, registry
             dish.on_divide = self._on_divide
             self.restore_state(state)
         self.mutagen.reset({sid: (s.name, s.source) for sid, s in registry.strains.items() if sid in dish.genomes})
+        self.naturalist.reset()
 
     def _occupied(self) -> bool:
         """Whether there is a dish to protect: cells, ticks on the clock, or a dish.json in the
@@ -558,7 +571,8 @@ class Culture:
             {"from": doc["tick"], "was": old_tick, "at": time.time(), "sample": stem}
         ]
         state["branch"] = self.branch + 1  # the vessel's count, not the sample's: monotone over curve.csv
-        self.seed = self.mutagen.seed = doc["seed"]
+        state["naturalist"] = self.naturalist.baseline()  # the notebook is the vessel's too, not the sample's
+        self.seed = self.mutagen.seed = self.naturalist.seed = doc["seed"]
         self._swap(dish, reg, state)
         config.VESSEL.mkdir(parents=True, exist_ok=True)
         config.SEED_FILE.write_text(self.seed + "\n")
@@ -702,6 +716,8 @@ class Culture:
                 return  # the dish was replaced: the rest of this step would describe the old one
         if d.tick % curve.CADENCE == 0:
             self._curve(census, phase)
+        if self.naturalist.due(d.tick):
+            self.naturalist.observe(self._packet(census, phase))
         if d.tick % 150 == 0:
             self.save()
         if config.FREEZE_EVERY and d.tick % config.FREEZE_EVERY == 0:
@@ -725,6 +741,45 @@ class Culture:
         row["mutations_taken"] = sum(1 for s in strains.values() if s.parent is not None)
         row["branch"] = self.branch
         return row
+
+    def _packet(self, census: dict[str, int], phase: str) -> dict:
+        """What the naturalist is shown, copied out of the dish on this thread so its own never
+        reads it: the readings, the census with names, notes, generations and shares, the dish's
+        own recent history (NOTE_EVENTS: no apparatus bookkeeping) and a coarse sketch. No genome
+        goes in. Reads only, as `_curve` does."""
+        d = self.dish
+        total = sum(census.values()) or 1
+        rows = []
+        for sid, n in sorted(census.items(), key=lambda kv: (-kv[1], kv[0])):
+            s = self.registry.strains.get(sid)
+            rows.append(
+                {
+                    "id": sid,
+                    "name": s.name if s else sid,
+                    "note": s.note if s else "",
+                    "generation": s.generation if s else 0,
+                    "cells": n,
+                    "share": n / total,
+                }
+            )
+        events = [
+            {"t": e["t"], "tick": e["tick"], "kind": e["kind"], "msg": e["msg"]}
+            for e in list(self.events)  # one step: the mutagen appends from its own thread
+            if e.get("kind") in NOTE_EVENTS
+        ][-EVENTS_KEPT:]
+        return {
+            "seed": self.seed,
+            "tick": d.tick,
+            "t": time.time(),
+            "branch": self.branch,
+            "phase": phase,
+            "tiles": d.tiles,
+            "tick_seconds": self.tick_seconds,
+            "metrics": self.metrics(census, phase),
+            "census": rows,
+            "events": events,
+            "sketch": sketch(d, census, {r["id"]: r["name"] for r in rows}),
+        }
 
     def _curve(self, census: dict, phase: str) -> None:
         row = self.metrics(census, phase)
@@ -753,7 +808,10 @@ class Culture:
             self.log(kind, msg, **data)
         self._unsaid.clear()
         self._screen()
+        self.tick_seconds = tick_seconds
         self.mutagen.start()
+        if config.NOTES_EVERY and self.mind.awake:  # a dormant mind writes no notes; the mutagen's event says so
+            self.naturalist.start()
         n = 0
         try:
             while not (stop and stop.is_set()):
@@ -770,6 +828,7 @@ class Culture:
                         time.sleep(dt)
         finally:
             self.mutagen.close()
+            self.naturalist.close()
             self.save()
             _unlock_incubator(lock)
 
@@ -813,6 +872,7 @@ class Culture:
                 "budget_usd": self.mind.budget_usd,
                 "exhausted": self.mind.exhausted,
             },
+            "note": self.naturalist.latest(),
             "uptime": time.time() - self.started,
         }
 
@@ -842,17 +902,30 @@ def _last_of_kind(lines: list[str], kind: str) -> dict | None:
     return None
 
 
+def _last_event(path, kind: str, whole: bool = False) -> dict | None:
+    """The most recent event of `kind` in the tail of the log, or None; with `whole`, the rest
+    of the file is read when the tail holds none."""
+    if not path.exists():
+        return None
+    lines, all_of_it = _tail(path)
+    ev = _last_of_kind(lines, kind)
+    if ev is None and whole and not all_of_it:
+        ev = _last_of_kind(path.read_text().splitlines(), kind)
+    return ev
+
+
 def _last_call(path) -> dict | None:
     """The most recent `call` event in the log, or None. Its running totals are the truth about
     what the dish has spent when the process that made the calls never got to save. Found in
     the tail of the log; the whole of it is read only when the tail holds no call at all."""
-    if not path.exists():
-        return None
-    lines, whole = _tail(path)
-    ev = _last_of_kind(lines, "call")
-    if ev is None and not whole:
-        ev = _last_of_kind(path.read_text().splitlines(), "call")
-    return ev
+    return _last_event(path, "call", whole=True)
+
+
+def _last_note(path) -> dict | None:
+    """The most recent `note` event, or None. A note dish.json missed was written within the
+    last 150 ticks, which is always in the tail; a dish with no notes at all is never made to
+    read its whole log for them."""
+    return _last_event(path, "note")
 
 
 def _n(n: int, word: str) -> str:

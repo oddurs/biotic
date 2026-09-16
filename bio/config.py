@@ -18,6 +18,7 @@ EVENTS = VESSEL / "events.jsonl"
 CURVE = VESSEL / "curve.csv"
 WHISPERS = VESSEL / "whispers.md"
 PRICES_FILE = VESSEL / "prices.json"
+FIELDNOTES = VESSEL / "fieldnotes.md"  # the naturalist's notebook
 FREEZER = VESSEL / "freezer"  # frozen samples of the dish and of strains; sterilize keeps it
 LOCK_FILE = VESSEL / "incubator.lock"  # held (flock) while a culture runs
 
@@ -88,5 +89,9 @@ INOCULUM = 5  # cells placed at seeding
 # --- the freezer (bookkeeping, not physics) ------------------------------
 FREEZE_EVERY = int(env("BIOTIC_FREEZE_EVERY", "2000"))  # ticks between automatic samples; 0 disables
 REVIVE_WATCH = 300  # ticks a revived strain is watched before the log says whether it took
+
+# --- the naturalist (an observer; bookkeeping, not physics) ---------------
+NOTES_EVERY = int(env("BIOTIC_NOTES_EVERY", "600"))  # ticks between field notes; 0 turns the naturalist off
+NOTES_MIN_SECONDS = 120.0  # wall-clock floor between looks; at --tick 0 the cadence alone would be one call per reply
 
 PALETTE_SEED = 0.61803398875

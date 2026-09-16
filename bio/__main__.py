@@ -7,7 +7,7 @@ import json
 import sys
 import time
 
-from . import config, freezer
+from . import config, freezer, naturalist
 from .culture import Culture, incubating, sterilize
 from .dish import Dish
 from .mind import Dormant, Mind, MindError, fmt_budget, fmt_usd
@@ -105,6 +105,11 @@ def cmd_status(a):
         print(f"freezer     {n} sample{'s' if n != 1 else ''}{last}")
     else:
         print("freezer     empty")
+    notes = naturalist.read_notes(config.FIELDNOTES)
+    if notes:
+        print(f"notes       {len(notes)} · last at tick {notes[-1].tick} ({notes[-1].when})")
+    else:
+        print("notes       none")
     pid = incubating()
     if pid is not None:
         print(f"incubator   running (pid {pid})")
@@ -194,6 +199,23 @@ def cmd_curve(a):
         return
     width = max(40, a.width or shutil.get_terminal_size((100, 30)).columns)
     Console(width=width).print(plot.render(fig, width, a.height), highlight=False, soft_wrap=False)
+def cmd_notes(a):
+    """The naturalist's notebook, last entries first in time order. Reads the file only: no dish
+    is loaded, so it works beside a running incubator."""
+    notes = naturalist.read_notes(config.FIELDNOTES)
+    if not notes:
+        print("no field notes yet")
+        if not config.NOTES_EVERY:
+            print("  BIOTIC_NOTES_EVERY=0 — the naturalist is off")
+        else:
+            print(f"  the naturalist writes one every {config.NOTES_EVERY} ticks while the mind is awake")
+        return
+    n = max(0, a.n)
+    for note in notes[-n:] if n else notes:
+        print(f"## tick {note.tick} · {note.when}")
+        print()
+        print(note.text)
+        print()
 
 
 def cmd_whisper(a):
@@ -235,7 +257,7 @@ def cmd_probe(a):
     """Ask the mind one question, to check the wiring. Not a dish call: no budget applies."""
     m = Mind(budget_usd=float("inf"))
     try:
-        print(m.think("Reply in five words or fewer.", "Are you there?", max_tokens=20))
+        print(m.think("Reply in five words or fewer.", "Are you there?", max_tokens=20, role="probe"))
         print(f"ok · {m.model} · {m.last_latency:.1f}s · {fmt_usd(m.last_usd)}")
     except (Dormant, MindError) as e:
         sys.exit(f"mind error: {e}")
@@ -514,6 +536,9 @@ def main(argv=None):
     s.add_argument("--width", type=int, help="columns (default: the terminal's)")
     s.add_argument("--height", type=int, default=12, help="rows of the main panel; the others get half")
     s.set_defaults(f=cmd_curve)
+    s = sub.add_parser("notes", help="the naturalist's field notes")
+    s.add_argument("-n", type=int, default=5, help="the last N entries (0 for the whole notebook)")
+    s.set_defaults(f=cmd_notes)
     s = sub.add_parser("whisper", help="pin a note the mutagen will see")
     s.add_argument("text", nargs="+")
     s.set_defaults(f=cmd_whisper)

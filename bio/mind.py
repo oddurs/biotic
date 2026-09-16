@@ -1,6 +1,6 @@
 """The mind: a thin client for any OpenAI-compatible chat endpoint.
 
-Used only as a mutagen. The dish never waits on it.
+Used as a mutagen and as an observer. The dish never waits on it.
 
 Every call is priced and counted against a per-dish budget. The price comes
 from the endpoint's own figure when it reports one (`usage.cost`), else from
@@ -165,8 +165,17 @@ class Mind:
             return json.loads(r.read().decode())
 
     def think(
-        self, system: str, user: str, *, temperature: float | None = None, max_tokens: int = 1400, timeout: float = 120
+        self,
+        system: str,
+        user: str,
+        *,
+        temperature: float | None = None,
+        max_tokens: int = 1400,
+        timeout: float = 120,
+        role: str = "mutagen",
     ) -> str:
+        """One call. `role` names who is asking — genesis, mutagen, naturalist, probe — and rides on
+        the `call` event, so an observer's spend can be told from the mutagen's in the log."""
         if not self.awake:
             raise Dormant("no OPENROUTER_API_KEY (put it in .env)")
         if self.exhausted:
@@ -221,6 +230,7 @@ class Mind:
             calls=calls,
             latency=latency,
             cost_source=source,
+            role=role,
         )
         try:
             text = data["choices"][0]["message"]["content"] or ""

@@ -10,7 +10,7 @@ depends_on:
 - 15
 - 40
 created: 2026-09-08
-updated: 2026-09-08
+updated: 2026-09-16
 priority: p1
 effort: l
 area: experiments
@@ -110,3 +110,7 @@ Then:
 - [ ] 20 sampled mutations rated by the rubric, ratings recorded
 - [ ] The default model decision recorded with the rule that produced it, and `.env.example` updated to match
 - [ ] `docs/experiments.md` carries the protocol and the table; CONCEPT.md's "The honest risk" carries the paragraph
+
+## 2026-09-16
+
+usd_per_viable: sum usd over call events with role=mutagen; spent_usd on the ledger includes the naturalist (role=naturalist).
