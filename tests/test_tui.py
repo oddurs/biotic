@@ -464,6 +464,11 @@ def test_census_rows_at_the_acceptance_sizes(culture):
     assert planned(c, (100, 30)).census_rows == 5  # 13 living: four strains and `… 9 more`
     assert planned(c, (150, 50)).census_rows == 24  # nine strains and `… 4 more`: the census is capped, not the rows
     assert re.search(r"… 9 more", shot(c, 100, 30)) and re.search(r"… 4 more", shot(c, 150, 50))
+    c.mind.calls = 3  # a mind that has been called shows its `spent` row, and its own row wraps at 44 columns
+    assert planned(c, (100, 30)).census_rows == 3  # two rows fewer for the census, measured, not assumed
+    small = shot(c, 100, 30)
+    assert "spent" in small and re.search(r"… 11 more", small)
+    assert_unclipped(small, planned(c, (100, 30)), rows=30, living=13)
     c = culture(40, 18, ticks=60)
     strains(c, 3)
     f = planned(c, (80, 24))

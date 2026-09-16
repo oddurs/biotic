@@ -628,7 +628,7 @@ def test_eyepiece_hides_call_events_and_shows_the_budget(make_culture, no_subpro
     assert "exhausted" in text
     # the whole frame still composes
     frame = Console(record=True, width=120, height=40, force_terminal=False)
-    frame.print(tui.build(c))
+    frame.print(tui.build(c, (120, 40)))
     assert "$0.010 / $0.01" in frame.export_text()
     # a dish with no mind has nothing to show
     quiet = make_culture(mind=_dormant())

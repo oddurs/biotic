@@ -39,7 +39,8 @@ list below is the reference.
 - **vitals**: population and its share of the agar, the growth curve as a
   sparkline, the phase (read from the curve the way a microbiologist would),
   strains living, arisen and extinct, diversity, mean agar richness, births
-  and deaths by cause, what the mutagen is doing, and the mind's call count.
+  and deaths by cause, what the mutagen is doing, the mind's call count, and
+  what it has spent against the dish's budget.
 - **census**: living strains by population, largest first, with each strain's
   colour, id, count and a bar against the largest; nine at most, then
   `… n more`. In a small window it lists as many as fit in the rows the vitals
@@ -171,7 +172,7 @@ reporting, and one without is a dish that has stopped.
     render_dish(culture, 2)     # the agar at half resolution: 18 lines of 48 glyphs
 
 `fit` is a function of four integers and the vitals panel's height, which
-defaults to the 13 rows it has when nothing wraps; `plan` measures the real
-one. `build` is a function of the culture's state and the size, taken under
+defaults to the 13 rows it has with a dormant mind and nothing wrapped; `plan`
+measures the real one, `spent` row, error line and wrapping included. `build` is a function of the culture's state and the size, taken under
 the culture's lock. Nothing in the eyepiece writes to the dish or to
 `vessel/`, apart from that one `eyepiece` log line.

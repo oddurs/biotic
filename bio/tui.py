@@ -64,7 +64,7 @@ MUTAGEN_STYLE = {
 
 # How the eyepiece fits a dish onto a terminal.
 SIDE_MIN = 36  # narrowest side panel worth drawing; a 40-wide dish keeps it down to 80 columns
-VITALS_H = 13  # the vitals panel with no row wrapped and no mind error: 11 rows and the border; build() measures it
+VITALS_H = 13  # the vitals panel with a dormant mind and no row wrapped: 11 rows and the border; build() measures it
 CENSUS_ROWS = 9  # strains the census lists at most; the rest are one `… n more` line
 LOG_H = 9  # incubator log height when there is room
 LOG_MIN = 3  # one log line plus border; fewer rows and the log is dropped
