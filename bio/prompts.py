@@ -66,6 +66,10 @@ Hard rules of the membrane — a genome breaking any of these is discarded befor
     off. A cell whose memory breaks
     this at the end of a tick (a function, `me`, a range, a trail that is never trimmed, one row
     list repeated eight times) bursts.
+  - no resource bombs: no `**` with a huge or computed exponent (2 ** 1000000, 2 ** n),
+    no repeating a list or string by a huge constant ([0] * 10**10), and no range() over
+    a huge constant (sum(range(10**12))). The time budget cannot interrupt a single
+    C-level operation, so these are refused before the cell can live.
   - live() must return within a few milliseconds every tick. A loop that does not end bursts
     the cell, and nothing in the genome can catch that.
 """

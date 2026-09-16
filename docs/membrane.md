@@ -44,6 +44,9 @@ returns without parsing, because parsing megabytes of model output is itself a c
 | `global`, `nonlocal` | `global/nonlocal not allowed` |
 | `async def`, `await`, `yield`, `yield from` | `async/generators not allowed` |
 | `class` | `classes not allowed` |
+| `**` with a non-constant exponent (`2 ** me.age`) or a constant one over 1024 (`2 ** 10**9`); a base of any size, and a float or small integer exponent (`x ** 0.5`, `energy ** 2`), are fine | `** with a non-constant or oversized exponent (a resource bomb the budget cannot interrupt)` |
+| a list, tuple, string or bytes literal repeated by a constant over 1,000,000 (`[0] * 10**10`, `'-' * 10**10`); a small constant (`[0] * 8`) or a count only the dish knows (`[0] * len(me.around)`) is fine | `sequence repeated by a large constant (a resource bomb the budget cannot interrupt)` |
+| `range()` over a constant literal above 1,000,000 (`range(10**12)`, `range(0, 10**12)`); a small one (`range(8)`) or a runtime count (`range(n)`) is fine | `range() over a huge constant (a resource bomb the budget cannot interrupt)` |
 
 Why those three attributes: `str.format` and `str.format_map` read attributes named
 inside their replacement fields, so `"{0.__class__}".format(me)` would reach a dunder
@@ -105,6 +108,20 @@ one admitted thing that could diverge from its twin there. Sets of numbers happe
 stable and membership tests never depended on order, but the rule is static and cannot
 tell those apart, so `set`, `frozenset`, set displays and set comprehensions are all
 refused. A dict keeps insertion order whatever the hash seed and does the same jobs.
+
+Why the resource-bomb rules: the time budget below is a signal delivered between
+bytecodes, so a single C-level operation — `2 ** 10**9`, `[0] * 10**10`,
+`sum(range(10**12))` — runs to completion before it can be interrupted, and one of them
+can hold the whole dish. The static gate refuses their literal and constant forms here,
+where it sees the code whatever tick would run it, so a bomb behind `if me.tick > 40:` is
+refused at admission rather than stalling a running dish. It reads only what the source
+fixes — an exponent, a repeat count or a `range` bound that is a literal or constant
+arithmetic on literals — folded by a small hand-written evaluator that runs no genome code
+and stops at `10**18`. A value the dish computes at runtime is left to the isolated child's
+caps and the wall-clock timeout (below): `2 ** me.age` is refused as non-constant, but
+`[0] * len(me.around)` and `range(n)` pass. A float or small integer exponent is not a
+bomb, so `x ** 0.5` and `energy ** 2` stay legal — which matters because a thawed dish is
+inspected again (below) and a benign power must survive the reload.
 
 What a genome has: `math`, `random` (see below), and these builtins — `abs` `all` `any`
 `bool` `dict` `divmod` `enumerate` `filter` `float` `int` `isinstance` `len` `list`
@@ -238,6 +255,17 @@ is still running then it is killed and reaped, and the verdict is
 `too slow: smoke test timed out`. A child that dies without a verdict gives
 `membrane crashed: <tail of stderr>`.
 
+The child also caps its own resources before it reads the source: `RLIMIT_AS` and
+`RLIMIT_DATA` at 2 GiB, `RLIMIT_CPU` at 15 s. A resource bomb whose size is only known at
+runtime — `n = 10**9; [0] * n` — is one the static gate cannot see, and without a cap it
+would exhaust the box before the 20 s timeout reaped it; under the cap it fails as a
+`MemoryError` the smoke test reports as an ordinary throw. The caps are set inside the
+child after it starts, not through a `preexec_fn` — a `preexec_fn` runs in a fork of the
+multithreaded mutagen process and can deadlock on the fork-with-threads interaction. They
+are best-effort: macOS refuses to lower the address-space limit below an infinite hard
+limit, so there the static gate and the wall-clock timeout are the backstop, while
+`RLIMIT_CPU` works on both.
+
 ## `random` is the dish's generator
 
 Inside a genome, `random` and `me.rng` are the same object: the dish's own seeded
@@ -274,9 +302,17 @@ inside `except Exception:`, a recursion bomb, module-level work, the `finally` a
 laundering genomes, and six spellings of a rebound `except` name (a local, a module-level
 constant, a parameter, an `as` name, an unbound local, and one whose outer handler loops
 forever, admitted through the child interpreter so that a regression is a timeout and
-not a hung suite), all refused before anything runs. `admit_isolated` is exercised with
-a Python-level loop, which the child's own budget answers, and a C-level one, which the
-ceiling ends, leaving no process behind. The built-in founder and the ten fossils are
+not a hung suite), all refused before anything runs. The resource-bomb rules add one
+genome per form to the escape-class set — an oversized and a computed exponent, a list and
+a string repeated by a huge constant, and a huge `range` — and a genome that hides
+`sum(range(10**12))` behind `if me.tick > 40:` proves the static gate refuses it at
+admission with the smoke test replaced, so nothing runs; four positive controls (a float
+and a small-integer exponent, a runtime-sized repeat and a runtime-sized `range`) pin that
+the ordinary forms stay admitted, since the thaw screen re-inspects them. `admit_isolated`
+is exercised with a Python-level loop, which the child's own budget answers, a C-level one
+whose count is computed at runtime, which the wall-clock timeout ends, and (on Linux) a
+runtime-sized memory bomb, which the child's `RLIMIT_AS` turns into a `MemoryError`, each
+leaving no process behind. The built-in founder and the ten fossils are
 the positive control, and one genome using every benign construct at once — generator
 expressions, `try/except` on the whitelisted names alone, as a tuple and with `as`,
 `del` of a local, `match` with a wildcard, a walrus, f-strings, underscore-prefixed
@@ -334,14 +370,22 @@ harder one.
 
 ## Known limits
 
-- **Only interruptible code is bounded.** The alarm is delivered between bytecodes. A
-  single C-level operation — `sum(range(10**12))`, `2 ** 10**9`, `[0] * 10**10`,
-  sorting an enormous list — runs to completion before `Lysis` can be raised. The
-  smoke test catches such a genome if it does this within its forty rounds; in the
-  isolated child the 20 s ceiling ends it. A genome that only does it later, in the
-  dish, stalls the culture until the operation finishes. There is no memory cap
-  either. The memory check itself cannot be made to stall: its work is bounded by
-  `MEMORY_MAX_CHARS`, not by the memory (above).
+- **A runtime-sized resource bomb is bounded in the child, not in the dish.** The alarm
+  is delivered between bytecodes, so a single C-level operation runs to completion before
+  `Lysis` can be raised. The literal and constant forms named in the bug — `2 ** 10**9`,
+  `[0] * 10**10`, `sum(range(10**12))` — are now refused by the static gate regardless of
+  the tick that would run them (above), and the isolated child caps its own memory and CPU
+  (`RLIMIT_AS`/`RLIMIT_DATA`/`RLIMIT_CPU`; best-effort — macOS cannot lower the
+  address-space limit). What is left is a bomb whose count is computed at runtime
+  (`n = 10**12; sum(range(n))`): the static gate cannot fold a value it does not have, so
+  in the isolated child it is bounded by the wall-clock timeout and, on Linux, by
+  `RLIMIT_AS`, but a genome that reaches the dish carrying such a form still stalls the
+  culture for one operation, because the dish runs each cell in-process with no per-tick
+  isolation — an in-dish pre-emptor is out of scope (a subprocess per tick is too slow, a
+  watchdog that kills the process too blunt). `sorted(huge)` is covered by the same walls:
+  the huge sequence has to be built first, and building it meets the range or repeat rule
+  or the child's memory cap. The memory check itself cannot be made to stall: its work is
+  bounded by `MEMORY_MAX_CHARS`, not by the memory (above).
 - **`%`-formatting and `repr` are a read-only channel.** `"%r" % me`, `str(random)` and
   `str(live)` reveal a class name and an address. Nothing can be called through it, but
   the address differs from process to process, so a genome that branches on such a

@@ -41,6 +41,9 @@ LIVE_REST = "def live(me):\n    return 'rest'\n"
 EXCEPT_RULE = "except may only name"
 CONSTANT_RULE = "module-level values must be constants (numbers, strings, tuples; no calls, lists or dicts)"
 SET_RULE = "sets not allowed (their order depends on the interpreter, not the seed; use a tuple, list or dict)"
+POW_RULE = "** with a non-constant or oversized exponent (a resource bomb the budget cannot interrupt)"
+REPEAT_RULE = "sequence repeated by a large constant (a resource bomb the budget cannot interrupt)"
+RANGE_RULE = "range() over a huge constant (a resource bomb the budget cannot interrupt)"
 
 
 @pytest.fixture
@@ -232,6 +235,13 @@ REJECTED = [
         "def live(me):\n    match me.memory:\n        case {**KeyError}:\n            pass\n    return 'rest'\n",
         "cannot rebind KeyError",
     ),
+    # resource bombs the budget cannot interrupt (item 0042): one per form, refused by rule name.
+    # The literal memory bomb ([0] * 10**10) is criterion 2 on every platform via the static gate.
+    ("pow_constant_exponent", "def live(me):\n    return 2 ** 10**9\n", POW_RULE),
+    ("pow_nonconstant_exponent", "def live(me):\n    return 2 ** me.age\n", POW_RULE),
+    ("repeat_list_literal", "def live(me):\n    x = [0] * 10**10\n    return 'rest'\n", REPEAT_RULE),
+    ("repeat_str_literal", "def live(me):\n    x = '-' * 10**10\n    return 'rest'\n", REPEAT_RULE),
+    ("range_huge_literal", "def live(me):\n    return sum(range(10**12)) and 'rest'\n", RANGE_RULE),
     ("two_args", "def live(me, other):\n    return 'rest'\n", "live() must take exactly one argument"),
     ("no_live", "def grow(me):\n    return 'eat'\n", "no live(me) function"),
     ("syntax_error", "def live(me)\n    return 'rest'\n", "SyntaxError:"),
@@ -511,12 +521,26 @@ def test_module_level_work_is_budgeted(tight_budget):
     `admit`; if one ever got past it, the smoke test budgets the module body as well. Both
     gates are asserted so that neither can quietly stand in for the other."""
     src = "x = sum(i for i in range(10**9))\n" + LIVE_REST
-    assert inspect(src).reasons == [CONSTANT_RULE]
+    reasons = inspect(src).reasons
+    assert CONSTANT_RULE in reasons  # the module-level call
+    assert RANGE_RULE in reasons  # and the huge range literal, each caught by its own gate
     t0 = time.perf_counter()
     v = smoke_test(src)
     assert time.perf_counter() - t0 < 2.0
     assert not v
     assert v.reasons == ["too slow: module level exceeded time budget"]
+
+
+def test_bomb_behind_a_tick_guard_is_refused_at_admission(no_smoke_test):
+    """Acceptance criterion 1: a genome that runs sum(range(10**12)) only after tick 40 cannot
+    stall the dish. The stand-in cell in the smoke test never reaches tick 40, so a dynamic gate
+    would never see the bomb; the static gate refuses the construct at admission regardless of the
+    tick that would run it, so the dish never receives the strain. `no_smoke_test` proves the
+    refusal is static — nothing in the genome is executed."""
+    src = "def live(me):\n    if me.tick > 40:\n        return sum(range(10**12))\n    return 'rest'\n"
+    v = admit(src)
+    assert not v
+    assert RANGE_RULE in v.reasons
 
 
 def test_genome_that_throws_fails_the_smoke_test():
@@ -599,6 +623,33 @@ def test_benign_constructs_are_admitted():
     legal."""
     v = admit(BENIGN)
     assert v, v.reasons
+
+
+def test_bomb_reason_strings_match_the_membrane():
+    """The suite asserts these three by name; pin them to the membrane's own strings so the two
+    cannot drift apart and a renamed reason is caught here rather than passing silently."""
+    assert POW_RULE == membrane._POW_RULE
+    assert REPEAT_RULE == membrane._REPEAT_RULE
+    assert RANGE_RULE == membrane._RANGE_RULE
+
+
+BOMB_GATE_ADMITS = [
+    ("float_exponent", "def live(me):\n    return 'eat' if me.energy ** 0.5 > 0.5 else 'rest'\n"),
+    ("small_int_exponent", "def live(me):\n    return 'eat' if me.age ** 2 < 100 else 'rest'\n"),
+    ("nonconstant_multiplier", "def live(me):\n    grid = [0] * len(me.around)\n    return 'rest'\n"),
+    ("nonconstant_range", "def live(me):\n    n = 8\n    for d in range(n):\n        pass\n    return 'rest'\n"),
+]
+
+
+@pytest.mark.parametrize("name,source", BOMB_GATE_ADMITS, ids=[r[0] for r in BOMB_GATE_ADMITS])
+def test_bomb_gate_admits_benign_power_repeat_and_range(name, source):
+    """The bomb rules must not catch the ordinary forms: a float or small integer exponent, a
+    sequence repeated by a count the source does not fix, and a range over a runtime count. These
+    are load-bearing positive controls — `_screen` and `revive` re-run `inspect` on every thaw, so
+    a benign form that regressed into a ban would silently lyse a living strain on reload."""
+    v = admit(source)
+    assert v, (name, v.reasons)
+    assert v.reasons == []
 
 
 def test_set_is_not_in_scope():
@@ -853,13 +904,33 @@ def test_isolated_busy_loop_is_too_slow():
 
 
 def test_isolated_uninterruptible_loop_hits_the_timeout():
-    """A C-level loop cannot be interrupted by the alarm; the child is killed instead."""
+    """A C-level loop cannot be interrupted by the alarm; the child is killed instead. The count is
+    computed at runtime, so `range(n)` has a non-constant argument the static gate cannot fold and
+    the wall-clock timeout is what bounds it — the residual the static bans leave to the child."""
     t0 = time.perf_counter()
-    v = admit_isolated("def live(me):\n    return sum(range(10**12))\n", timeout=1.0)
+    v = admit_isolated("def live(me):\n    n = 10**12\n    return sum(range(n))\n", timeout=1.0)
     elapsed = time.perf_counter() - t0
     assert 1.0 <= elapsed < 6.0
     assert not v
     assert v.reasons == ["too slow: smoke test timed out"]
+    assert _no_membrane_children()
+
+
+@pytest.mark.skipif(
+    sys.platform != "linux", reason="setrlimit(RLIMIT_AS) is a no-op under an infinite hard limit on macOS"
+)
+def test_isolated_memory_bomb_is_capped_by_the_child():
+    """Acceptance criterion 2: the smoke test's child cannot exhaust memory. The count is computed
+    at runtime, so the static gate cannot see it — a 10**9-slot list is ~8 GiB — but the child's
+    RLIMIT_AS (2 GiB) makes the allocation fail as a MemoryError long before the 20 s wall timeout,
+    a clean rejection with no OOM kill and no process left behind."""
+    src = "def live(me):\n    n = 10**9\n    buf = [0] * n\n    return 'rest'\n"
+    t0 = time.perf_counter()
+    v = admit_isolated(src, timeout=20.0)
+    elapsed = time.perf_counter() - t0
+    assert not v
+    assert "MemoryError" in v.reasons[0]
+    assert elapsed < 15.0  # the cap fired, not the wall timeout
     assert _no_membrane_children()
 
 

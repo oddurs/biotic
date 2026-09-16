@@ -10,9 +10,6 @@ turns the `Unreleased` section into a dated release.
 ### Added
 
 - The project site at https://oddurs.github.io/biotic/: a StyleX design system, docs with search and a generated CLI reference, the specimen library, field notes with RSS, and Open Graph images. Lives in `web/` and is checked by the same `scripts/task check`.
-
-### Added
-
 - Diversity and turnover in the growth curve: `vessel/curve.csv` gains `killed`, `shannon`, `dominance`,
   `mean_gen`, `arisen`, `extinct`, `pheromone`, `mutations_ready` and `mutations_taken`, sampled every
   10 ticks like the rest. `Dish.metrics()`, `Culture.metrics()` and `bio.curve.read()` expose them; the
@@ -154,6 +151,15 @@ turns the `Unreleased` section into a dated release.
 
 ### Fixed
 
+- Resource bombs the time budget cannot interrupt: the membrane now refuses their literal and
+  constant forms statically, regardless of the tick that would run them. The static gate rejects
+  `**` with a non-constant or oversized-constant exponent (`2 ** me.age`, `2 ** 10**9`; `x ** 0.5`
+  and `energy ** 2` are still fine), sequence repetition by a large constant (`[0] * 10**10`), and
+  `range()` over a huge constant (`sum(range(10**12))`) — so a bomb hidden behind `if me.tick > 40:`
+  is refused at admission instead of stalling the dish. The isolated smoke-test child now caps its
+  address space and CPU (RLIMIT_AS/RLIMIT_DATA/RLIMIT_CPU; best-effort — macOS cannot lower the
+  address-space limit), so a memory bomb whose size is computed at runtime cannot exhaust the box.
+  `bio/prompts.py` states the new rules. See `docs/membrane.md`.
 - An empty `curve.csv`, or one holding only blank lines, is given its header with the next row instead
   of being appended to without one.
 - `dish.json` no longer rounds cell energy, so a resumed dish follows exactly the trajectory the running one
