@@ -255,13 +255,18 @@ def vitals(c: Culture, snap: dict) -> Table:
     m, mind = snap["mutagen"], snap["mind"]
     state = MUTAGEN_STYLE.get(m["state"], (m["state"], ""))
     mut = Text(state[0], style=state[1])
-    mut.append(f"  {m['ready']} ready · {m['pending']} queued", style="dim")
+    ticked = m.get("clock") == "tick"
+    if ticked:  # no pool on the tick clock: the interval is the thing to know
+        mut.append(f"  every {m['every_ticks']} ticks", style="dim")
+    else:
+        mut.append(f"  {m['ready']} ready · {m['pending']} queued", style="dim")
     if m["state"] == "error" and m.get("retry_in", 0) > 0:
-        mut.append(f"  retry in {int(m['retry_in'])}s", style="dim")
+        mut.append(f"  retry in {int(m['retry_in'])}{' ticks' if ticked else 's'}", style="dim")
     if m["boosted"]:
         mut.append("  ×6", style="bold magenta")
     t.add_row("mutagen", mut)
-    t.add_row("", Text(f"{m['produced']} viable · {m['nonviable']} nonviable", style="dim"))
+    # the clock in the label column, where it costs no width: the value column is as narrow as 23 cells
+    t.add_row(m.get("clock") or "", Text(f"{m['viable']} viable · {m['nonviable']} nonviable", style="dim"))
     mind_line = Text(mind["model"].split("/")[-1], style="dim")
     if mind["calls"]:
         mind_line.append(
@@ -291,8 +296,9 @@ def vitals_strip(c: Culture, snap: dict) -> Text:
     t.append(state.split(" ", 1)[-1], style=style)  # the word without its glyph: "· · dormant" reads badly
     if m["boosted"]:
         t.append(" ×6", style="bold magenta")
+    supply = "tick" if m.get("clock") == "tick" else f"{m['ready']} ready"  # no pool on the tick clock
     t.append(
-        f" · {m['ready']} ready · {len(snap['census'])} living · {mt['arisen']} arisen · H {mt['shannon']:.2f}",
+        f" · {supply} · {len(snap['census'])} living · {mt['arisen']} arisen · H {mt['shannon']:.2f}",
         style="dim",
     )
     rows = c.registry.living(snap["census"])

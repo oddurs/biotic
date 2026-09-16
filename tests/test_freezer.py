@@ -406,7 +406,7 @@ def test_a_dish_revive_between_pick_and_mutate_does_not_kill_the_mutagen(culture
         assert m._pick() == "abcd"
         gone()
         m._mutate("abcd")  # Mind.think is patched to fail loudly, so returning here is the whole point
-        assert m.pool == {} and m.requests == {} and m.produced == 0
+        assert m.pool == {} and m.requests == {} and m.viable == 0
     m.know("abcd", "guest", VARIANT)
     assert m._pick() is None, "nothing is requested; a strain known again is not mutated on its own"
 

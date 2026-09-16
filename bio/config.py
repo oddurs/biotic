@@ -54,6 +54,14 @@ BUDGET_USD = max(0.0, float(env("BIOTIC_BUDGET_USD", "2.00")))  # dollars a dish
 MUTAGEN_BACKOFF = 15.0  # seconds after the first failed call; doubles per consecutive failure
 MUTAGEN_BACKOFF_MAX = 600.0  # cap on the doubling
 RETRY_AFTER_MAX = 3600.0  # the most a Retry-After header is honoured for
+# The mutagen's clock. wall: the thread calls the mind at most every MUTAGEN_INTERVAL seconds and the
+# dish never waits (biotic live's default). tick: the dish itself calls at most every MUTAGEN_EVERY_TICKS
+# ticks and waits for the reply (biotic run's default), so the supply of variants is a function of ticks
+# and budget, not of the machine. docs/experiments.md
+MUTAGEN_CLOCK = env("BIOTIC_MUTAGEN_CLOCK")  # "wall" | "tick" | None (None: by command); checked in Culture.use_clock
+MUTAGEN_EVERY_TICKS = max(1, int(env("BIOTIC_MUTAGEN_EVERY_TICKS", "40")))  # tick clock: min ticks between calls
+MUTAGEN_BACKOFF_INTERVALS = 2  # tick clock: intervals closed after the first failed call; doubles per failure
+MUTAGEN_BACKOFF_INTERVALS_MAX = 50  # cap on that doubling, in intervals
 
 # --- the dish ------------------------------------------------------------
 WIDTH = int(env("BIOTIC_WIDTH") or 72)  # defaults; `biotic seed` fits the dish to the terminal

@@ -21,7 +21,9 @@ from bio.tui import vitals
 
 OLD_HEADER = "tick,population,strains,nutrient,phase,births,starved,lysed,senescent"
 NEW_HEADER = (
-    OLD_HEADER + ",killed,shannon,dominance,mean_gen,arisen,extinct,pheromone,mutations_ready,mutations_taken,branch"
+    OLD_HEADER
+    + ",killed,shannon,dominance,mean_gen,arisen,extinct,pheromone,mutations_ready,mutations_taken,branch"
+    + ",mutations_attempted,mutations_viable"
 )
 OLD_ROWS = [
     "10,5,1,0.7103,lag,0,0,0,0",
@@ -232,6 +234,7 @@ def test_curve_has_the_new_columns(make_culture):
     assert first["killed"] == 0 and first["arisen"] == 1 and first["extinct"] == 0
     assert first["mutations_ready"] == 0 and first["mutations_taken"] == 0
     assert first["branch"] == 0  # no dish revive yet
+    assert first["mutations_attempted"] == 0 == first["mutations_viable"]  # a dormant mind: no calls, nothing viable
     assert isinstance(first["nutrient"], float) and isinstance(first["mean_gen"], float)
     assert (
         first["population"]
@@ -259,6 +262,28 @@ def test_old_curve_is_widened_in_place(make_culture):
     assert len(widened) == 1
     assert f"{len(curve.COLUMNS) - 9} columns added" in widened[0]["msg"] and "shannon" in widened[0]["msg"]
     assert not config.CURVE.with_name("curve.csv.tmp").exists()
+    with open(config.CURVE, newline="") as f:
+        assert {len(r) for r in csv.reader(f)} == {len(curve.COLUMNS)}
+
+
+def test_a_curve_written_before_the_supply_columns_is_widened(make_culture):
+    """A file from the nineteen-column apparatus, up to `branch`, gains exactly the two supply
+    columns; its rows read None there, the new rows read ints."""
+    header = list(curve.COLUMNS[:19])
+    assert header[-1] == "branch"
+    row = "10,5,1,0.7000,lag,0,0,0,0,0,0.0000,1.0000,0.00,1,0,0.0000,0,0,0"
+    config.CURVE.write_text(",".join(header) + "\n" + row + "\n")
+    fields, added = curve.reconcile(config.CURVE)
+    assert fields == list(curve.COLUMNS) and added == ["mutations_attempted", "mutations_viable"]
+    c = make_culture()
+    c.dish.tick = 10
+    for _ in range(10):
+        c.step()
+    rows = curve.read()
+    assert [r["tick"] for r in rows] == [10, 20]
+    assert rows[0]["mutations_attempted"] is None and rows[0]["mutations_viable"] is None
+    assert rows[1]["mutations_attempted"] == 0 and rows[1]["mutations_viable"] == 0
+    assert rows[0]["branch"] == 0 and rows[1]["branch"] == 0
     with open(config.CURVE, newline="") as f:
         assert {len(r) for r in csv.reader(f)} == {len(curve.COLUMNS)}
 
@@ -335,7 +360,7 @@ def test_a_curve_that_cannot_be_widened_is_left_intact_and_said_once(make_cultur
 def test_unknown_columns_are_kept(make_culture):
     header = list(curve.COLUMNS) + ["mystery"]
     row = ["10", "5", "1", "0.7000", "lag", "0", "0", "0", "0", "0", "0.0000", "1.0000", "0.00", "1", "0"]
-    row += ["0.0000", "0", "0", "0", "x"]
+    row += ["0.0000", "0", "0", "0", "0", "0", "x"]
     config.CURVE.write_text(",".join(header) + "\n" + ",".join(row) + "\n")
     c = make_culture()
     for _ in range(10):
@@ -401,7 +426,7 @@ def test_a_spreadsheets_byte_order_mark_is_not_a_column(make_culture):
     assert config.CURVE.read_bytes().startswith(b"tick,")  # rewritten without the mark
     assert curve.read()[0]["tick"] == 10
     # a file with every column and a mark is read in place, not rewritten
-    row = "10,5,1,0.7000,lag,0,0,0,0,0,0.0000,1.0000,0.00,1,0,0.0000,0,0,0"
+    row = "10,5,1,0.7000,lag,0,0,0,0,0,0.0000,1.0000,0.00,1,0,0.0000,0,0,0,0,0"
     config.CURVE.write_bytes((bom + ",".join(curve.COLUMNS) + "\n" + row + "\n").encode())
     assert curve.reconcile(config.CURVE) == (list(curve.COLUMNS), [])
     assert config.CURVE.read_bytes().startswith(bom.encode())
@@ -478,12 +503,16 @@ def test_vitals_rows_fit_the_side_panel(make_culture):
     snap = c.snapshot()
     snap["census"] = {f"s{i}": 1 for i in range(123)}
     snap["metrics"].update(shannon=4.81, dominance=1.0, mean_gen=12.3, arisen=456, extinct=789)
+    snap["mutagen"].update(viable=123, nonviable=456)
     lines = _render(Panel(vitals(c, snap), title="vitals"), 48)
     labels = [ln[2:13].strip() for ln in lines]
     s = labels.index("strains")
     assert labels[s + 1] == "diversity" and labels[s + 2] == "agar"
     assert "123  456 arisen  789 extinct" in lines[s]
     assert "H 4.81  dominance 100%  gen 12.3" in lines[s + 1]
+    m = labels.index("mutagen")
+    assert labels[m + 1] == "wall" and labels[m + 2] == "mind", "the clock is the label of the supply row"
+    assert "123 viable · 456 nonviable" in lines[m + 1]
 
 
 def test_the_log_panel_marks_curve_events(make_culture):

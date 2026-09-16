@@ -2,8 +2,9 @@
 id: 40
 title: Tick-clocked mutation supply for headless runs
 type: feature
-status: planned
+status: done
 milestone: dish
+assignee: Oddur Sigurdsson
 depends_on:
 - 2
 created: 2026-09-08
@@ -93,13 +94,13 @@ function of ticks and budget and nothing else.
 
 ## Acceptance criteria
 
-- [ ] Two 5,000-tick headless runs with the same seed and a fake deterministic `Mind` (monkeypatched `think`, no network), one at `--tick 0` and one at `--tick 0.05`, produce the same number of mutation attempts within ±5%
-- [ ] In `wall` mode a `Mind` whose `think` sleeps 2 s does not change tick duration: median tick time in a 200-tick `live`-mode run is within 10% of the same run with a dormant mind
-- [ ] In `tick` mode with `BIOTIC_MUTAGEN_EVERY_TICKS=40`, a 4,000-tick run makes at most 100 calls plus the spontaneous-mutation allowance, and never two calls fewer than 40 ticks apart
-- [ ] A `MindError` on every call in `tick` mode still lets the culture grow (population after 2,000 ticks matches a dormant-mind run within noise) and produces backoff in ticks, not seconds
-- [ ] `curve.csv` has `mutations_attempted`, `mutations_viable`, `mutations_taken`; `biotic curve` reads a file written before this change
-- [ ] `biotic run` prints the mode; `biotic status` shows it; `dish.json` carries it across a resume
-- [ ] `docs/experiments.md` exists and explains the two modes and when to use which; README points to it
+- [x] Two 5,000-tick headless runs with the same seed and a fake deterministic `Mind` (monkeypatched `think`, no network), one at `--tick 0` and one at `--tick 0.05`, produce the same number of mutation attempts within ±5%
+- [x] In `wall` mode a `Mind` whose `think` sleeps 2 s does not change tick duration: median tick time in a 200-tick `live`-mode run is within 10% of the same run with a dormant mind
+- [x] In `tick` mode with `BIOTIC_MUTAGEN_EVERY_TICKS=40`, a 4,000-tick run makes at most 100 calls plus the spontaneous-mutation allowance, and never two calls fewer than 40 ticks apart
+- [x] A `MindError` on every call in `tick` mode still lets the culture grow (population after 2,000 ticks matches a dormant-mind run within noise) and produces backoff in ticks, not seconds
+- [x] `curve.csv` has `mutations_attempted`, `mutations_viable`, `mutations_taken`; `biotic curve` reads a file written before this change
+- [x] `biotic run` prints the mode; `biotic status` shows it; `dish.json` carries it across a resume
+- [x] `docs/experiments.md` exists and explains the two modes and when to use which; README points to it
 
 ## 2026-09-09
 
@@ -108,3 +109,59 @@ From 0003/0045: mutations_taken is derived from the registry (strains with a par
 ## 2026-09-16
 
 From 0005: curve.COLUMNS has nineteen columns now, the last being branch (a coordinate for revives). Append mutations_attempted and mutations_viable after branch and extend NEW_HEADER in tests/test_metrics.py accordingly.
+
+## 2026-09-16
+
+Tick mode is synchronous only: the thread exits at once on the tick clock; no pool, no queue, no spontaneous path. Every call is Mutagen.mutate_now(strain) from the dish thread at a division that rolled while the slot was open. A warm-pool thread under a shared tick interval would either make a second call per interval or race the dish, with a winner that depends on --tick and CPU speed, and an asynchronous reply lands latency-dependent ticks later — the machine-dependence the item exists to remove. With one caller, attempt ticks, birth ticks and counts are a function of (seed, replies, membrane verdicts). The item's 'spontaneous allowance' in criterion 3 is exactly zero.
+
+## 2026-09-16
+
+Clock precedence: --clock > BIOTIC_MUTAGEN_CLOCK > the --clock the dish remembers > by command (live: wall, anything else: tick). Only the flag is remembered (culture.clock in dish.json); the environment variable is per-process configuration like BIOTIC_MUTATION_RATE and is never written into the dish. So biotic live after a headless run stays on the wall clock, biotic run --clock wall survives a resume (the criterion), and a .env set for a protocol applies to every command in that checkout without leaving residue in the flask. The remembered flag and the last-run record (clock_used, every_ticks_used) belong to the vessel like branch: revive() carries them forward over the sample's.
+
+## 2026-09-16
+
+BIOTIC_MUTAGEN_EVERY_TICKS is per-process configuration, clamped to >= 1, never restored from dish.json. dish.json carries a record of the last run (clock_used, every_ticks_used) for biotic status, plus one visible mind event at every run start ('mutagen clock: tick, every 40 ticks', with clock and every_ticks in its data) as the durable record. The item's proposal both called it per-process and persisted it; that contradiction is resolved toward per-process.
+
+## 2026-09-16
+
+Backoff in ticks; Retry-After is a wall-clock floor. On the tick clock a failed call closes the slot for 2·every, 4·every, … <= 50·every ticks (backoff(failures, base=2e, cap=50e)); a Retry-After additionally sets retry_wall_at = time.time() + min(ra, RETRY_AFTER_MAX), during which no attempt is made and none is counted. A dead endpoint must not stall a fast run (the item's words), but an endpoint that names a wait is stating its own constraint, and at --tick 0 a tick-only cap of 2000 ticks is a retry every ~4 s. This is the only wall-clock input on the tick path and it exists only under failure, where reproducibility is already gone because the replies differ. Not persisted: a resumed process asks again. failures is not persisted either (as on the wall clock), but retry_at_tick is, so a resumed dish waits out the schedule it was in and a later failure starts at 2 intervals again.
+
+## 2026-09-16
+
+produced is renamed viable. On the wall path produced counted daughters admitted into the pool, which is exactly the item's viable ('passed the membrane and entered the pool, or were taken directly by a blocking call'). Two counters equal on one path and one always zero on the other is a trap. attempted counts calls that got an answer or an error (MindError); Dormant and Exhausted are raised before any request and do not count. attempted, viable and nonviable are persisted in the culture blob so the cumulative curve columns stay monotone across resumes; a revive restores the sample's counters (coordinates of the timeline, like arisen); mind.calls stays the money ledger and includes genesis.
+
+## 2026-09-16
+
+The tick schedule is persisted (last_call_tick, retry_at_tick in the culture blob; last_call_tick is null for -inf, the open-at-once state of a dish that never called). Without it every resume opens the slot at once, the first roll after a load calls early, and every later attempt tick shifts: a resumed run would not be the twin README promises, and 0037's replay needs the schedule to be state. tests/test_clock.py::test_the_tick_schedule_and_counters_survive_a_resume shows a 600+600 run has the attempt ticks and the dish of one unbroken 1200. On the wall clock state_dict carries the loaded values forward unchanged so a live peek does not erase a headless run's schedule.
+
+## 2026-09-16
+
+run() primes mutagen.context before the first tick on the tick clock only, so a blocking call in the first ticks after a resume is prompted with the real census and phase (step() refreshes it only every third tick, after the step). Priming on the wall clock too, as first planned, changed wall behaviour: _pick's spontaneous path only needs a census and last_call = 0.0, so the thread called the mind at its first turn — on close(), in a one-tick run — and tests/test_budget.py::test_ledger_catches_up_from_the_log_after_a_hard_kill caught it (a third call after the save). The wall path is left exactly as it was: same calls, same order.
+
+## 2026-09-16
+
+Ctrl-c inside a blocking call ends the run at a tick boundary: _on_divide catches KeyboardInterrupt from mutate_now, the division is faithful, Culture._interrupted is set and run() raises KeyboardInterrupt after step() returns, inside its try/finally, so the dish saved on the way out is whole and its resumed twin equals a dormant dish stepped to the same tick. The interrupted attempt is not counted (attempted increments after think returns); last_call was already set, so the slot stays closed for one interval after a resume, which errs on the side of the interval. A second interrupt mid-tick behaves as before.
+
+## 2026-09-16
+
+Boost expiry fixed in Culture.step(): boost returns to 1.0 once dish.tick >= boost_until, on both clocks and in dish.json. Before, drop mutagen set boost = 6.0 forever: _on_divide used boost_until for the rate but _cycle divided the wall interval by boost for the rest of the run (2 s instead of 12 s) and state_dict persisted 6.0. This item makes boost divide the tick interval too, so the expiry had to be real. Changelog under Fixed; tests/test_freezer.py's boost round trip compares twins before boost_until and stays green.
+
+## 2026-09-16
+
+The vitals show the clock as the label of the mutagen's second row (the dim label column: 'wall 12 viable · 3 nonviable'), not inside the value. The plan put 'wall · ' in the value; at the narrowest side panel (80x24, 36 columns, value column 23 cells) that row is the one mutagen row that does not wrap today (22 cells with zero counts), and one more wrapped row folds the side panel into the strip — docs/eyepiece.md promises the side panel at 80x24 and tests/test_tui.py pins Fit(1, True, 0, 1, 40, 18) with zero slack. The label costs no width. On the tick clock the state row shows 'every 40 ticks' where 'N ready · M queued' would be: there is no pool there and the figures are structurally zero; the strip shows 'tick' in place of '0 ready' for the same reason. The retry countdown reads 'retry in 80 ticks'.
+
+## 2026-09-16
+
+Which strain gets mutated shifts on the tick clock: the wall path served the oldest queued request (one per strain, so a rare strain was served as often as the dominant one); the tick path serves whichever strain's division rolled first after the slot opened, i.e. in proportion to division share. Stated in docs/experiments.md. Not a defect, but a live flask and a run flask are not the same experiment in that respect; a rare-strain-favouring pick would be a different design.
+
+## 2026-09-16
+
+Test lever: on the 24x12 test dish under the built-in founder there are ~230 births in the first 200 ticks and then ~10 per 200 ticks (measured), so at the default 6 % a roll is rarer than a 40-tick interval and the interval is not what bounds attempts. The tests about the interval set culture.mutation_rate = 1.0 (every division rolls) so the interval is the binding constraint; the roll RNG is drawn once per division whatever the rate, so the dormant twins in those tests still walk the same path. At 72x34 births run 40-170 per 200 ticks after the bloom, so at 6 % an attempt every ~45-70 ticks is what a real run sees; docs/experiments.md says attempts depend on the division rate and to report mutations_attempted rather than assume ticks / every_ticks.
+
+## 2026-09-16
+
+Finished the interrupted build. Reconciled with main (already at origin/main tip; #27 budget, #28 freezer, #31 curve-widening all in the base). Full scripts/task check green: 363 pytest, 15 web unit, 14 e2e, uv build + astro build. Two formatting reconciliations were needed from the interrupted state: a stray blank line splitting the CHANGELOG ### Changed list, and configuration.mdx's env table was not re-aligned after two rows were added (prettier --check flagged it; scripts/task fmt fixed it). cli.mdx is generator-current (scripts/cli_reference.py --check passes).
+
+## 2026-09-16
+
+Watch items for later experiment items (0015/0016/0021/0028/0038/0041): (1) criterion 3's '>=40 ticks apart' invariant holds only with no active boost. drop mutagen divides interval() by 6 on the tick clock too, so spacing drops toward every/6 for the boost's 300 ticks; test_boost_divides_the_tick_interval_and_expires demonstrates gaps of 7..<40 while boosted and >=40 after expiry. A protocol that assumes strict 40-tick spacing must not drop the mutagen. (2) attempted/viable/nonviable are timeline coordinates: revive() restores them from the sample blob (like arisen/branch), and Mutagen.reset() on a dish swap does NOT zero them, so a revive --into current carries the previous dish's cumulative counts forward by design; a fresh biotic seed starts a new Mutagen at 0. (3) On a hard kill up to ~150 ticks of counters and schedule are lost with the dish, same as arisen.

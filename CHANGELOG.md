@@ -82,10 +82,30 @@ turns the `Unreleased` section into a dated release.
 - `call` events carry `role`: `genesis`, `mutagen`, `naturalist` or `probe`, so an observer's spend can be
   told from the mutagen's. A call that names no role is logged as `unknown` — unattributed, never folded
   into another role's spend.
+- The mutagen's clock. `--clock wall|tick` on `biotic live` and `biotic run`, `BIOTIC_MUTAGEN_CLOCK` per
+  process, and `BIOTIC_MUTAGEN_EVERY_TICKS` (default 40). On the tick clock the dish calls the mind itself,
+  from the division that rolled the mutation, at most once every that many ticks, and the daughter is born
+  in that division; the backoff after a failed call is 2, 4, … 50 intervals in ticks, and a `Retry-After`
+  is a floor on the wall clock. The flag sticks to the dish like `--budget`; the environment variable does
+  not. `biotic run` prints `mutagen clock: tick, every 40 ticks`, logs it as a `mind` event at every run
+  start, `biotic status` shows what the last run used, and the vitals name the clock on the mutagen rows.
+  See `docs/experiments.md`.
+- `vessel/curve.csv` gains `mutations_attempted` and `mutations_viable` after `branch`: cumulative calls
+  made and daughters that passed the membrane. Older files are widened with the rest. The counters, with
+  `nonviable` and the tick schedule, are saved in `dish.json`, so they are monotone across a resume.
+- `docs/experiments.md`: why the two clocks exist, which command defaults to which, what a value of
+  `BIOTIC_MUTAGEN_EVERY_TICKS` means in attempts per flask, and what two flasks must share to be compared.
 
 ### Changed
 
 - `phase` events in `events.jsonl` carry the phase entered as a `phase` field beside the message.
+- `biotic run` defaults to the tick clock and waits for the mind's reply on every attempt: a headless run
+  at `--tick 0` is now as long as its calls to the model, minutes to tens of minutes for 5,000 ticks with
+  a live endpoint, where before the dish ran past a mind that was called once per several thousand ticks.
+  `--clock wall` restores the old behaviour. `ctrl-c` during a call ends the run at the tick boundary.
+- The mutagen's `produced` count is `viable` in `Culture.snapshot()`; `viable` and `nonviable` now persist
+  across resumes. The vitals' second mutagen row carries the clock as its label; on the tick clock the
+  state row reads `every 40 ticks` in place of the pool figures, and the retry countdown is in ticks.
 - A `curve.csv` written before this release is widened in place the first time the culture appends to
   it: older rows keep their values and have empty cells in the new columns. Logged once as a `curve` event
   (`≡` in the incubator log). A file re-saved by a spreadsheet, with a byte-order mark, is recognised. A
@@ -163,6 +183,9 @@ turns the `Unreleased` section into a dated release.
   its address space and CPU (RLIMIT_AS/RLIMIT_DATA/RLIMIT_CPU; best-effort — macOS cannot lower the
   address-space limit), so a memory bomb whose size is computed at runtime cannot exhaust the box.
   `bio/prompts.py` states the new rules. See `docs/membrane.md`.
+- `biotic drop mutagen` no longer shortens the mutagen's call interval for the rest of the run: the ×6
+  boost now expires with its 300 ticks on the interval as it always did on the mutation rate, and
+  `dish.json` no longer carries `boost: 6.0` forever after.
 - An empty `curve.csv`, or one holding only blank lines, is given its header with the next row instead
   of being appended to without one.
 - `dish.json` no longer rounds cell energy, so a resumed dish follows exactly the trajectory the running one

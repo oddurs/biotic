@@ -32,6 +32,8 @@ previous row.
 | `mutations_ready` | int, gauge | prepared daughters waiting in the mutagen's pool at that tick |
 | `mutations_taken` | int, cumulative | divisions that produced a new strain; the count of `arose` events |
 | `branch` | int | the vessel's timeline: 0 until the first `biotic revive` of a dish sample, one more after each. A coordinate, not a marker: `(branch, tick)` names a row uniquely once a revive has sent `tick` back through values already in the file. Empty in rows written before the column existed; those were all branch 0 |
+| `mutations_attempted` | int, cumulative | calls the mutagen made that got an answer or an error, on either clock; not the calls a dormant or exhausted mind refused before any request |
+| `mutations_viable` | int, cumulative | daughters that passed the membrane: into the pool on the wall clock, born at once on the tick clock. At most `mutations_attempted`; `docs/experiments.md` |
 
 Floats are written to four decimals, `mean_gen` to two. Four decimals resolve
 sustained signalling in `pheromone`: one cell emitting 0.2 every tick holds the
@@ -53,29 +55,38 @@ needs more than this column.
 lose. `dominance` falling while `strains` holds is coexistence. `arisen − extinct`
 against `strains` is turnover.
 
-The slope of `arisen` is the rate at which variants are taken up. Until the
-mutagen is clocked in ticks it is supply-limited and bound to the wall clock:
-the mind is called at most once every `BIOTIC_MUTAGEN_INTERVAL` seconds, so a
-run at `--tick 0` sees far fewer variants per tick than `biotic live` does. It is
-not a rate of adaptive novelty; a variant that is taken up and starves on the
-next tick still counts.
+The slope of `arisen` is the rate at which variants are taken up. It is
+supply-limited, and what bounds the supply depends on the mutagen's clock
+(`docs/experiments.md`). On the tick clock, `biotic run`'s default, the mind is
+called at most once every `BIOTIC_MUTAGEN_EVERY_TICKS` ticks, so the bound is a
+property of the run and the same on every machine; `mutations_attempted` is how
+many calls were actually made. On the wall clock, `biotic live`'s default, the
+mind is called at most once every `BIOTIC_MUTAGEN_INTERVAL` seconds, so a run at
+`--tick 0` sees far fewer variants per tick than one at half a second, and two
+machines differ. Either way the slope is not a rate of adaptive novelty; a
+variant that is taken up and starves on the next tick still counts.
 
 `mutations_taken` counts strains that have a parent. The founder is the only
 strain without one, so today it equals `arisen − 1` in every row; the column is
-there for when strains can arrive some other way than a mutated division.
-`mutations_ready` is the one column that does not read the dish: it samples a
-pool that a background thread fills on the wall clock. Under an exact replay of
-the admitted genomes at their original ticks, and of any drops at theirs, every
-other column reproduces (`phase` too, if the replay is resumed at the same
-ticks, since the debounce restarts with the process); this one need not. Drops
-arrive on the wall clock as well and change the agar, the population and the
-mutation rate; `events.jsonl` records each with its tick, so a replay can place
-them. The reproduction holds up to the membrane's wall-clock budget: a genome
-that runs over `CELL_TIME_BUDGET` lyses on one machine and may not on another,
-and `lysed`, `population` and everything downstream follow it. Without such a
-replay, two runs from the same seed diverge in every column from the first
-variant taken, because when a variant is ready depends on the machine and the
-mind, not the dish. Leave `mutations_ready` out when comparing curves.
+there for when strains can arrive some other way than a mutated division. On
+the tick clock it also equals `mutations_viable`, since a viable daughter is
+born in the division that asked for it; on the wall clock a pooled daughter can
+expire with its strain, so it is at most `mutations_viable`. `mutations_ready`
+is the one column that does not read the dish: it samples a pool that a
+background thread fills on the wall clock, and is 0 on the tick clock. Under an
+exact replay of the admitted genomes at their original ticks, and of any drops
+at theirs, every other column reproduces (`phase` too, if the replay is resumed
+at the same ticks, since the debounce restarts with the process); this one need
+not. On the tick clock the attempt schedule itself reproduces — the ticks at
+which the mind was asked are a function of the seed — so a replayed mind is all
+such a replay needs. Drops arrive on the wall clock and change the agar, the
+population and the mutation rate; `events.jsonl` records each with its tick, so
+a replay can place them. The reproduction holds up to the membrane's wall-clock
+budget: a genome that runs over `CELL_TIME_BUDGET` lyses on one machine and may
+not on another, and `lysed`, `population` and everything downstream follow it.
+Without such a replay, two runs from the same seed diverge in every column from
+the first variant taken, because the model's replies are not a function of the
+dish. Leave `mutations_ready` out when comparing curves.
 
 The death ledger closes. For a dish inoculated once,
 `births − (starved + lysed + senescent + killed) = population − INOCULUM` holds

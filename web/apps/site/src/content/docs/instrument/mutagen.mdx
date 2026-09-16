@@ -1,6 +1,6 @@
 ---
 title: The mutagen
-description: A background thread that asks the mind for daughter genomes.
+description: What asks the mind for daughter genomes, on one of two clocks.
 section: The instrument
 order: 2
 ---
@@ -12,12 +12,22 @@ rewrite of the parent's by one small heritable change: a changed threshold, a ne
 an existing condition, a new key in memory, a dropped behaviour. The model is told that it
 does not know what will work, that selection decides, and that most real mutations are bad.
 
-## It never blocks the dish
+## Two clocks
 
-Requests go to a queue. If a prepared daughter exists for the strain, the division takes it;
-otherwise the division is faithful and the request waits. A minimum interval between calls,
-`BIOTIC_MUTAGEN_INTERVAL`, bounds the rate of novelty by how fast the mind thinks, and the
-dish keeps its own time.
+On the **wall clock**, `biotic live`'s default, the mutagen is a background thread and the dish
+never waits on it. Requests go to a queue. If a prepared daughter exists for the strain, the
+division takes it; otherwise the division is faithful and the request waits. A minimum interval
+between calls, `BIOTIC_MUTAGEN_INTERVAL`, bounds the rate of novelty by how fast the mind thinks,
+and the dish keeps its own time.
+
+On the **tick clock**, `biotic run`'s default, there is no thread and no pool. The dish calls the
+mind itself, from the division that rolled the mutation, at most once every
+`BIOTIC_MUTAGEN_EVERY_TICKS` ticks (default 40), and waits for the reply; the daughter is born in
+that division. The supply of variants is then a function of ticks and budget, not of the machine
+or of `--tick`, which is what makes two flasks comparable. It costs wall time: a headless run is
+as long as its calls to the model. `--clock wall|tick` picks either on either command and sticks
+to the dish; `docs/experiments.md` in the repository has the precedence, the backoff in ticks and
+what two flasks must share.
 
 ## The budget
 

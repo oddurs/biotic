@@ -1,6 +1,8 @@
 """The mind: a thin client for any OpenAI-compatible chat endpoint.
 
-Used as a mutagen and as an observer. The dish never waits on it.
+Used as a mutagen and as an observer. The observer never blocks the dish; the
+mutagen does not on the wall clock either, but on the tick clock the dish calls
+it itself and waits (bio/mutagen.py).
 
 Every call is priced and counted against a per-dish budget. The price comes
 from the endpoint's own figure when it reports one (`usage.cost`), else from

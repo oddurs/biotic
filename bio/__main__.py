@@ -8,7 +8,7 @@ import sys
 import time
 
 from . import config, freezer, naturalist
-from .culture import Culture, incubating, sterilize
+from .culture import CLOCKS, Culture, clock_words, incubating, sterilize
 from .dish import Dish
 from .mind import Dormant, Mind, MindError, fmt_budget, fmt_usd
 from .strains import Registry
@@ -38,6 +38,7 @@ def cmd_live(a):
 
     _not_running()
     c = _culture(a.budget)
+    _use_clock(c, a.clock, "live")
     try:
         observe(c, tick_seconds=a.tick if a.tick else config.TICK_SECONDS)
     except RuntimeError as e:
@@ -47,6 +48,7 @@ def cmd_live(a):
 def cmd_run(a):
     _not_running()
     c = _culture(a.budget)
+    _use_clock(c, a.clock, "run")
     t0 = time.time()
 
     def progress():
@@ -63,6 +65,7 @@ def cmd_run(a):
     stop = threading.Event()
     if not a.quiet:
         print(f"budget {fmt_budget(c.mind.spent_usd, c.mind.budget_usd)}", file=sys.stderr)
+        print(f"mutagen clock: {c.clock_line()}", file=sys.stderr)
 
         def rep():
             while not stop.wait(5):
@@ -98,6 +101,12 @@ def cmd_status(a):
     calls = f"{m['calls']} call{'s' if m['calls'] != 1 else ''}"
     exhausted = "  — exhausted" if m["awake"] and m["exhausted"] else ""  # a dormant mind is dormant, whatever its cap
     print(f"spent       {fmt_budget(m['spent_usd'], m['budget_usd'])}  ({calls}){exhausted}")
+    if c.clock_used:
+        clock = f"{clock_words(c.clock_used, c.every_ticks_used)}  (last run)"
+    else:
+        clock = "not yet run (live: wall, run: tick)"
+    remembered = f"  · --clock {c.clock_choice} remembered" if c.clock_choice else ""
+    print(f"mutagen     clock: {clock}{remembered}")
     ticks = freezer.dish_ticks()
     n = len(freezer.stems())
     if n:
@@ -471,6 +480,15 @@ def _culture(budget: float | None = None) -> Culture:
         sys.exit(str(e))
 
 
+def _use_clock(c: Culture, flag: str | None, command: str) -> None:
+    """Settle the mutagen's clock before the dish runs; a bad BIOTIC_MUTAGEN_CLOCK ends the command
+    here, not the dish mid-run."""
+    try:
+        c.use_clock(flag, command)
+    except ValueError as e:
+        sys.exit(str(e))
+
+
 def _cells(v: str) -> int:
     n = int(v)
     if n < 1:
@@ -492,6 +510,11 @@ def main(argv=None):
         "dollars this dish may spend on the mind "
         "(default: what the dish remembers, else BIOTIC_BUDGET_USD, else 2.00; inf for no cap)"
     )
+    clock_help = (
+        "mutagen clock: wall (a background thread; the dish never waits on the mind; live's default) or tick "
+        "(the dish calls the mind itself, at most every BIOTIC_MUTAGEN_EVERY_TICKS ticks, and waits for the reply; "
+        "run's default). Sticks to the dish like --budget; BIOTIC_MUTAGEN_CLOCK sets it per process. docs/experiments.md"
+    )
 
     s = sub.add_parser("seed", help="inoculate a fresh dish from a word, phrase, or question")
     s.add_argument("seed")
@@ -502,6 +525,7 @@ def main(argv=None):
     s = sub.add_parser("live", help="watch the dish (default)")
     s.add_argument("--tick", type=float, help="seconds per tick")
     s.add_argument("--budget", type=float, help=budget_help)
+    s.add_argument("--clock", choices=CLOCKS, help=clock_help)
     s.set_defaults(f=cmd_live)
 
     s = sub.add_parser("run", help="run headless, e.g. for an experiment")
@@ -511,6 +535,7 @@ def main(argv=None):
         "--quiet", action="store_true", help="no budget line or progress reports; the summary at the end still prints"
     )
     s.add_argument("--budget", type=float, help=budget_help)
+    s.add_argument("--clock", choices=CLOCKS, help=clock_help)
     s.set_defaults(f=cmd_run)
 
     sub.add_parser("status").set_defaults(f=cmd_status)
@@ -582,7 +607,7 @@ def main(argv=None):
     a = p.parse_args(argv)
     if not a.cmd:
         if config.DISH_FILE.exists():
-            return cmd_live(argparse.Namespace(tick=None, budget=None))
+            return cmd_live(argparse.Namespace(tick=None, budget=None, clock=None))
         p.print_help()
         return
     return a.f(a)
