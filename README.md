@@ -84,6 +84,11 @@ And look at what has grown:
     biotic run --ticks 5000 --tick 0     # headless, as fast as it goes
     open vessel/curve.csv                # population, diversity, turnover by tick; docs/curve.md
 
+A dish is deterministic under its seed, in any process, and `vessel/dish.json`
+restores an exact twin: a run that is stopped and resumed follows the trajectory it
+would have followed anyway, tick for tick, until the mind hands it a daughter. The
+model is the one source of novelty a seed does not fix; `docs/membrane.md` has the
+fine print.
 `BIOTIC_REPLENISH=0` gives a truly closed dish: bloom, crash, done.
 `BIOTIC_MUTATION_RATE`, `BIOTIC_MUTAGEN_INTERVAL`, `BIOTIC_TICK`, `BIOTIC_WIDTH`,
 `BIOTIC_HEIGHT` are the other knobs. The rest of the physics is in `bio/config.py`.
@@ -110,10 +115,15 @@ own time.
 
 Genomes are untrusted code from a language model running on your machine, so
 they pass through `bio/membrane.py` before they can live: no imports (only
-`math` and `random` exist), no classes, no dunders, no `open`/`eval`/`getattr`,
-a size cap, and a wall-clock budget per call. Then forty ticks against random
-situations without throwing. A genome that throws inside the dish bursts the
-cell; it doesn't touch anything else.
+`math` and `random` exist, and `random` is the dish's own seeded generator), no
+classes, no dunders or private attributes, no `open`/`eval`/`getattr`, no
+`.format`, no `finally` or `with`, `except` only on the six built-in exceptions a
+genome can see and no rebinding of those names, read-only attributes, constants
+only at module level, a size cap, and a wall-clock budget per call that nothing
+in a genome can catch or outlive. Then forty ticks against random situations
+without throwing. A genome that throws inside the dish bursts the cell; it
+doesn't touch anything else. `docs/membrane.md` has every rule with its reason
+string, and what the membrane cannot do.
 
 ## layout
 
@@ -128,7 +138,9 @@ cell; it doesn't touch anything else.
       tui.py        the eyepiece
     soma/         every strain that ever arose. written by the culture. do not edit.
     vessel/       the running state: seed, dish, strains, events, growth curve, whispers
-    docs/         longer notes: docs/curve.md on reading the growth curve
+    docs/         longer notes: docs/curve.md on reading the growth curve,
+                  docs/membrane.md on what a genome may contain and why
+    tests/        the suite; tests/fixtures/genomes/ holds ten fossils from a real run
 
 ## development
 
@@ -140,6 +152,11 @@ One seam runs both: `scripts/task`. Contributors need git, gh, uv, and Node 24.
     scripts/task check                  # format, lint, tests, build: what CI runs
     scripts/agent pr                    # checks, pushes, opens the pull request
     (cd web && pnpm dev)                # the site, live, at http://localhost:6969; published at https://oddurs.github.io/biotic/
+
+`scripts/task test` runs the suite alone: the membrane (one genome per escape class, and
+ten fossils from a real run in `tests/fixtures/genomes/` that must always be admitted),
+the physics under the built-in founder, determinism under a seed, and the round trip
+through `dish.json`. Tests never touch the network or the real `vessel/`.
 
 `main` only changes through a merged pull request; the hooks and branch protection enforce
 that. `CONTRIBUTING.md` has the rest. `scripts/release <x.y.z>` cuts a release.

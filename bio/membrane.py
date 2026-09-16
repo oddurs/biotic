@@ -2,7 +2,15 @@
 
 A genome is Python source defining `live(me)`. Before it can run inside the
 dish it has to pass through here: no imports, no dunders, no escape hatches,
-and it must survive a few dozen simulated ticks without throwing.
+and it must survive a few dozen simulated ticks without throwing. No attribute
+beginning with `_`, no `.format`, no `finally`, no `with`, no `except*`, and
+`except` may name only the built-in exceptions a genome can see, none of which
+a genome may rebind, so nothing in a genome runs on after its time budget
+bursts it. Module level holds only `def` and constants, and attributes are
+read-only, so everything a genome can change lives in `me.memory` or the dish's
+generator, both of which the freezer saves. No sets: a set of strings iterates
+in an order the interpreter's hash seed picks, and the dish's seed does not fix
+that.
 """
 
 from __future__ import annotations
@@ -47,6 +55,12 @@ BANNED_NAMES = {
     "print",
 }
 
+# Attributes with no leading underscore that still reach outside the genome.
+# .format and .format_map walk attributes through their replacement fields;
+# .mro() is the one non-dunder route from an exception class to BaseException and
+# object; BaseException is what Lysis derives from, and what a genome must never raise.
+BANNED_ATTRS = {"format", "format_map", "mro"}
+
 SAFE_BUILTINS = {
     n: __builtins__[n] if isinstance(__builtins__, dict) else getattr(__builtins__, n)
     for n in (
@@ -70,7 +84,6 @@ SAFE_BUILTINS = {
         "range",
         "reversed",
         "round",
-        "set",
         "sorted",
         "str",
         "sum",
@@ -88,7 +101,52 @@ SAFE_BUILTINS = {
     )
 }
 
-ALLOWED_TOP_LEVEL = (ast.FunctionDef, ast.Assign, ast.AnnAssign, ast.Expr)
+# What an `except` clause may name: the exception classes in SAFE_BUILTINS and nothing
+# else, derived from the namespace so the two cannot drift apart. Every one of them is a
+# subclass of Exception, so none of them sees a Lysis.
+ALLOWED_EXCEPTIONS = frozenset(
+    n for n, v in SAFE_BUILTINS.items() if isinstance(v, type) and issubclass(v, BaseException)
+)
+_EXCEPT_RULE = "except may only name " + ", ".join(sorted(ALLOWED_EXCEPTIONS))
+
+# What a module-level value may be made of. Module-level code runs when a genome is compiled,
+# and a dish compiles its genomes again when it is loaded from the freezer, so nothing there
+# may draw from the generator or leave behind a container a cell could change between ticks:
+# no calls, no lists, dicts, sets or lambdas. Numbers, strings, tuples of them, names and
+# arithmetic are enough. The same holds for a `def`'s defaults and annotations, which are
+# evaluated when the `def` runs, and for decorators, which are calls.
+_CONSTANT_NODES = (
+    ast.Constant,
+    ast.Tuple,
+    ast.Name,
+    ast.Attribute,
+    ast.Subscript,
+    ast.Slice,
+    ast.Starred,
+    ast.UnaryOp,
+    ast.BinOp,
+    ast.BoolOp,
+    ast.Compare,
+    ast.IfExp,
+    ast.JoinedStr,
+    ast.FormattedValue,
+    ast.expr_context,
+    ast.operator,
+    ast.unaryop,
+    ast.boolop,
+    ast.cmpop,
+)
+_SIGNATURE_NODES = _CONSTANT_NODES + (ast.arguments, ast.arg)
+_CONSTANT_RULE = "module-level values must be constants (numbers, strings, tuples; no calls, lists or dicts)"
+
+# A set of strings (or of tuples holding one) iterates in an order that depends on the
+# interpreter's hash seed, which differs from process to process, so a genome that walks one
+# is not reproducible across a resume. Dicts keep insertion order and are unaffected.
+_SET_NAMES = ("set", "frozenset")
+_SET_RULE = "sets not allowed (their order depends on the interpreter, not the seed; use a tuple, list or dict)"
+
+# Python 3.12 type parameters (`def f[T](): ...`) bind a name too; absent on 3.11.
+_TYPE_PARAMS = tuple(getattr(ast, n) for n in ("TypeVar", "ParamSpec", "TypeVarTuple") if hasattr(ast, n))
 
 
 @dataclass
@@ -100,38 +158,110 @@ class Verdict:
         return self.ok
 
 
+def _names_only(t: ast.expr) -> bool:
+    """True if an except clause names only whitelisted exceptions, alone or as a tuple."""
+    names = t.elts if isinstance(t, ast.Tuple) else [t]
+    return bool(names) and all(isinstance(n, ast.Name) and n.id in ALLOWED_EXCEPTIONS for n in names)
+
+
+def _binds(node: ast.AST) -> str | None:
+    """The name a node binds, if it binds one.
+
+    An assignment, loop, comprehension or walrus target, a `del`, a parameter, a `def`,
+    an `except ... as`, a match capture, a type parameter. What `except` may name is
+    checked by identifier, so the identifier has to keep meaning the builtin: a rebound
+    `KeyError` is a TypeError raised while a Lysis is being matched, and that one an outer
+    `except Exception:` would catch.
+    """
+    if isinstance(node, ast.Name):
+        return None if isinstance(node.ctx, ast.Load) else node.id
+    if isinstance(node, ast.arg):
+        return node.arg
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.ExceptHandler)):
+        return node.name
+    if isinstance(node, (ast.MatchAs, ast.MatchStar)):
+        return node.name
+    if isinstance(node, ast.MatchMapping):
+        return node.rest
+    if isinstance(node, ast.alias):
+        return node.asname or node.name
+    if _TYPE_PARAMS and isinstance(node, _TYPE_PARAMS):
+        return node.name
+    return None
+
+
+def _constant(roots, allowed: tuple[type, ...]) -> bool:
+    """True if every node under `roots` is one the module level may evaluate."""
+    return all(isinstance(n, allowed) for root in roots for n in ast.walk(root))
+
+
 def inspect(source: str) -> Verdict:
     """Static gate. Cheap, strict, and dumb on purpose."""
-    reasons: list[str] = []
-    if len(source) > config.GENOME_MAX_CHARS:
-        reasons.append(f"genome too long ({len(source)} > {config.GENOME_MAX_CHARS} chars)")
+    if len(source) > config.GENOME_MAX_CHARS:  # before parsing: parsing megabytes is itself a cost
+        return Verdict(False, [f"genome too long ({len(source)} > {config.GENOME_MAX_CHARS} chars)"])
     try:
         tree = ast.parse(source)
     except SyntaxError as e:
         return Verdict(False, [f"SyntaxError: {e.msg} (line {e.lineno})"])
 
+    reasons: list[str] = []
     has_live = False
     for node in tree.body:
-        if isinstance(node, ast.Expr) and not isinstance(node.value, ast.Constant):
-            reasons.append("module-level expression with side effects")
-        elif not isinstance(node, ALLOWED_TOP_LEVEL):
+        if isinstance(node, ast.Expr):
+            if not isinstance(node.value, ast.Constant):  # a docstring is fine
+                reasons.append("module-level expression with side effects")
+        elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+            if not _constant(ast.iter_child_nodes(node), _CONSTANT_NODES):
+                reasons.append(_CONSTANT_RULE)
+        elif isinstance(node, ast.FunctionDef):
+            # defaults and annotations are evaluated when the def runs, which is module level
+            if not _constant([node.args] + ([node.returns] if node.returns else []), _SIGNATURE_NODES):
+                reasons.append(_CONSTANT_RULE)
+            if node.name == "live":
+                has_live = True
+                if len(node.args.args) != 1:
+                    reasons.append("live() must take exactly one argument")
+        else:
             reasons.append(f"module-level {type(node).__name__} not allowed")
-        if isinstance(node, ast.FunctionDef) and node.name == "live":
-            has_live = True
-            if len(node.args.args) != 1:
-                reasons.append("live() must take exactly one argument")
     if not has_live:
         reasons.append("no live(me) function")
 
     for node in ast.walk(tree):
+        bound = _binds(node)
+        if bound in ALLOWED_EXCEPTIONS:
+            reasons.append(f"cannot rebind {bound}")
+        if isinstance(node, ast.Attribute) and not isinstance(node.ctx, ast.Load):
+            reasons.append(f"attributes are read-only: .{node.attr}")
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             reasons.append("imports are not allowed (math and random are already in scope)")
         elif isinstance(node, ast.Name) and node.id in BANNED_NAMES:
             reasons.append(f"forbidden name: {node.id}")
-        elif isinstance(node, ast.Attribute) and node.attr.startswith("__"):
-            reasons.append(f"dunder access: .{node.attr}")
+        elif isinstance(node, ast.Name) and node.id in _SET_NAMES:
+            reasons.append(_SET_RULE)
+        elif isinstance(node, (ast.Set, ast.SetComp)):
+            reasons.append(_SET_RULE)
         elif isinstance(node, ast.Name) and node.id.startswith("__"):
             reasons.append(f"dunder name: {node.id}")
+        elif isinstance(node, ast.Attribute) and node.attr.startswith("__"):
+            reasons.append(f"dunder access: .{node.attr}")
+        elif isinstance(node, ast.Attribute) and node.attr.startswith("_"):
+            reasons.append(f"private attribute: .{node.attr}")
+        elif isinstance(node, ast.Attribute) and node.attr in BANNED_ATTRS:
+            reasons.append(f"forbidden attribute: .{node.attr}")
+        elif isinstance(node, (ast.Try, ast.TryStar)):
+            if node.finalbody:
+                reasons.append("finally not allowed")
+            if isinstance(node, ast.TryStar):
+                reasons.append("except* not allowed")
+        elif isinstance(node, (ast.With, ast.AsyncWith)):
+            reasons.append("with not allowed")
+        elif isinstance(node, ast.FunctionDef) and node.decorator_list:
+            reasons.append("decorators not allowed")
+        elif isinstance(node, ast.ExceptHandler):
+            if node.type is None:
+                reasons.append("bare except not allowed")
+            elif not _names_only(node.type):
+                reasons.append(_EXCEPT_RULE)
         elif isinstance(node, (ast.Global, ast.Nonlocal)):
             reasons.append("global/nonlocal not allowed")
         elif isinstance(node, (ast.AsyncFunctionDef, ast.Await, ast.Yield, ast.YieldFrom)):
@@ -144,9 +274,14 @@ def inspect(source: str) -> Verdict:
     return Verdict(not reasons, reasons)
 
 
-def compile_genome(source: str):
-    """Compile into an isolated namespace. Returns the live() callable."""
-    ns = {"__builtins__": SAFE_BUILTINS, "math": math, "random": random}
+def compile_genome(source: str, rng: random.Random):
+    """Compile into an isolated namespace. Returns the live() callable.
+
+    `random` inside the genome is `rng` — the dish's own seeded generator — and
+    not the module, so a genome reaches neither the module's private state nor
+    an unseeded source of randomness.
+    """
+    ns = {"__builtins__": SAFE_BUILTINS, "math": math, "random": rng}
     code = compile(source, "<genome>", "exec")
     exec(code, ns)
     fn = ns.get("live")
@@ -155,8 +290,12 @@ def compile_genome(source: str):
     return fn
 
 
-class Lysis(Exception):
-    """The cell took too long. It bursts."""
+class Lysis(BaseException):
+    """The cell took too long. It bursts.
+
+    A BaseException, not an Exception: `Exception` is the widest name a genome
+    can catch, so nothing inside a genome can swallow the budget.
+    """
 
 
 _armed = False
@@ -184,6 +323,10 @@ class Budget:
             signal.signal(signal.SIGALRM, _alarm)
             _installed = True
         _armed = True
+        # One shot. Nothing in a genome can run after Lysis is raised (no finally, no
+        # with, no bare or foreign except, no rebound exception name), and a second
+        # alarm could land while the first is still unwinding through the dish's
+        # handler, where it would escape the tick.
         signal.setitimer(signal.ITIMER_REAL, self.seconds)
 
     def __exit__(self, *exc):
@@ -213,12 +356,20 @@ class _FakeMe:
 
 
 def smoke_test(source: str, rounds: int = 40) -> Verdict:
-    """Dynamic gate: run live() against random situations. Must never throw."""
+    """Dynamic gate: run live() against random situations. Must never throw.
+
+    Module-level code and every round run under four times the cell's budget,
+    so a genome that is merely slow on the stand-in is still admitted.
+    """
+    budget = config.CELL_TIME_BUDGET * 4
+    rng = random.Random(12345)
     try:
-        fn = compile_genome(source)
+        with Budget(budget):
+            fn = compile_genome(source, rng)
+    except Lysis:
+        return Verdict(False, ["too slow: module level exceeded time budget"])
     except Exception as e:  # noqa: BLE001
         return Verdict(False, [f"failed to compile: {type(e).__name__}: {e}"])
-    rng = random.Random(12345)
     me = _FakeMe(rng, 0)
     for i in range(rounds):
         me.tick = i
@@ -228,7 +379,7 @@ def smoke_test(source: str, rounds: int = 40) -> Verdict:
         me.crowd = [rng.random() < (i / rounds) for _ in range(8)]
         me.kin = [c and rng.random() < 0.6 for c in me.crowd]
         try:
-            with Budget(config.CELL_TIME_BUDGET * 4):
+            with Budget(budget):
                 out = fn(me)
         except Lysis:
             return Verdict(False, ["too slow: exceeded time budget"])

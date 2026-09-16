@@ -14,7 +14,7 @@ from collections import deque
 
 from . import config, curve, prompts
 from .dish import Cell, Dish
-from .membrane import admit_isolated
+from .membrane import admit_isolated, inspect
 from .mind import Dormant, Mind, MindError
 from .mutagen import Mutagen
 from .strains import Registry
@@ -50,6 +50,7 @@ class Culture:
         self.lock = threading.Lock()
         self._curve_fields: list[str] | None = None  # header of curve.csv, reconciled on the first row
         self._curve_broken = False  # the last row could not be written; said once, retried every row
+        self._save_broken = False  # the last dish.json could not be written; said once, retried every save
         self.mutagen = Mutagen(mind, seed, self.log)
         for sid, s in registry.strains.items():
             if sid in dish.genomes:
@@ -121,16 +122,42 @@ class Culture:
         if not config.DISH_FILE.exists():
             raise FileNotFoundError('nothing in the dish — `biotic seed "<word>"` first')
         seed = config.SEED_FILE.read_text().strip()
-        dish = Dish.from_dict(json.loads(config.DISH_FILE.read_text()))
+        blob = json.loads(config.DISH_FILE.read_text())
+        dish = Dish.from_dict(blob)
         reg = Registry.load(seed)
-        return cls(seed, dish, reg, mind or Mind())
+        cult = cls(seed, dish, reg, mind or Mind())
+        st = (blob.get("culture") or {}).get("rng")  # absent from a dish.json written before it was saved
+        if st:
+            try:
+                cult.rng.setstate((st[0], tuple(st[1]), st[2]))
+            except (TypeError, ValueError, IndexError):
+                pass
+        return cult
 
     def save(self) -> None:
-        with self.lock:
-            tmp = config.DISH_FILE.with_suffix(".tmp")
-            tmp.write_text(json.dumps(self.dish.to_dict()))
-            tmp.replace(config.DISH_FILE)
-            self.registry.save()
+        """Write dish.json and strains.json, atomically.
+
+        The blob is the dish's, plus the culture's own generator, which rolls the mutations, so
+        a resumed culture rolls them at the divisions the running one would have. A save that
+        fails must not stop the dish: it is logged once as a `freezer` event, every later save
+        is tried again, and another event says when writing works.
+        """
+        try:
+            with self.lock:
+                blob = self.dish.to_dict()
+                blob["culture"] = {"rng": self.rng.getstate()}
+                tmp = config.DISH_FILE.with_suffix(".tmp")
+                tmp.write_text(json.dumps(blob))
+                tmp.replace(config.DISH_FILE)
+                self.registry.save()
+        except (TypeError, ValueError, OSError) as e:
+            if not self._save_broken:
+                self.log("freezer", f"dish.json not written from tick {self.dish.tick}: {e}; the culture runs on")
+            self._save_broken = True
+            return
+        if self._save_broken:
+            self._save_broken = False
+            self.log("freezer", f"dish.json written again at tick {self.dish.tick}")
 
     # --- events -------------------------------------------------------------
     def log(self, kind: str, msg: str, **data) -> None:
@@ -224,6 +251,31 @@ class Culture:
                 self.log("mind", f"bad intervention: {e}")
 
     # --- the loop -----------------------------------------------------------
+    def _screen(self) -> None:
+        """Hold every strain in the dish against the current membrane before any of it runs.
+
+        A dish thawed from `dish.json` carries genomes admitted under whatever rules held when
+        they arose, and the static rules are what a release changes. A strain the gate now
+        refuses does not get to run: its cells lyse, its genome leaves the dish, and one
+        `nonviable` event names the reason; the registry marks it extinct on the next tick, as
+        for any other death. Called from run(), not load(), so that `biotic status` does not
+        rewrite the culture it reads.
+        """
+        d = self.dish
+        for sid in list(d.genomes):
+            v = inspect(d.genomes[sid])
+            if v:
+                continue
+            with self.lock:
+                n = d.lyse(sid)
+            self.mutagen.forget(sid)
+            s = self.registry.strains.get(sid)
+            self.log(
+                "nonviable",
+                f"{s.name if s else sid} no longer passes the membrane — {v.reasons[0]}; {n} cells lysed",
+                strain=sid,
+            )
+
     def step(self) -> None:
         d = self.dish
         with self.lock:
@@ -297,6 +349,7 @@ class Culture:
     def run(
         self, ticks: int | None = None, stop: threading.Event | None = None, tick_seconds: float = config.TICK_SECONDS
     ) -> None:
+        self._screen()
         self.mutagen.start()
         n = 0
         try:
