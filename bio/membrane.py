@@ -418,8 +418,10 @@ def memory_fault(memory: dict) -> str | None:
     After a tick a cell's memory may hold only None, bools, ints, floats, strings, and lists,
     tuples and dicts of those, with string, number, bool or None keys; it may nest no deeper
     than MEMORY_MAX_DEPTH (the memory dict itself is depth 1); no list or dict in it may sit in
-    two places or inside itself; and written as JSON it is at most MEMORY_MAX_CHARS long. One
-    reason per clause. JSON is what a save is, so only what JSON can carry may stay. A save
+    two places or inside itself; and written as plain JSON (json.dumps of the memory itself, a
+    tuple as a list and a numeric key as its string, before the file's type tags) it is at most
+    MEMORY_MAX_CHARS long. One reason per clause. JSON is what a save is, so only what JSON can
+    carry may stay. A save
     separates a list that sits in two places (a write to one shows in both before the save
     and in one after), so a shared list or dict is refused where a shared tuple, immutable,
     is not. `copy.deepcopy`, which a daughter's memory goes through, and the codec both

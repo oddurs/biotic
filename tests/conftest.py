@@ -105,6 +105,35 @@ TOO_MUCH_GENOME = FALLBACK_GENESIS.replace(
 # before a save and in one after it, so the smoke test refuses it on its first round.
 ALIAS_GENOME = FALLBACK_GENESIS.replace("def live(me):\n", "def live(me):\n    me.memory['rows'] = [[0] * 8] * 8\n")
 
+# the fullest module level the membrane admits: constants, arithmetic on them, a tuple, an
+# f-string, math.pi, an alias of the generator, and a helper with constant defaults and
+# annotations; live() draws through the alias every tick and counts the ticks it has lived
+MODULE_GENOME = '''\
+"""A genome with module-level state, all of it constant."""
+
+THRESH = 0.04
+HALF = THRESH / 2
+DIRS = (0, 1, 2, 3, 4, 5, 6, 7)
+LABEL = f"{THRESH:.2f}"
+PI: float = math.pi
+R = random
+
+
+def wander(me, dirs=DIRS, jitter: float = HALF):
+    free = [d for d in dirs if not me.crowd[d]]
+    return ("move", R.choice(free)) if free and R.random() < jitter * 10 else "rest"
+
+
+def live(me):
+    me.memory["n"] = me.memory.get("n", 0) + 1
+    free = [d for d in DIRS if not me.crowd[d]]
+    if me.energy > 1.0 and free:
+        return "divide"
+    if me.here > THRESH:
+        return "eat"
+    return wander(me)
+'''
+
 
 def _no_network(*args, **kwargs):
     raise AssertionError("a test reached for the network")

@@ -20,7 +20,7 @@ import pytest
 
 from bio import config, membrane
 from bio.culture import FALLBACK_GENESIS
-from bio.dish import Dish
+from bio.dish import Dish, encode_memory
 from bio.membrane import (
     ALLOWED_EXCEPTIONS,
     SAFE_BUILTINS,
@@ -35,8 +35,7 @@ from bio.membrane import (
     smoke_test,
 )
 
-from .conftest import ALIAS_GENOME, TUPLE_GENOME, WANDERER, fixture_genomes, make_dish
-from .test_persistence import MODULE_GENOME
+from .conftest import ALIAS_GENOME, MODULE_GENOME, TUPLE_GENOME, WANDERER, fixture_genomes, make_dish
 
 LIVE_REST = "def live(me):\n    return 'rest'\n"
 EXCEPT_RULE = "except may only name"
@@ -731,6 +730,19 @@ def test_memory_rule_admits_what_json_carries_at_the_edges():
     assert memory_fault(exact) is None
     assert memory_fault({"s": exact["s"] + "x"}) == TOO_LARGE
     assert memory_fault([1]) == "memory is a list, not a dict"
+
+
+def test_the_cap_is_measured_on_plain_json_not_the_tagged_file():
+    """The cap is `len(json.dumps(memory))` — the memory as JSON writes it, a tuple as a list and
+    a numeric key as its string — not `encode_memory`'s tagged on-disk form, whose `~t`/`~d` tags
+    add a little. So a tuple-heavy memory that is under the cap as plain JSON is admitted even
+    though the file it saves to runs over it. CELL_API and docs/membrane.md say the cap is on the
+    plain form; this pins that the rule matches the prose (measuring the tagged form would refuse
+    this)."""
+    m = {f"k{i}": (i,) for i in range(150)}
+    assert len(json.dumps(m)) <= config.MEMORY_MAX_CHARS
+    assert len(json.dumps(encode_memory(m))) > config.MEMORY_MAX_CHARS
+    assert memory_fault(m) is None
 
 
 def test_walk_size_is_a_lower_bound_on_the_json_length():

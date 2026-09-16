@@ -137,9 +137,10 @@ turns the `Unreleased` section into a dated release.
   exactly the trajectory it left. A dish saved before this change resumes, but not bit-for-bit.
 - A daughter's memory is a deep copy of its mother's: nested lists and dicts are no longer shared between kin.
 - What a cell may keep in `me.memory` is a rule of the dish, applied after every `live()`: None, bools, ints,
-  floats, strings, and lists, tuples and dicts of those with string or numeric keys, nested at most
-  `MEMORY_MAX_DEPTH` (16) deep, never the same list or dict in two places, and at most `MEMORY_MAX_CHARS` (2048)
-  characters as JSON. A cell that breaks it bursts, before its action applies, and the smoke test refuses a
+  floats, strings, and lists, tuples and dicts of those with keys that are strings, numbers, bools or None,
+  nested at most `MEMORY_MAX_DEPTH` (16) deep, never the same list or dict in two places, and at most
+  `MEMORY_MAX_CHARS` (2048) characters as plain JSON (a tuple as a list, a numeric key as its string; the
+  on-disk `~t`/`~d` tags are not counted). A cell that breaks it bursts, before its action applies, and the smoke test refuses a
   genome that does so within its forty rounds with the reason and the round (`memory over 2048 chars as JSON
   (tick 21)`, `memory holds a function; …`, `memory holds one list or dict in two places, …`). `dish.json` and
   freezer samples carry tuples and numeric keys under `~t`/`~d` tags and ints of any width the cap admits, so a

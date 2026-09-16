@@ -74,3 +74,15 @@ Resumed an interrupted build. Reconciled the handed-in plan (which argued option
 ## 2026-09-16
 
 Criteria proven: (1) list/tuple/dict identical across save -> test_persistence.test_resumed_dish_is_an_exact_twin_for_memory_plain_json_cannot_carry (fifty-tick twin) plus its control test_plain_json_memory_would_not_have_been_a_twin (the old plain-JSON save would have drifted); (2) exact-twin over non-primitive memory in test_persistence.py -> the parametrized cross-process twin [tuple_memory] and the in-process twin above; (3) CELL_API states the rule -> bio/prompts.py interpolates config.MEMORY_MAX_DEPTH/MEMORY_MAX_CHARS so prose cannot drift from the constants. Gate green bio-only; scripts/task check skips web (no web/ change) and 0048 tracks the site membrane page.
+
+## 2026-09-16
+
+Review pass: aligned the prose to the code rather than the code to the prose. The cap is len(json.dumps(memory)) on the plain form (tuple as list, numeric key as string); encode_memory's ~t/~d tags make the on-disk file a little larger, so a tuple-heavy memory admitted at the cap saves to over it. Kept the check on plain JSON (the _walk bounds and their O(cap) cost analysis are built for that form; re-basing them on the tagged form would be a real change for a doc-clarity gap) and reworded CELL_API, docs/membrane.md, the memory_fault docstring, config comment and the unreleased changelog to say plain JSON. New test_membrane.test_the_cap_is_measured_on_plain_json_not_the_tagged_file pins the decision.
+
+## 2026-09-16
+
+Review pass: CELL_API key clause said 'strings or numbers', narrower than the rule (_walk admits str/int/float/bool/None keys; _MEMORY_KEYS and docs say 'strings, numbers, bools or None'). Widened it to match, in CELL_API and the changelog. New tests/test_prompts.py pins CELL_API against _MEMORY_KEYS so the prompt cannot drift from the rule again.
+
+## 2026-09-16
+
+Review pass: moved MODULE_GENOME from test_persistence into tests/conftest.py so test_membrane no longer imports from a sibling test module; all shared genome constants now live in conftest. Both test modules import it from there.

@@ -153,8 +153,12 @@ round. After a tick a cell's memory must satisfy all of:
    what was one object: before it a write to `rows[0]` showed in all eight rows of
    `[[0] * 8] * 8`, after it in one. A tuple is immutable and may appear anywhere, any
    number of times.
-4. **Written as JSON it is at most `MEMORY_MAX_CHARS` (2048) characters**: about a hundred
-   floats, or four hundred small ints, or a two-thousand-character string.
+4. **Written as plain JSON it is at most `MEMORY_MAX_CHARS` (2048) characters**: about a hundred
+   floats, or four hundred small ints, or a two-thousand-character string. The figure is
+   `len(json.dumps(memory))` — the memory as JSON writes it, a tuple counted as its list and a
+   numeric key as its string. It is not the tagged on-disk form (below): the file's type tags
+   are not counted, so a tuple- or numeric-key-heavy memory can serialise to somewhat more than
+   this on disk.
 
 Over the bound is lysis, not trimming: trimming would have to pick a key to drop, a silent
 change to what the genome sees, where a burst shows in the death ledger and the smoke test
@@ -192,7 +196,10 @@ strain samples tag them (`encode_memory` and `decode_memory` in `bio/dish.py`): 
 `{"~t": [items]}`; a dict whose keys are all strings and none begins with `~` is a plain
 object; any other dict is `{"~d": [[key, value], ...]}`, which also carries a key that
 happens to begin with `~`. Everything the rule admits goes through exactly, insertion order
-included, and comes back with its types. A `dish.json` or a sample written before the tags,
+included, and comes back with its types. The cap in rule 4 above is measured on the plain form
+(`json.dumps(memory)`), not on this tagged file, so a memory that is admitted can serialise to
+somewhat more than `MEMORY_MAX_CHARS` on disk when it holds many tuples or numeric keys. A
+`dish.json` or a sample written before the tags,
 or by hand with plain lists and string keys, reads as JSON gives it; a malformed tag is left
 as the plain JSON it is; memory an older save had already flattened to a string stays flat,
 since nothing can tell what it was. Forbidding tuples and numeric keys would have been
