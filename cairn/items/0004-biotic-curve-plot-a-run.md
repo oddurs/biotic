@@ -110,3 +110,19 @@ Neighbours: 0006 - Panel.traces is a list; a flasks overlay is one Trace per fla
 ## 2026-09-16
 
 The --png flag writes the file and prints 'wrote <path>', nothing else. matplotlib is the optional extra plot = [matplotlib>=3.8] (height_ratios in subplots needs >= 3.6); uv lock pulled numpy (pinned per Python version, so 3.11 through 3.13 resolve), pillow, fonttools, kiwisolver, contourpy, cycler, pyparsing, python-dateutil, packaging, six into uv.lock; inert for CI, which runs uv run --locked with no extras, so the real-matplotlib test skips there. Every string handed to matplotlib has $ escaped: the seed is free text and mathtext would parse it.
+
+## 2026-09-16
+
+Review fix (png markers): drop/revive labels were placed at data y=0 and phase labels at data ymax; matplotlib autoscales y to the trace with margins, so a series that never reaches 0 pushed the foot labels off the visible axes. Now placed through ax.get_xaxis_transform() (x in data, y in axes fraction): phase at y=1.0 va=top, others at y=0.0 va=bottom, so each label rides its rule whatever the y-range. Seam test asserts y=[1.0,0.0,1.0] and transform is the blended one (range-independent).
+
+## 2026-09-16
+
+Review fix (crash-resume ordering): a crash-resume reloads dish.json and re-runs ticks it had already written WITHOUT opening a branch, so tick is not monotone within a branch; downsample() buckets by tick and the torn-tail guard both assumed it was, mis-bucketing points or clamping any tick past the last row off the right edge. figure() now sorts each branch by tick after the (file-order) torn-tail guard, before x0/x1 and bucketing. The 0005 note 'a forward revive leaves tick monotone' is about revives, not crashes; docs/curve.md updated. Test: a branch that climbs to 60 then replays 40,50 must render all 8 rows and put tick 60 at the right edge.
+
+## 2026-09-16
+
+Review fix (main guard): curve.events() and the seed.txt read now sit in their own try/except curve.ERRORS mirroring curve.read(), so an OSError on either (a delete racing exists(), a permission change) exits with 'could not read <vessel>' instead of a traceback. Test makes events.jsonl then seed.txt a directory and asserts a clean SystemExit with empty stdout.
+
+## 2026-09-16
+
+Review notes (minor): removed the stray blank line splitting the ### Changed list in CHANGELOG. Finding 5 (real-matplotlib test skips in a bare CI checkout) left as-is per the finding: the extra is synced in this worktree so the render test runs in scripts/task check, and the deterministic pyplot-seam test (strengthened here) covers the figure->pyplot call sequence when the real test skips.

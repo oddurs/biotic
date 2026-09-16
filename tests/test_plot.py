@@ -315,6 +315,23 @@ def test_figure_handles_one_row_a_flat_series_and_a_torn_tail():
     assert (fig.x0, fig.x1) == (10, 100) and "10 rows" in fig.title
 
 
+def test_figure_orders_a_branch_by_tick_after_a_crash_resume():
+    # a crash-resume reloads dish.json and re-runs ticks it had already written, without opening a
+    # branch: within branch 0 the file climbs to 60, then a resume replays 40, 50 — so the last row
+    # is not the highest tick, and the branch is not monotone in the file.
+    rows = [row(t, t) for t in (10, 20, 30, 40, 50, 60)] + [row(t, t) for t in (40, 50)]
+    fig = plot.figure(rows, [], ["population"])
+    assert (fig.x0, fig.x1) == (10, 60), "the true range, not the last row's tick"
+    tr = fig.panels[0].traces[0]
+    assert tr.xs == [10, 20, 30, 40, 40, 50, 50, 60], "every row drawn, in tick order"
+    assert len(tr.xs) == len(rows), "none silently dropped or bucketed off the axis"
+    out = plot.render(fig, 80, 8).plain
+    assert "8 rows" in out
+    assert all(cell_len(ln) <= 80 for ln in out.splitlines())
+    canvas = panel_rows(out, plot.LABELS["population"])
+    assert top_of(columns(canvas)[-1]) == 0, "the highest tick reaches the right edge, not off it"
+
+
 # --- the command ------------------------------------------------------------------
 
 
@@ -442,6 +459,11 @@ def test_png_is_written_through_the_pyplot_seam(tmp_path, monkeypatch, run):
 
         def __init__(self):
             self.calls: list[tuple] = []
+            self.blended = object()  # what get_xaxis_transform returns: x in data, y in axes fraction
+
+        def get_xaxis_transform(self):
+            self.calls.append(("get_xaxis_transform", (), {}))
+            return self.blended
 
         def __getattr__(self, name):
             def record(*a, **kw):
@@ -486,7 +508,13 @@ def test_png_is_written_through_the_pyplot_seam(tmp_path, monkeypatch, run):
     assert [ax.named("set_ylabel")[0][0][0] for ax in axes] == [plot.LABELS["population"], plot.LABELS["strains"]]
     assert len(axes[0].named("plot")) == 1 and axes[0].named("plot")[0][0][0] == [r["tick"] for r in logistic_rows(60)]
     assert len(axes[0].named("axvline")) == 3 and axes[1].named("axvline") == []
-    assert [a[2] for a, _ in axes[0].named("text")] == ["log", "drop nutrient", "stationary"]
+    texts = axes[0].named("text")
+    assert [a[2] for a, _ in texts] == ["log", "drop nutrient", "stationary"]
+    # the labels ride their rules at the axes-fraction top (phase) and foot (other) through the
+    # blended transform, so they stay on the panel whatever the autoscaled data y-range is — not
+    # at a data y that can fall outside it.
+    assert [a[1] for a, _ in texts] == [1.0, 0.0, 1.0]
+    assert all(kw["transform"] is axes[0].blended for _, kw in texts)
     assert axes[1].named("set_xlabel") == [(("tick",), {})]
     assert f.title == "seed “costs \\$3” · branch 0 · ticks 10–600 · 60 rows", "mathtext escaped"
     assert f.saved[0] == target and closed == [f]
@@ -515,6 +543,21 @@ def test_curve_without_a_curve_or_rows_says_so(capsys):
     with open(config.CURVE, "a") as f:
         f.write("110,five,1,0.5,log,0,0,0,0,0,0.0,1.0,0.0,1,0,0.0,0,0,0\n")
     with pytest.raises(SystemExit, match="could not read .*curve.csv: curve.csv line 12, population: 'five'"):
+        main(["curve"])
+    assert capsys.readouterr().out == ""
+
+
+def test_curve_reports_an_unreadable_log_or_seed_cleanly(capsys):
+    # events.jsonl and seed.txt are read like curve.csv: an OSError on either (a delete racing the
+    # exists() check, a permission change) is a clean message, not an uncaught traceback.
+    write_curve(config.CURVE, [row(t, t) for t in range(10, 60, 10)])
+    config.EVENTS.mkdir()  # a path where the log should be a file: open() raises OSError
+    with pytest.raises(SystemExit, match="could not read"):
+        main(["curve"])
+    assert capsys.readouterr().out == ""
+    config.EVENTS.rmdir()
+    config.SEED_FILE.mkdir()  # the same for the seed
+    with pytest.raises(SystemExit, match="could not read"):
         main(["curve"])
     assert capsys.readouterr().out == ""
 

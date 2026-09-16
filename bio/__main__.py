@@ -175,9 +175,13 @@ def cmd_curve(a):
         rows = curve.read()
     except curve.ERRORS as e:
         sys.exit(f"could not read {config.CURVE}: {e}")
-    seed = config.SEED_FILE.read_text().strip() if config.SEED_FILE.exists() else None
     try:
-        fig = plot.figure(rows, curve.events(), cols, since=a.since, branch=a.branch, seed=seed)
+        seed = config.SEED_FILE.read_text().strip() if config.SEED_FILE.exists() else None
+        evs = curve.events()
+    except curve.ERRORS as e:
+        sys.exit(f"could not read {config.VESSEL}: {e}")
+    try:
+        fig = plot.figure(rows, evs, cols, since=a.since, branch=a.branch, seed=seed)
     except ValueError as e:
         sys.exit(str(e))
     if a.png:

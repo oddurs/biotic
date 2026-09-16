@@ -106,7 +106,10 @@ carry the next `branch` number, and `tick` starts again from the sample's tick:
 
 A revive to a sample *later* than the dish was at leaves `tick` monotone, so
 nothing in that column shows the seam; `branch` shows it either way. Within a
-branch `tick` is unique and climbs; across the file it is not, so join events on
+branch `tick` normally climbs, but a crash-resume — which reloads `dish.json` and
+re-runs ticks it had already written, without opening a branch — can send it back;
+`biotic curve` orders each branch by `tick` before it draws, so every row lands in
+its place. Across the file `tick` is not unique, so join events on
 `(branch, tick)`. The `revived` dish event — the one with `from` and `was` in its
 data — carries the `branch` it opens, and any event's branch is the number of such
 events before it in the file, since the log is written in order. When only the

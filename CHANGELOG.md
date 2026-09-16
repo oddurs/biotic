@@ -72,7 +72,6 @@ turns the `Unreleased` section into a dated release.
 ### Changed
 
 - `phase` events in `events.jsonl` carry the phase entered as a `phase` field beside the message.
-
 - A `curve.csv` written before this release is widened in place the first time the culture appends to
   it: older rows keep their values and have empty cells in the new columns. Logged once as a `curve` event
   (`≡` in the incubator log). A file re-saved by a spreadsheet, with a byte-order mark, is recognised. A

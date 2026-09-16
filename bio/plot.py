@@ -168,7 +168,10 @@ def figure(
     The last branch unless `branch` says otherwise; a branch the curve does not have raises
     ValueError naming the ones it has. `since` keeps rows from that tick on. A trailing row
     whose tick does not climb past the row before it is a torn line an incubator is still
-    writing, and is left out. No rows at all is a ValueError too. Markers are those of the
+    writing, and is left out. The rest are ordered by tick before plotting: a crash-resume
+    rewrites ticks the dish already visited without opening a branch, so a branch is not always
+    monotone in the file, and every row is still drawn in its place. No rows at all is a
+    ValueError too. Markers are those of the
     branch inside the plotted ticks, plus the revive that opened the branch, drawn at the left
     edge when its tick lies before the first row and `since` does not exclude it."""
     by = curve.branches(rows)
@@ -180,7 +183,10 @@ def figure(
         raise ValueError(f"no branch {branch} in the curve; it has {', '.join(str(b) for b in sorted(by))}")
     sel = [r for r in by[branch] if r.get("tick") is not None]
     if len(sel) >= 2 and sel[-1]["tick"] <= sel[-2]["tick"]:
-        sel = sel[:-1]  # a torn tail: within a branch, tick climbs
+        sel = sel[:-1]  # a torn tail: the incubator's half-written last row
+    # a crash-resume rewrites ticks the dish already visited without opening a branch, so tick is
+    # not monotone within a branch; sort by tick so downsample's buckets and x0/x1 stay honest.
+    sel = sorted(sel, key=lambda r: r["tick"])
     if since is not None:
         sel = [r for r in sel if r["tick"] >= since]
         if not sel:
@@ -486,15 +492,37 @@ def png(fig: Figure, path: Path) -> Path:
         if panel.empty:
             ax.text(0.5, 0.5, _safe(panel.empty), transform=ax.transAxes, ha="center", va="center", fontsize=9)
         if i == 0:
-            ymin, ymax = _range(panel)
+            # x in data, y in axes fraction: a label rides its rule at the top or foot of the
+            # panel whatever the autoscaled y-range, rather than at a data y that can fall off it.
+            trans = ax.get_xaxis_transform()
             for m in fig.markers:
                 if m.kind == "phase":
                     ax.axvline(m.tick, ls=":", color="0.5", lw=0.8)
-                    ax.text(m.tick, ymax, _safe(m.label), rotation=90, va="top", ha="right", fontsize=8, color="0.3")
+                    ax.text(
+                        m.tick,
+                        1.0,
+                        _safe(m.label),
+                        transform=trans,
+                        rotation=90,
+                        va="top",
+                        ha="right",
+                        fontsize=8,
+                        color="0.3",
+                    )
                 else:
                     ax.axvline(m.tick, ls="--", color="m", lw=0.8)
                     label = _safe(f"{m.kind} {m.label}".strip())
-                    ax.text(m.tick, ymin, label, rotation=90, va="bottom", ha="right", fontsize=8, color="m")
+                    ax.text(
+                        m.tick,
+                        0.0,
+                        label,
+                        transform=trans,
+                        rotation=90,
+                        va="bottom",
+                        ha="right",
+                        fontsize=8,
+                        color="m",
+                    )
     axes[-1].set_xlabel("tick")
     f.suptitle(_safe(fig.title))
     f.savefig(path, dpi=150, bbox_inches="tight")
