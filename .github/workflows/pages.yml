@@ -23,12 +23,13 @@ jobs:
         with:
           enable-cache: true
       - run: corepack enable
-      - run: corepack prepare "$(node -p "require('./web/package.json').packageManager")" --activate
       - uses: actions/setup-node@v6
         with:
           node-version-file: web/.node-version
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+        working-directory: web
       - name: build
         env:
           TASK_SCOPE: all

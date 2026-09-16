@@ -31,6 +31,16 @@ jobs:
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: true
+      - run: corepack enable
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: web/.node-version
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+        working-directory: web
+      - run: pnpm --filter @biotic/design exec playwright install chromium --with-deps
+        working-directory: web
 
       - name: resolve the version
         id: version
