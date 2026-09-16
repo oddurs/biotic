@@ -51,6 +51,14 @@ turns the `Unreleased` section into a dated release.
 - `biotic status` shows the freezer's size and the latest frozen tick, and the incubator's pid when one is running.
 - A `freezer` event when an automatic sample cannot be written: said once, tried again at the next cadence, and
   the log says when the freezer is writable again. The dish does not stop for it.
+- The eyepiece fits the terminal it is watched from: a dish larger than the window renders at half (or
+  third, or quarter) resolution with a `½` badge on the agar panel, the side panel folds into a one-line
+  vitals strip when there is no room for it, the incubator log yields rows before the agar does, the
+  census lists the strains that fit beside the agar and ends with `… n more`, the header and the footer
+  stay on one row with the heartbeat and the `ctrl-c` hint, and resizing mid-run re-fits on the next
+  frame. See `docs/eyepiece.md`.
+- A frame the eyepiece cannot draw is written once to the incubator log as an `eyepiece` event (`!`),
+  with the exception and where it was raised; the dish runs on and `biotic log` says why the eyepiece froze.
 
 ### Changed
 
@@ -124,6 +132,11 @@ turns the `Unreleased` section into a dated release.
 - A reply the endpoint cut short (`http.client.IncompleteRead`, a malformed status line) is a failed call
   like any other — backed off by the mutagen with its status and latency recorded, one more attempt during
   genesis — instead of an exception that escaped `Mind.think` and could end `biotic seed` with a traceback.
+- Watching a dish from a smaller terminal than it was seeded in no longer clips the agar, the census,
+  the header's heartbeat or the footer's `ctrl-c` hint silently, and a resize no longer repaints a stale
+  frame.
+- The incubator log panel no longer drops a frame when the dish or the mutagen logs an event while it
+  is being drawn.
 
 ## [0.1.0] - 2026-09-09
 

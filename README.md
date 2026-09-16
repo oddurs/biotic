@@ -49,7 +49,7 @@ Without a key the dish still grows, from a built-in founder, but nothing ever mu
 │     ·∷●●●●●●●●●●●●∷·                  │ │    mutagen ◐ thinking  2 ready             │
 │        ·:∷∷●●●∷∷:·                    │ ╰────────────────────────────────────────────╯
 │           ·:∷:·                       │ ╭─ census ───────────────────────────────────╮
-╰───────────────────────────────────────╯ │ ● 3f1a  tide_drift   gen 3  212            │
+╰───────────────────────────────────────╯ │ ● 3f1a tide_drift 212 ▇▇▇▇▇▇▇▇▇▇▇▇         │
 ╭─ incubator log ──────────────────────────────────────────────────────────────────────╮
 │ 14:02:11   1180 ✚ tide_drift arose from slack_water — “now leans into the scent …    │
 │ 14:01:50   1162 ✖ mutation of slack_water nonviable — threw on tick 7 …              │
@@ -61,6 +61,13 @@ Cells are `●`, coloured by strain (daughters get a hue near the parent's;
 dim cells are hungry). Agar shows as ` · : ∷` by richness. Pheromone shows
 violet. The phase is computed from the population curve the way a
 microbiologist would read it: lag, log, stationary, death.
+
+A dish is sized to the terminal it was seeded in and keeps that size. Watched
+from a smaller window, the eyepiece draws the agar at half (or a third, or a
+quarter) resolution with `½` on the panel title, each glyph showing the
+dominant strain in its block; folds the vitals into one line when there is no
+room for the side panel; and gives up the log before it gives up the agar.
+Resizing mid-run re-fits on the next frame. `docs/eyepiece.md` has the rules.
 
 ## interventions
 
@@ -170,7 +177,8 @@ string, and what the membrane cannot do.
     docs/         longer notes: docs/curve.md on reading the growth curve,
                   docs/membrane.md on what a genome may contain and why,
                   docs/budget.md on what the mind costs,
-                  docs/freezer.md on the freezer
+                  docs/freezer.md on the freezer,
+                  docs/eyepiece.md on what the eyepiece shows and how it fits the window
     tests/        the suite; tests/fixtures/genomes/ holds ten fossils from a real run
 
 ## development
