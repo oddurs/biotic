@@ -31,8 +31,8 @@ only-include = ["bio", "tests", "CHANGELOG.md"]
 [tool.ruff]
 line-length = 120
 target-version = "py311"
-# soma/ and vessel/ hold code the organism wrote for itself; the apparatus is what gets linted.
-extend-exclude = ["soma", "vessel"]
+# soma/, vessel/, and library specimens hold code the organism wrote for itself; the apparatus is what gets linted.
+extend-exclude = ["soma", "vessel", "web/apps/site/src/content/specimens"]
 force-exclude = true
 
 [tool.ruff.lint]

@@ -1,0 +1,28 @@
+---
+import { getCollection } from "astro:content";
+import Base from "../../layouts/Base.astro";
+import { SectionLayout } from "../../components/SectionLayout";
+import { Gallery } from "../../components/library/Gallery";
+import { libraryNav } from "../../components/library/nav";
+import { href } from "../../lib/url";
+
+const specimens = (await getCollection("specimens")).sort(
+  (a, b) => b.data.submitted.getTime() - a.data.submitted.getTime(),
+);
+const items = specimens.map((s) => ({ id: s.id, href: href(`/library/${s.id}/`), data: s.data }));
+---
+
+<Base
+  title="Library"
+  description="Cultures people have grown and shared: seed, model, lineage, growth curve, and every genome."
+>
+  <SectionLayout
+    section="Library"
+    nav={libraryNav}
+    current={href("/library/")}
+    title="Library"
+    lede="Cultures people have grown and shared. Each specimen carries its seed, its model, every strain that arose, and the curve the dish logged."
+  >
+    <Gallery items={items} />
+  </SectionLayout>
+</Base>
