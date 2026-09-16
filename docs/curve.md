@@ -91,7 +91,9 @@ since the debounce starts over with the process.
 
 Markers are not columns. Drops, whispers, phase changes, extinctions and revives are
 in `vessel/events.jsonl`, each with the tick it happened at; join on `tick` within
-a branch.
+a branch. A `phase` event carries the phase entered as a `phase` field beside its
+message (`culture entered log phase`); events written before the field have only
+the message.
 
 `biotic revive` of a dish sample writes no row of its own. The rows that follow
 carry the next `branch` number, and `tick` starts again from the sample's tick:
@@ -138,6 +140,74 @@ between are missing.
 One process appends to a vessel's curve at a time. Two cultures sharing a vessel
 is not supported.
 
+## plotting it
+
+    biotic curve                                   # population and strains living, the last branch
+    biotic curve --cols population,shannon,nutrient
+    biotic curve --since 4000 --branch 0 --height 16
+    biotic curve --png curve.png                   # the same figure through matplotlib
+
+`biotic curve` draws the curve in the terminal. Each column named in `--cols` is
+a panel: the first is the tall one (`--height` rows, default 12), the rest are
+drawn under it at half that height, all on one tick axis. They are separate
+panels rather than traces on one axis because `population` (cells), `shannon`
+(nats) and `nutrient` (0 to 1) cannot honestly share a y axis. The default is
+`population,strains`. Each y axis runs from 0 to the column's highest value in
+the plotted rows; a column that never leaves 0 is drawn on the floor under a
+top label of 1. The axis labels use the words of the table above
+(`dominance (Berger–Parker)`, `mean generation (lineage depth)`).
+
+The trace is braille, two dots wide and four tall per cell, which needs a font
+that has U+2800–U+28FF; the usual monospace fonts do. `--width`
+defaults to the terminal's. Piped or redirected, the output is plain text
+without colour.
+
+A long curve is downsampled to the width, and the downsampling is chosen so
+that it cannot hide anything: every dot column of the plot is a bucket of ticks,
+and a bucket keeps its lowest and its highest row, so a one-row crash or spike
+is drawn at its full height whether the file has fifty rows or fifty thousand.
+The first and the last row are always kept. Buckets are by tick, not by row
+count, so a stretch with no rows (the incubator was off, or the curve could not
+be written for a while) keeps its share of the axis and is bridged by a straight
+line between the rows on either side. Consecutive points are joined by a line
+in any case; a single row is a single dot. The PNG plots every row.
+
+Markers come from `events.jsonl`, joined on `(branch, tick)`. A phase change is
+a rule (`┆`) through the main panel with the phase's name beside it on the top
+row. The rule stands where the culture's *belief* changed, which lags the
+population by up to 25 ticks (see `phase` above), and the first believed phase
+is never logged, so the segment before the first rule carries no name. When
+rules stand closer together than a name's width the name is left out and only
+the rule drawn, so a long run with hundreds of transitions shows a thicket of
+unnamed rules where they crowd. Under the tick labels is a row of glyphs, the
+eyepiece's: `⚗` a drop, `↺` a revive, `⋯` an incubation gap; a column with
+several shows the first. Extinctions and strains arising are not drawn: a long
+run has thousands, and they are already columns — `--cols extinct,arisen`.
+
+The plot is of one branch: the last by default, `--branch N` for another (the
+error names the branches the file has). A branch's own `revived` event, the one
+with `from` in its data, is logged at the sample's tick, before the branch's
+first row; it is drawn as `↺` at the left edge, unless `--since` is past its
+tick. A strain revived into the current dish is `↺` at its tick; whether it
+took is in the log, not the plot. Rows and events of a vessel whose
+`events.jsonl` holds dish revives from before the `branch` column existed do
+not agree on branch numbers (the rows all read 0); no such vessel is known.
+
+`--png OUT` writes the same figure with matplotlib, one axis per panel at full
+resolution with the same markers, and prints `wrote OUT` and nothing else.
+matplotlib is the optional `plot` extra: `uv sync --extra plot` in the checkout,
+or `pip install 'biotic[plot]'`. Without it the command says so, in those words,
+and nothing else in biotic wants it: the organism stays a one-dependency thing.
+
+`biotic curve` only reads, and only `curve.csv`, `events.jsonl` and `seed.txt`:
+never `dish.json` or the inbox, and it takes no lock, so it runs beside a live
+incubator and beside `biotic live`. A last line torn by a write in progress is
+left out of either file. A torn numeric cell that still parses (`12` of `123`)
+cannot be told from a whole one and shows as a smaller value for that instant;
+the write is one small append, so the window is narrow, and the next run has
+the whole row. A file with the original nine columns plots its nine columns
+and says `no values for shannon in this file` for a column it does not have.
+
 ## in code
 
     from bio import curve
@@ -155,6 +225,22 @@ errors (`OSError`, `UnicodeDecodeError`, `csv.Error`), is `curve.ERRORS`: what
 that must not stop on one catches. With pandas,
 `pd.read_csv("vessel/curve.csv")` gives the same table with `NaN` in the empty
 cells.
+
+    rows = curve.read()
+    by = curve.branches(rows)                    # {0: [...], 1: [...]}; a row with no branch is 0
+    evs = curve.events()                         # events.jsonl as dicts, each stamped with `branch`
+
+    from bio import plot
+    fig = plot.figure(rows, evs, plot.parse_cols("population,shannon"), since=None, branch=None, seed="tide")
+    plot.render(fig, width=100, height=12)       # rich.text.Text, ready to print
+    plot.png(fig, Path("curve.png"))             # PlotUnavailable, with the install line, without matplotlib
+
+`curve.events()` stamps every event with its branch: the number of dish `revived`
+events before it in the file, the opener keeping the branch it carries; a line it
+cannot parse is skipped. `plot.figure()` is what `biotic curve` builds: one
+`Panel` per column, each holding a list of `Trace`s (one today; an overlay of
+several flasks is one per flask), the `Marker`s of the branch, and the tick
+range. `render` and `png` are pure functions of it.
 
 `Dish.metrics()` returns what the dish knows on its own: size, diversity, the
 death ledger. `Culture.metrics()` adds phase, lineage, turnover and the state of

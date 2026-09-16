@@ -59,8 +59,19 @@ turns the `Unreleased` section into a dated release.
   frame. See `docs/eyepiece.md`.
 - A frame the eyepiece cannot draw is written once to the incubator log as an `eyepiece` event (`!`),
   with the exception and where it was raised; the dish runs on and `biotic log` says why the eyepiece froze.
+- `biotic curve [--cols population,strains] [--since TICK] [--branch N] [--png OUT] [--width N] [--height N]`:
+  the growth curve drawn in the terminal as small multiples — one braille panel per column, population and
+  strains living by default — with phase transitions as named rules through the main panel and drops and
+  revives as a marker row, joined from `events.jsonl` on `(branch, tick)`; the last branch by default. A long
+  curve is downsampled to the lowest and highest row per column of the plot, so no crash or spike is smoothed
+  away. `--png` writes the same figure with matplotlib, installed as the optional `plot` extra
+  (`uv sync --extra plot`); without it the command says how to install it. It reads `curve.csv`,
+  `events.jsonl` and `seed.txt` only and takes no lock, so it runs beside a live incubator.
+  `bio.curve.branches()`, `bio.curve.events()` and `bio.plot` are the library form. See `docs/curve.md`.
 
 ### Changed
+
+- `phase` events in `events.jsonl` carry the phase entered as a `phase` field beside the message.
 
 - A `curve.csv` written before this release is widened in place the first time the culture appends to
   it: older rows keep their values and have empty cells in the new columns. Logged once as a `curve` event

@@ -155,6 +155,43 @@ def cmd_log(a):
         print(f"{time.strftime('%H:%M:%S', time.localtime(ev['t']))} {ev['tick']:>6} {ev['kind']:<9} {ev['msg']}")
 
 
+def cmd_curve(a):
+    """Draw the growth curve. Reads curve.csv, events.jsonl and seed.txt and nothing else: no
+    culture is built, no lock is taken, so it runs beside a live incubator."""
+    import shutil
+    from pathlib import Path
+
+    from rich.console import Console
+
+    from . import curve, plot
+
+    try:
+        cols = plot.parse_cols(a.cols)
+    except ValueError as e:
+        sys.exit(str(e))
+    if not config.CURVE.exists():
+        sys.exit("no growth curve yet — `biotic run` or `biotic live` writes vessel/curve.csv")
+    try:
+        rows = curve.read()
+    except curve.ERRORS as e:
+        sys.exit(f"could not read {config.CURVE}: {e}")
+    seed = config.SEED_FILE.read_text().strip() if config.SEED_FILE.exists() else None
+    try:
+        fig = plot.figure(rows, curve.events(), cols, since=a.since, branch=a.branch, seed=seed)
+    except ValueError as e:
+        sys.exit(str(e))
+    if a.png:
+        try:
+            print(f"wrote {plot.png(fig, Path(a.png))}")
+        except plot.PlotUnavailable as e:
+            sys.exit(str(e))
+        except OSError as e:
+            sys.exit(f"could not write {a.png}: {e}")
+        return
+    width = max(40, a.width or shutil.get_terminal_size((100, 30)).columns)
+    Console(width=width).print(plot.render(fig, width, a.height), highlight=False, soft_wrap=False)
+
+
 def cmd_whisper(a):
     _intervene({"whisper": " ".join(a.text)})
     print("pinned to the incubator")
@@ -458,6 +495,21 @@ def main(argv=None):
     s = sub.add_parser("log")
     s.add_argument("-n", type=int, default=30)
     s.set_defaults(f=cmd_log)
+    s = sub.add_parser(
+        "curve", help="plot the growth curve: population and strains by tick, with phase and drop markers"
+    )
+    s.add_argument(
+        "--cols",
+        default="population,strains",
+        metavar="COLS",
+        help="comma-separated columns of curve.csv; the first is the main panel, the rest are drawn under it",
+    )
+    s.add_argument("--since", type=int, metavar="TICK", help="rows from this tick on")
+    s.add_argument("--branch", type=int, metavar="N", help="which timeline after a revive (default: the last)")
+    s.add_argument("--png", metavar="OUT", help="write a PNG with matplotlib instead of printing (the plot extra)")
+    s.add_argument("--width", type=int, help="columns (default: the terminal's)")
+    s.add_argument("--height", type=int, default=12, help="rows of the main panel; the others get half")
+    s.set_defaults(f=cmd_curve)
     s = sub.add_parser("whisper", help="pin a note the mutagen will see")
     s.add_argument("text", nargs="+")
     s.set_defaults(f=cmd_whisper)

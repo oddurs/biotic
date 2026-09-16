@@ -687,7 +687,7 @@ class Culture:
             self._candidate, self._candidate_for = raw, 1
         if self._candidate_for >= 25 and raw != self.last_phase:
             if self.last_phase is not None:
-                self.log("phase", f"culture entered {raw} phase")
+                self.log("phase", f"culture entered {raw} phase", phase=raw)
             self.last_phase = raw
         phase = self.last_phase or raw
         if d.tick % 3 == 0:

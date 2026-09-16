@@ -63,6 +63,19 @@ Print a strain's code (`top` for the dominant one).
 | --- | --- |
 | `-n N` |  (default `30`) |
 
+## curve
+
+Plot the growth curve: population and strains by tick, with phase and drop markers.
+
+| Argument | Meaning |
+| --- | --- |
+| `--cols COLS` | comma-separated columns of curve.csv; the first is the main panel, the rest are drawn under it (default `population,strains`) |
+| `--since TICK` | rows from this tick on |
+| `--branch N` | which timeline after a revive (default: the last) |
+| `--png OUT` | write a PNG with matplotlib instead of printing (the plot extra) |
+| `--width WIDTH` | columns (default: the terminal's) |
+| `--height HEIGHT` | rows of the main panel; the others get half (default `12`) |
+
 ## whisper
 
 Pin a note the mutagen will see.

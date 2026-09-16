@@ -8,6 +8,9 @@ authors = [{ name = "Oddur Sigurdsson" }]
 requires-python = ">=3.11"
 dependencies = ["rich>=13.7"]
 
+[project.optional-dependencies]
+plot = ["matplotlib>=3.8"]
+
 [project.urls]
 Repository = "https://github.com/oddurs/biotic"
 Changelog = "https://github.com/oddurs/biotic/blob/main/CHANGELOG.md"
