@@ -6,7 +6,7 @@ status: done
 milestone: dish
 assignee: Oddur Sigurdsson
 created: 2026-09-08
-updated: 2026-09-09
+updated: 2026-09-16
 priority: p0
 effort: m
 area: bio/mind.py, bio/mutagen.py
@@ -106,3 +106,31 @@ Dropped from the earlier draft: a non-JSON 200 reply (Unreadable) was going to b
 ## 2026-09-09
 
 Test layout: tests/test_mind.py (the client and the ledger) and tests/test_budget.py (mutagen, culture, status, eyepiece), on a FakeMind that overrides only _request and repeats its last scripted reply. The membrane runs in-process only for tests that opt in with the no_subprocess fixture; the one threaded test (the real run() loop on a real clock) stubs admission instead, because Budget's alarm is main-thread only.
+
+## 2026-09-16
+
+Bookkeeping kinds (call, prepared; HIDDEN in bio/culture.py) are written to events.jsonl but never appended to Culture.events, and _load_recent_events skips them, so one call event every twelve seconds leaves the incubator log's density as it was. Resolves the deque concern from the plan review; the eyepiece filter stays as a second guard.
+
+## 2026-09-16
+
+Culture.load writes nothing: biotic status runs beside a live dish. What load finds out (the ledger caught up from the log, a budget lowered below the spend) waits in Culture._unsaid and is logged by run(), the process that will save the dish.
+
+## 2026-09-16
+
+events.jsonl is read from its last 64 KiB on load (_tail); the whole file only when that holds no call event. A partial read drops its first, probably cut, line. A week's log is tens of megabytes and status should not have to read it.
+
+## 2026-09-16
+
+Lowering the budget below the spend (--budget on a dish that has spent more, or seed --budget 0 on an awake mind) logs one exhaustion event with the reason, through exhausted_msg(); a dish resumed already exhausted logs nothing. A keyless mind with a zero budget is dormant, not exhausted, in status and in the mutagen.
+
+## 2026-09-16
+
+The loop body is Mutagen._turn: _cycle under a last-resort handler for a fault in _fail or _exhaust themselves (a broken log, say). It backs off by the cap and suppresses its own log call, since the log may be what is broken; tested on the main thread by calling _turn.
+
+## 2026-09-16
+
+backoff() clamps its exponent at 60: a week of a dead endpoint is past the thousandth consecutive failure, and 2**failures must not overflow a float.
+
+## 2026-09-16
+
+Rebased onto main after the cairn format 3 migration. The CLI reference (web/apps/site/src/content/docs/reference/cli.mdx) is generated from argparse and checked by scripts/task lint; regenerated for --budget on seed, live and run.
