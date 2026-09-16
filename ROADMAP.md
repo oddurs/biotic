@@ -97,7 +97,7 @@ By now a run produces a strain library, a lab notebook, curves, a freezer and
 
 ### backlog
 
-- [ ] `0046` Site e2e reuses any server already on port 6969 <sup>bug · p2</sup>
+- [ ] `0047` Site e2e reuses any server already on port 6969 <sup>bug · p2</sup>
 
 ### planned
 

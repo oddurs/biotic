@@ -5,12 +5,13 @@ from __future__ import annotations
 import json
 
 import pytest
-from conftest import dish_state
 
 from bio import config
 from bio.culture import FALLBACK_GENESIS, Culture
 from bio.membrane import inspect
 from bio.mind import Mind
+
+from .conftest import dish_state
 
 # admitted under 0.1.0, refused now: the construct this release closes
 RELIC = "def live(me):\n    try:\n        return 'eat'\n    except:\n        return 'rest'\n"

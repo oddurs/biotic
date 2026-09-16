@@ -158,3 +158,7 @@ Review fixes to docs: the site's configuration table had BIOTIC_TICK 0.35 and BI
 ## 2026-09-16
 
 Review fix to tests: test_exhausted_dish_keeps_growing queues a request and turns _cycle by hand after its 150 ticks, so 'no call after the budget was spent' is shown on a path that could have called, not asserted on one that could not; test_a_budget_spent_by_the_founding_calls_is_said_once covers both founding-call cases through germinate, load and one tick of run.
+
+## 2026-09-16
+
+Rebased onto main after #26 (membrane suite). Conflicts in bio/culture.py: load() now both restores the culture RNG (main) and the mind ledger with the log catch-up (this branch); save() writes culture, mind and dish in one blob; run() logs what load found before _screen(). tests/__init__.py from this branch made main's 'from conftest import' fail to collect, so the four suites from #26 import '.conftest' like the rest. The site-e2e bug filed here collided with main's 0046 (site membrane page) and is 0047 now. The gate's web half was run against a throwaway Playwright config on port 6970 because an astro dev from the primary checkout holds 6969 (14 passed); that is exactly 0047.
