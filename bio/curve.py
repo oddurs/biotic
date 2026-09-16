@@ -11,6 +11,7 @@ visited.
 from __future__ import annotations
 
 import csv
+from collections.abc import Iterator
 from pathlib import Path
 
 from . import config
@@ -44,9 +45,11 @@ COLUMNS: tuple[str, ...] = (
 DECIMALS = {"nutrient": 4, "shannon": 4, "dominance": 4, "mean_gen": 2, "pheromone": 4}
 _INT = frozenset(COLUMNS) - frozenset(DECIMALS) - {"phase"}
 
-# What a damaged or unwritable file raises out of reconcile(), append() and read().
-# A caller that must not stop on a bad curve catches these and nothing broader.
-ERRORS = (OSError, UnicodeDecodeError, csv.Error)
+# What a damaged or unwritable file raises out of reconcile(), append() and read(): it
+# cannot be opened or written, is not UTF-8, is not CSV, has a row wider than its header,
+# or holds a cell that is not the number its column says. A caller that must not stop on
+# a bad curve catches these and nothing broader.
+ERRORS = (OSError, UnicodeDecodeError, csv.Error, ValueError)
 _ENCODING = "utf-8"
 
 
@@ -56,13 +59,15 @@ def _open(path: Path):
     return open(path, newline="", encoding="utf-8-sig")
 
 
-def _rows(f) -> tuple[list[str] | None, csv.DictReader]:
+def _rows(f) -> tuple[list[str] | None, Iterator[list[str]]]:
     """The header of an open file, its first non-blank row, and a reader over the rows after it.
 
-    The header is None when the file has no non-blank row; the reader is then empty.
+    The header is None when the file has no non-blank row; the reader is then exhausted.
+    Blank lines come out of the reader as []; its `line_num` is the file line just read.
     """
-    header = next((r for r in csv.reader(f) if r), None)
-    return header, csv.DictReader(f, fieldnames=header)
+    reader = csv.reader(f)
+    header = next((r for r in reader if r), None)
+    return header, reader
 
 
 def _header(path: Path) -> list[str] | None:
@@ -85,7 +90,9 @@ def reconcile(path: Path) -> tuple[list[str], list[str]]:
     header is the old header followed by the columns it lacks, in COLUMNS order; the file
     is rewritten through a temporary neighbour and swapped in, so a crash leaves the
     original intact. Columns this apparatus does not know (a file from a newer one) keep
-    their place. Raises one of ERRORS when the file cannot be read or rewritten.
+    their place. A row with more cells than the header has no column for the extra ones:
+    rather than drop them, the widening is refused with csv.Error and the file is left as
+    it is. Raises one of ERRORS when the file cannot be read or rewritten.
     """
     header = _header(path)
     if header is None:
@@ -96,10 +103,18 @@ def reconcile(path: Path) -> tuple[list[str], list[str]]:
     tmp = path.with_name(path.name + ".tmp")
     try:
         with _open(path) as src, open(tmp, "w", newline="", encoding=_ENCODING) as dst:
-            writer = csv.DictWriter(dst, fieldnames=target, restval="", extrasaction="ignore")
-            writer.writeheader()
-            for row in _rows(src)[1]:
-                writer.writerow(row)
+            reader = _rows(src)[1]
+            writer = csv.writer(dst)
+            writer.writerow(target)
+            for cells in reader:
+                if not cells:
+                    continue  # a blank line; a rewrite drops them
+                if len(cells) > len(header):
+                    raise csv.Error(
+                        f"{path.name} line {reader.line_num} has {len(cells)} cells under a "
+                        f"{len(header)}-column header; not widened"
+                    )
+                writer.writerow(cells + [""] * (len(target) - len(cells)))
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise
@@ -129,21 +144,32 @@ def read(path: Path | None = None) -> list[dict]:
     Every name in COLUMNS is a key of every row: ints and floats are parsed by column,
     `phase` stays a string, and a cell the file does not have (an empty cell, or a
     column older than the file) is None. Columns this apparatus does not know are kept
-    as strings. An absent file, or one with no header, reads as []. `path` defaults to
-    the vessel's curve, resolved when called.
+    as strings; cells beyond the header, which have no name to return them under, are
+    not returned. An absent file, or one with no header, reads as []. A cell that is not
+    the number its column says (a hand-edited or truncated file) raises ValueError naming
+    the line and column; it is one of ERRORS. `path` defaults to the vessel's curve,
+    resolved when called. Reading never rewrites the file.
     """
     path = config.CURVE if path is None else path
     if not path.exists():
         return []
-    with _open(path) as f:
-        raw_rows = list(_rows(f)[1])  # [] when there is no header
     rows = []
-    for raw in raw_rows:
-        row = {name: _parse(name, raw.get(name)) for name in COLUMNS}
-        for name, v in raw.items():
-            if name is not None and name not in row:
-                row[name] = v
-        rows.append(row)
+    with _open(path) as f:
+        header, reader = _rows(f)
+        for cells in reader:  # nothing when there is no header
+            if not cells:
+                continue
+            raw = dict(zip(header, cells))
+            row = {}
+            for name in COLUMNS:
+                try:
+                    row[name] = _parse(name, raw.get(name))
+                except ValueError as e:
+                    raise ValueError(
+                        f"{path.name} line {reader.line_num}, {name}: {raw[name]!r} is not a number"
+                    ) from e
+            row.update((name, v) for name, v in raw.items() if name not in row)
+            rows.append(row)
     return rows
 
 

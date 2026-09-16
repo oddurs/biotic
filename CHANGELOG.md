@@ -64,7 +64,8 @@ turns the `Unreleased` section into a dated release.
 
 - A `curve.csv` written before this release is widened in place the first time the culture appends to
   it: older rows keep their values and have empty cells in the new columns. Logged once as a `curve` event
-  (`≡` in the incubator log). A file re-saved by a spreadsheet, with a byte-order mark, is recognised.
+  (`≡` in the incubator log). A file re-saved by a spreadsheet, with a byte-order mark, is recognised. A
+  file with a row wider than its header is not widened; the culture says so once and leaves it as it is.
 - A `curve.csv` the culture cannot read or write no longer stops the dish: the failure is logged once as a
   `curve` event, every later row is tried again, and a `resumed` event says when writing works.
 - The vitals `strains` row reads `living  arisen  extinct`; the maximum generation it used to show is

@@ -125,12 +125,15 @@ wrote, keep their place and are written empty from then on.
 The file is read as UTF-8 and a leading byte-order mark, which a spreadsheet's
 "CSV UTF-8" save prefixes, is ignored, so a curve opened and re-saved in one is
 still recognised; a rewrite drops the mark. A file with no header at all, empty
-or blank lines only, gets one with the next row. A `curve.csv` the culture
-cannot read or write (a byte it cannot decode, a disk that refuses) does not
-stop the dish: the failure is logged once as a `curve` event with the tick of
-the first row that was not written, every later row is tried again, and a
-`resumed` event says when writing works, so a file repaired while the culture
-is running picks up from there. The rows in between are missing.
+or blank lines only, gets one with the next row. A row with more cells than the
+header has no column for the extra ones, and the widening would drop them; such
+a file is not widened. It is treated like any other `curve.csv` the culture
+cannot read or write (a byte it cannot decode, a disk that refuses), and none of
+them stop the dish: the failure is logged once as a `curve` event with the tick
+of the first row that was not written and, for a ragged row, its line, every
+later row is tried again, and a `resumed` event says when writing works, so a
+file repaired while the culture is running picks up from there. The rows in
+between are missing.
 
 One process appends to a vessel's curve at a time. Two cultures sharing a vessel
 is not supported.
@@ -143,9 +146,15 @@ is not supported.
 
 Every row is a dict with every name in `curve.COLUMNS` as a key: ints and floats
 parsed, `phase` a string, and `None` where the file has no value, which is what
-an older file's rows hold in the new columns. Reading never widens a file. With
-pandas, `pd.read_csv("vessel/curve.csv")` gives the same table with `NaN` in
-those cells.
+an older file's rows hold in the new columns. Reading never widens a file, and
+cells beyond the header, which have no name to return them under, are left out.
+A cell that is not the number its column says, from a hand-edited or truncated
+file, raises `ValueError` naming the line and column. That, with the file
+errors (`OSError`, `UnicodeDecodeError`, `csv.Error`), is `curve.ERRORS`: what
+`reconcile`, `append` and `read` raise for a damaged file, and what a caller
+that must not stop on one catches. With pandas,
+`pd.read_csv("vessel/curve.csv")` gives the same table with `NaN` in the empty
+cells.
 
 `Dish.metrics()` returns what the dish knows on its own: size, diversity, the
 death ledger. `Culture.metrics()` adds phase, lineage, turnover and the state of
