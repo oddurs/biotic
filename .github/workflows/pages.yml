@@ -23,6 +23,7 @@ jobs:
         with:
           enable-cache: true
       - run: corepack enable
+      - run: corepack prepare "$(node -p "require('./web/package.json').packageManager")" --activate
       - uses: actions/setup-node@v6
         with:
           node-version-file: web/.node-version
