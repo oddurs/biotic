@@ -84,9 +84,11 @@ And look at what has grown:
     biotic run --ticks 5000 --tick 0     # headless, as fast as it goes
     open vessel/curve.csv                # population, diversity, turnover by tick; docs/curve.md
 
-A dish is deterministic under its seed, and `vessel/dish.json` restores an exact
-twin: a run that is stopped and resumed follows the trajectory it would have
-followed anyway, tick for tick.
+A dish is deterministic under its seed, in any process, and `vessel/dish.json`
+restores an exact twin: a run that is stopped and resumed follows the trajectory it
+would have followed anyway, tick for tick, until the mind hands it a daughter. The
+model is the one source of novelty a seed does not fix; `docs/membrane.md` has the
+fine print.
 `BIOTIC_REPLENISH=0` gives a truly closed dish: bloom, crash, done.
 `BIOTIC_MUTATION_RATE`, `BIOTIC_MUTAGEN_INTERVAL`, `BIOTIC_TICK`, `BIOTIC_WIDTH`,
 `BIOTIC_HEIGHT` are the other knobs. The rest of the physics is in `bio/config.py`.

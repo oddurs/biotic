@@ -51,6 +51,8 @@ Hard rules of the membrane — a genome breaking any of these is discarded befor
   - `except` must name one of Exception, ValueError, KeyError, IndexError, ZeroDivisionError,
     TypeError; no bare `except:`, no `finally`, no `with`. Those six names cannot be reused for
     anything else: no `KeyError = ...`, no parameter, loop variable or `as` name called ValueError.
+  - no sets: no set(), no {{a, b}}, no set comprehension, no frozenset. Their order depends on the
+    interpreter, not the seed. A tuple, a list or a dict does the same job.
   - only `def` and constant assignments at module level: numbers, strings, tuples and arithmetic
     on them. No calls there (no random.random() at module level), no lists, dicts or lambdas, no
     decorators, no mutable or computed default arguments. Module level runs again whenever the

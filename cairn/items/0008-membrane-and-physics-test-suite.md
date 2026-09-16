@@ -126,3 +126,27 @@ rebased onto main at 822ea3c (cairn format 3, the curve header pin from 0045, th
 ## 2026-09-16
 
 the site's docs page web/apps/site/src/content/docs/instrument/membrane.mdx, added on main by #18 after this branch forked, summarises the 0.1.0 rules and omits the ones this item added. Left untouched on purpose: any change under web/ pulls the pnpm toolchain (a network install and a Chromium for the design package's browser tests) into scripts/task check, and neither is present in this checkout. Filed as 0046 (docs, p3, part of 0039) so the page is brought in line with docs/membrane.md under its own gate.
+
+## 2026-09-16
+
+Review round 3. Sets are refused ('sets not allowed (their order depends on the interpreter, not the seed; use a tuple, list or dict)'): set(), frozenset, set displays and set comprehensions, and set is out of SAFE_BUILTINS. Verified the reviewer's case: list({'N','NE','E','SE','S','SW','W','NW'}).index('S') gave 7, 3 and 4 under PYTHONHASHSEED=1, 2, 3, so a genome that walked a set of strings diverged from its twin across a resume and nowhere else, and the in-process twin tests could not see it. Chose the static rule over documenting it or a PYTHONHASHSEED knob: the console script cannot set the hash seed of its own interpreter without a re-exec, and a rule the model reads on every call beats a footnote the user reads once. No fossil, the founder and the benign genome use a set; all 17 fossils in the tide run's soma/ are still admitted. test_resumed_dish_is_an_exact_twin_in_another_process thaws the saved dish in a child interpreter under a different PYTHONHASHSEED and compares fifty ticks later; it is the positive pin, since no admitted genome can depend on the hash seed any more. The residual is addresses through repr, %r and str(random): process-dependent, not closable statically, and named under Known limits.
+
+## 2026-09-16
+
+Culture.rng (seed::culture: the mutation roll and drop positions) is saved in dish.json under a 'culture' key and restored by Culture.load; Dish.from_dict ignores the key and a dish.json from before it loads as it did. With a dormant mind the roll changed nothing in the dish, because take() returned nothing either way, which is why no test saw it; with a mind awake the daughter's content is novelty by design. README now says the twin holds until the mind hands the culture a daughter, instead of claiming the run itself is one.
+
+## 2026-09-16
+
+_jsonable keeps ints only in [-2**63, 2**63) and routes everything else through _text(), a str() that answers '<int>' or '<list>' when str() itself raises: an int past sys.get_int_max_str_digits() has no decimal form, so the review's str(v)[:80] would have raised on the same value, and a list nested one level per tick has no repr after about 20k ticks on 3.13 and far fewer on 3.11. Verified the review's genome (memory x times 1000 per tick) is admitted at 4 ms and broke json.dumps at 4300 digits; the test multiplies by 10**100 so it crosses in 43 ticks. Culture.save() catches (TypeError, ValueError, OSError) on the curve's pattern: one 'freezer' event, tried again at every save, one more event when it works, and the last good dish.json stands. bool is tested first because it is an int.
+
+## 2026-09-16
+
+Thawed strains are screened in Culture.run(), not Culture.load(): _culture() in __main__ loads for status, strains, genome and log as well, and a screen in load() would have lysed cells and appended nonviable events on every read-only command. Only inspect() is re-run; the smoke test is not, since a strain that has lived in the dish has passed a harder one. A refused strain goes through the new Dish.lyse(strain) (its cells die 'lysed', genome and compiled function dropped), the mutagen forgets it, one nonviable event names strain and reason, and the registry marks it extinct on the next tick because its peak is on record. Verified the review's case: a saved dish holding a bare-except strain loaded and stepped with 3 of its cells alive; now 3 lysed and none run.
+
+## 2026-09-16
+
+parse_action refuses a bool argument for move, divide and emit (('move', True) was ('move', 1)); eat and rest still ignore their argument, as the table says. The three static-rejection tests no longer time admit(): a no_smoke_test fixture replaces membrane.smoke_test with one that raises, so 'nothing ran' is structural and a regression is a plain failure rather than a hang or a descheduled runner. The perf_counter bounds on the dynamic tests (admit_isolated, the module-level budget, lysis within a tick) stay, because there the time is the property.
+
+## 2026-09-16
+
+After the round-3 fixes scripts/task check is green: 209 tests in 4.6 s (criterion: under 30 s), ruff clean, cli reference current, wheel and sdist built; the web half is skipped because nothing under web/ changed. New tests: four set spellings refused by name; the child-interpreter twin under another PYTHONHASHSEED (0.16 s); the memory table at every boundary and the counter that crosses 4300 digits; a culture whose dish.json cannot be written running on; the culture generator surviving a save; a thawed bare-except strain lysed, named and marked extinct on the first tick. The item stays done with every criterion met; the site page is still 0046.

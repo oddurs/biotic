@@ -49,6 +49,17 @@ turns the `Unreleased` section into a dated release.
   level held to constants and attributes read-only, everything a genome can change between ticks is in `me.memory`
   or the dish's generator, both of which the save carries, so a resumed dish is an exact twin of the running one
   for any genome the membrane admits (primitive memory values; `docs/membrane.md` has the limit).
+- The membrane refuses sets: `set()`, `frozenset`, set displays and set comprehensions, and `set` is no longer in a
+  genome's namespace. A set of strings iterates in an order the interpreter's hash seed picks, which differs from
+  process to process, so a genome that walked one was the one admitted thing that could diverge from its twin
+  across a resume. Dicts are unaffected.
+- A thawed dish is held against the static gate again when the culture starts to run: a strain the current rules
+  refuse (a bare `except`, a `finally`, a set, a module-level draw, from a vessel saved under 0.1.0) is lysed
+  before it can run, its genome leaves the dish, and one `nonviable` event names the strain and the reason.
+  `biotic status` and the other readers do not screen, so they show the dish as it is on disk.
+- `dish.json` carries the culture's own generator, which rolls the mutations, so a resumed culture rolls them
+  at the divisions the running one would have. Of `me.memory` it keeps ints in `[-2**63, 2**63)` exactly and
+  stringifies wider ones like any other non-primitive value.
 - A genome longer than `GENOME_MAX_CHARS` is rejected before it is parsed.
 - The mutagen's prompt states the rules the membrane enforces.
 
@@ -59,7 +70,12 @@ turns the `Unreleased` section into a dated release.
 - `dish.json` no longer rounds cell energy, so a resumed dish follows exactly the trajectory the running one
   would have.
 - `parse_action` returns `None` instead of raising on `nan`, `inf` and other values it cannot coerce, and no
-  longer turns `("emit", nan)` into a full emission.
+  longer turns `("emit", nan)` into a full emission or a bool into a direction or an amount (`("move", True)`,
+  `("divide", False)`, `("emit", True)`).
+- A `dish.json` that cannot be written no longer stops the culture: the failure is logged once as a `freezer`
+  event (`≣` in the incubator log), every later save is tried again, and an event says when writing works.
+  Before, a memory int past 4300 digits, which an admitted genome can grow in an afternoon, made the save raise
+  at tick 150 and killed the loop; the last good `dish.json` stood.
 
 ## [0.1.0] - 2026-09-09
 

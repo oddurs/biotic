@@ -36,12 +36,25 @@ from bio.membrane import (
 LIVE_REST = "def live(me):\n    return 'rest'\n"
 EXCEPT_RULE = "except may only name"
 CONSTANT_RULE = "module-level values must be constants (numbers, strings, tuples; no calls, lists or dicts)"
+SET_RULE = "sets not allowed (their order depends on the interpreter, not the seed; use a tuple, list or dict)"
 
 
 @pytest.fixture
 def tight_budget(monkeypatch):
     """The production budget, so tests about the budget stay fast."""
     monkeypatch.setattr(config, "CELL_TIME_BUDGET", 0.004)
+
+
+@pytest.fixture
+def no_smoke_test(monkeypatch):
+    """For tests that prove the static gate alone refuses a genome: `admit` may not reach the
+    smoke test, so nothing in the genome is executed. A regression is a plain failure here, not
+    a hang or a timing measurement."""
+
+    def ran(source, rounds=40):
+        raise AssertionError("the static gate let this genome through to the smoke test")
+
+    monkeypatch.setattr(membrane, "smoke_test", ran)
 
 
 # --- static gate: one genome per escape class -------------------------------
@@ -69,6 +82,14 @@ REJECTED = [
     ("module_level_list", "SEEN = []\n" + LIVE_REST, CONSTANT_RULE),
     ("module_level_dict", "WEIGHTS: dict = {'eat': 1.0}\n" + LIVE_REST, CONSTANT_RULE),
     ("module_level_set", "TRIED = set()\n" + LIVE_REST, CONSTANT_RULE),
+    ("set_call", "def live(me):\n    seen = set()\n    return 'rest'\n", SET_RULE),
+    ("frozenset", "def live(me):\n    seen = frozenset()\n    return 'rest'\n", SET_RULE),
+    ("set_display", "def live(me):\n    return ('move', list({'N', 'S', 'E', 'W'}).index('S'))\n", SET_RULE),
+    (
+        "set_comprehension",
+        "def live(me):\n    for d in {d % 8 for d in range(16)}:\n        pass\n    return 'rest'\n",
+        SET_RULE,
+    ),
     ("module_level_comprehension", "DIRS = tuple(d for d in range(8))\n" + LIVE_REST, CONSTANT_RULE),
     ("module_level_lambda", "PICK = lambda me: me.here\n" + LIVE_REST, CONSTANT_RULE),
     ("mutable_default", "def helper(me, seen=[]):\n    return seen\n\n" + LIVE_REST, CONSTANT_RULE),
@@ -331,17 +352,15 @@ def test_except_exception_cannot_swallow_lysis(tight_budget):
     assert v.reasons == ["too slow: exceeded time budget"]
 
 
-def test_finally_return_is_rejected_before_it_can_run(tight_budget):
+def test_finally_return_is_rejected_before_it_can_run(no_smoke_test):
     """A `return` in `finally` discards the exception on its way out, Lysis included, and it is
     instant, so no timer can help. The static gate refuses the construct; nothing is executed."""
     src = "def live(me):\n    try:\n        while True:\n            pass\n    finally:\n        return 'rest'\n"
-    t0 = time.perf_counter()
     v = admit(src)
-    assert time.perf_counter() - t0 < 0.5
     assert v.reasons == ["finally not allowed"]
 
 
-def test_except_laundering_is_rejected_before_it_can_run(tight_budget):
+def test_except_laundering_is_rejected_before_it_can_run(no_smoke_test):
     """`except BaseException` is a NameError inside a genome, which an outer `except Exception`
     would catch after the loop has burst. The whitelist stops it at the inner handler."""
     src = (
@@ -355,9 +374,7 @@ def test_except_laundering_is_rejected_before_it_can_run(tight_budget):
         "    except Exception:\n"
         "        return 'rest'\n"
     )
-    t0 = time.perf_counter()
     v = admit(src)
-    assert time.perf_counter() - t0 < 0.5
     assert len(v.reasons) == 1 and v.reasons[0].startswith(EXCEPT_RULE)
 
 
@@ -456,7 +473,7 @@ LAUNDERED = [
 
 
 @pytest.mark.parametrize("name,source,rebound", LAUNDERED, ids=[r[0] for r in LAUNDERED])
-def test_rebound_except_name_is_rejected_before_it_can_run(name, source, rebound, tight_budget):
+def test_rebound_except_name_is_rejected_before_it_can_run(name, source, rebound, no_smoke_test):
     """`except KeyError:` where KeyError is bound to anything but an exception class, whether
     locally, at module level, as a parameter, through `as`, or merely later in the function
     (which makes the name an unbound local), is a TypeError or UnboundLocalError raised while
@@ -464,9 +481,7 @@ def test_rebound_except_name_is_rejected_before_it_can_run(name, source, rebound
     `except TypeError:` catches one after the loop has burst, with the one-shot timer already
     spent. Before the rebind rule every genome here was admitted in about 0.8 s: forty bursts,
     each swallowed. Now nothing is executed."""
-    t0 = time.perf_counter()
     v = admit(source)
-    assert time.perf_counter() - t0 < 0.5
     assert v.reasons == [f"cannot rebind {rebound}"]
 
 
@@ -580,6 +595,14 @@ def test_benign_constructs_are_admitted():
     legal."""
     v = admit(BENIGN)
     assert v, v.reasons
+
+
+def test_set_is_not_in_scope():
+    """The static gate refuses the name (above); the namespace does not hold it either, so a
+    genome that reached `set` some other way would find a NameError, and `frozenset` was never
+    there. Dicts stay: they iterate in insertion order whatever the hash seed."""
+    assert "set" not in SAFE_BUILTINS and "frozenset" not in SAFE_BUILTINS
+    assert "dict" in SAFE_BUILTINS
 
 
 def test_random_in_scope_is_the_dish_rng():

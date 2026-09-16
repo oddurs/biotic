@@ -40,6 +40,7 @@ returns without parsing, because parsing megabytes of model output is itself a c
 | `except:` with no type | `bare except not allowed` |
 | `except` naming anything but `Exception`, `ValueError`, `KeyError`, `IndexError`, `ZeroDivisionError`, `TypeError`, alone or as a tuple (`except BaseException:`, `except me.oops:`, `except err:`, `except Exception.mro()[1]:`) | `except may only name Exception, IndexError, KeyError, TypeError, ValueError, ZeroDivisionError` |
 | binding one of those six names to anything: `ValueError = 5`, `def helper(me, KeyError)`, `except KeyError as ValueError`, `for KeyError in ...`, `(KeyError := 3)`, `def KeyError()`, `del ValueError`, a `case KeyError:` capture | `cannot rebind <name>` |
+| `set()`, `frozenset`, a set display (`{'N', 'S'}`), a set comprehension | `sets not allowed (their order depends on the interpreter, not the seed; use a tuple, list or dict)` |
 | `global`, `nonlocal` | `global/nonlocal not allowed` |
 | `async def`, `await`, `yield`, `yield from` | `async/generators not allowed` |
 | `class` | `classes not allowed` |
@@ -95,12 +96,22 @@ is fine; it is the same generator. With this and the read-only attributes, every
 a genome can change between ticks is in `me.memory` or the dish's generator, and both
 are in `dish.json`.
 
+Why no sets: a set of strings iterates in an order that depends on the interpreter's
+hash seed, which is drawn afresh for every process unless `PYTHONHASHSEED` is set, so
+`for d in {"N", "E", "S", "W"}` visits its members in one order in the culture that
+saved a dish and in another in the one that resumes it. The dish's seed does not reach
+that; a resume is a process boundary; and a genome that walked a set of strings was the
+one admitted thing that could diverge from its twin there. Sets of numbers happen to be
+stable and membership tests never depended on order, but the rule is static and cannot
+tell those apart, so `set`, `frozenset`, set displays and set comprehensions are all
+refused. A dict keeps insertion order whatever the hash seed and does the same jobs.
+
 What a genome has: `math`, `random` (see below), and these builtins — `abs` `all` `any`
 `bool` `dict` `divmod` `enumerate` `filter` `float` `int` `isinstance` `len` `list`
-`map` `max` `min` `pow` `range` `reversed` `round` `set` `sorted` `str` `sum` `tuple`
+`map` `max` `min` `pow` `range` `reversed` `round` `sorted` `str` `sum` `tuple`
 `zip` `True` `False` `None` `Exception` `ValueError` `KeyError` `IndexError`
-`ZeroDivisionError` `TypeError`. Nothing else is defined; `BaseException`, for one,
-is a `NameError`.
+`ZeroDivisionError` `TypeError`. Nothing else is defined; `BaseException` and `set`,
+for two, are `NameError`s.
 
 ## The dynamic gate: `smoke_test(source)`
 
@@ -159,9 +170,10 @@ Inside a genome, `random` and `me.rng` are the same object: the dish's own seede
 `choice`, `randint`, `uniform`, `shuffle`, `gauss`, `randrange`, `sample` — and the
 `random` module itself, with its private state and `SystemRandom`, is out of reach.
 This is what makes a culture reproducible: with a fixed seed, two dishes run the same
-genomes to the same state, tick for tick. A draw at module level is refused by the
-static gate (above), because module level runs again when a dish is loaded and the
-draw would then land at a different point in the sequence.
+genomes to the same state, tick for tick, in any process. A draw at module level is
+refused by the static gate (above), because module level runs again when a dish is
+loaded and the draw would then land at a different point in the sequence; sets are
+refused because their order comes from the interpreter and not from the seed.
 
 The flip side is that a genome can call `random.seed(...)`, and that reseeds the dish.
 The result is still deterministic — the same genome does the same thing on every
@@ -195,8 +207,46 @@ expressions, `try/except` on the whitelisted names alone, as a tuple and with `a
 `del` of a local, `match` with a wildcard, a walrus, f-strings, underscore-prefixed
 locals, module-level constants with arithmetic, a tuple and an alias of `random`, a
 helper with constant defaults and annotations, a docstring, `random.random()` and
-`random.choice()` — must be admitted. `tests/test_persistence.py` resumes a genome with
-the fullest module level the gate admits and asserts an exact twin for fifty ticks.
+`random.choice()` — must be admitted. The tests that prove the static gate alone refuses
+a construct replace the smoke test with one that fails loudly, so "nothing ran" is a
+structural fact and not a timing. `tests/test_persistence.py` resumes a genome with the
+fullest module level the gate admits and asserts an exact twin for fifty ticks, once in
+the same interpreter and once in a child interpreter under a different `PYTHONHASHSEED`;
+pins what the freezer keeps of `me.memory` at every boundary; and runs a genome whose
+counter passes the 4300-digit limit until its save goes through. `tests/test_culture.py`
+runs a culture whose `dish.json` cannot be written, checks that the culture's generator
+comes back from a save, and thaws a dish holding a strain with a bare `except` to see it
+lysed, named and marked extinct when the culture runs.
+
+## Thawing a dish
+
+`dish.json` is the freezer. It holds the agar, the pheromone, every cell with its energy,
+age and memory, every genome, the dish's generator and, since this release, the culture's
+own generator, which rolls the mutations, so a resumed culture rolls them at the divisions
+the running one would have. The culture writes it every 150 ticks and once more on the
+way out, atomically. A save that fails, whatever the reason, is logged once as a
+`freezer` event (`≣` in the incubator log), tried again at every later save, and
+announced again when writing works; the dish keeps stepping meanwhile, and the last
+`dish.json` that was written stands.
+
+Of `me.memory` the freezer keeps at most 64 keys. Floats, strings, bools, `None` and
+ints in `[-2**63, 2**63)` are kept as they are and come back exactly; anything else, a
+list, a dict, a tuple, an int wider than that, comes back as the first 80 characters of
+its `str()`. The bound on ints is what keeps a save writable: `json.dumps` refuses an int
+past 4300 digits, and a genome that multiplies a counter every tick gets there in an
+afternoon. Before the bound such a genome made the save raise and the loop die with it.
+
+Every strain in a thawed dish is held against the static gate again when the culture
+starts to run. A dish saved under older rules may hold strains admitted with a bare
+`except`, a `finally`, a set, or a module-level draw, exactly the constructs a release
+closes, and those do not get to run: their cells lyse when `biotic live` or `biotic run`
+starts, their genome leaves the dish, one `nonviable` event names the strain and the
+reason (`relic no longer passes the membrane — bare except not allowed; 3 cells lysed`),
+and the registry marks the strain extinct on the next tick. The screening happens in
+`Culture.run()`, not `Culture.load()`, so `biotic status`, `strains`, `genome` and `log`
+show the dish as it is on disk and do not rewrite it. Only the static gate is re-run;
+the smoke test is not, since a strain that has been living in the dish has passed a
+harder one.
 
 ## Known limits
 
@@ -207,13 +257,19 @@ the fullest module level the gate admits and asserts an exact twin for fifty tic
   isolated child the 20 s ceiling ends it. A genome that only does it later, in the
   dish, stalls the culture until the operation finishes. There is no memory cap
   either.
-- **`%`-formatting and `repr` are a read-only channel.** `"%r" % me` reveals a class
-  name and an address. Nothing can be called through it.
+- **`%`-formatting and `repr` are a read-only channel.** `"%r" % me`, `str(random)` and
+  `str(live)` reveal a class name and an address. Nothing can be called through it, but
+  the address differs from process to process, so a genome that branches on such a
+  string is the one admitted thing that can diverge from its twin across a resume. No
+  model writes that by accident, which is why it is a limit and not a rule.
 - **The stand-in cell is not the dish.** Forty rounds against random situations find
   genomes that throw on ordinary inputs. They do not find one that throws on a state
   only a real dish produces; that is what lysis in the dish is for.
-- **The twin holds for primitive memory.** `dish.json` keeps ints, floats, strings,
-  bools and `None` in `me.memory`, at most 64 keys, and stringifies the rest; a genome
-  that keeps a list there gets a string back after a resume. Module level and
-  attributes are closed (above), so this is the one place a genome's state can differ
-  from its save.
+- **The twin holds for primitive memory.** `dish.json` keeps ints in `[-2**63, 2**63)`,
+  floats, strings, bools and `None` in `me.memory`, at most 64 keys, and stringifies the
+  rest (above); a genome that keeps a list there, or an int wider than that, gets a
+  string back after a resume. Module level and attributes are closed, so this is the one
+  place a genome's state can differ from its save.
+- **A thawed strain is inspected, not smoke-tested.** The screening at the start of a run
+  applies the static rules only. A genome that a newer smoke test would refuse but the
+  older one admitted keeps living until the dish itself lyses it.

@@ -8,7 +8,9 @@ beginning with `_`, no `.format`, no `finally`, no `with`, no `except*`, and
 a genome may rebind, so nothing in a genome runs on after its time budget
 bursts it. Module level holds only `def` and constants, and attributes are
 read-only, so everything a genome can change lives in `me.memory` or the dish's
-generator, both of which the freezer saves.
+generator, both of which the freezer saves. No sets: a set of strings iterates
+in an order the interpreter's hash seed picks, and the dish's seed does not fix
+that.
 """
 
 from __future__ import annotations
@@ -82,7 +84,6 @@ SAFE_BUILTINS = {
         "range",
         "reversed",
         "round",
-        "set",
         "sorted",
         "str",
         "sum",
@@ -137,6 +138,12 @@ _CONSTANT_NODES = (
 )
 _SIGNATURE_NODES = _CONSTANT_NODES + (ast.arguments, ast.arg)
 _CONSTANT_RULE = "module-level values must be constants (numbers, strings, tuples; no calls, lists or dicts)"
+
+# A set of strings (or of tuples holding one) iterates in an order that depends on the
+# interpreter's hash seed, which differs from process to process, so a genome that walks one
+# is not reproducible across a resume. Dicts keep insertion order and are unaffected.
+_SET_NAMES = ("set", "frozenset")
+_SET_RULE = "sets not allowed (their order depends on the interpreter, not the seed; use a tuple, list or dict)"
 
 # Python 3.12 type parameters (`def f[T](): ...`) bind a name too; absent on 3.11.
 _TYPE_PARAMS = tuple(getattr(ast, n) for n in ("TypeVar", "ParamSpec", "TypeVarTuple") if hasattr(ast, n))
@@ -229,6 +236,10 @@ def inspect(source: str) -> Verdict:
             reasons.append("imports are not allowed (math and random are already in scope)")
         elif isinstance(node, ast.Name) and node.id in BANNED_NAMES:
             reasons.append(f"forbidden name: {node.id}")
+        elif isinstance(node, ast.Name) and node.id in _SET_NAMES:
+            reasons.append(_SET_RULE)
+        elif isinstance(node, (ast.Set, ast.SetComp)):
+            reasons.append(_SET_RULE)
         elif isinstance(node, ast.Name) and node.id.startswith("__"):
             reasons.append(f"dunder name: {node.id}")
         elif isinstance(node, ast.Attribute) and node.attr.startswith("__"):

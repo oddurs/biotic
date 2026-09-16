@@ -43,6 +43,9 @@ ACCEPTED = [
 REJECTED = [
     True,
     False,
+    ("move", True),  # int(True) is 1, but a bool is not a direction
+    ("divide", False),
+    ("emit", True),  # nor an amount
     "",
     "photosynthesize",
     "go",  # a bare alias for move has no direction
@@ -114,12 +117,15 @@ def test_parse_action_never_raises():
 
     kinds = {"eat", "rest", "move", "divide", "emit"}
     for _ in range(3000):
-        out = parse_action(value())
+        given = value()
+        out = parse_action(given)
         if out is None:
             continue
         assert isinstance(out, tuple) and len(out) == 2
         kind, arg = out
         assert kind in kinds
+        if isinstance(given, (tuple, list)) and len(given) == 2 and isinstance(given[1], bool):
+            assert kind in ("eat", "rest"), (given, out)  # a bool never becomes a direction or an amount
         if kind == "move":
             assert isinstance(arg, int) and 0 <= arg < 8
         elif kind == "divide":

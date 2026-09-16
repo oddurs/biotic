@@ -27,6 +27,7 @@ ICONS = {
     "phase": ("◐", "bold white"),
     "mind": ("…", "dim"),
     "curve": ("≡", "dim"),
+    "freezer": ("≣", "dim"),
 }
 AGAR = [
     (0.02, " ", "grey23"),
