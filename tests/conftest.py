@@ -97,6 +97,7 @@ def vessel(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         "CURVE": v / "curve.csv",
         "WHISPERS": v / "whispers.md",
         "PRICES_FILE": v / "prices.json",
+        "FIELDNOTES": v / "fieldnotes.md",
         "FREEZER": v / "freezer",
         "LOCK_FILE": v / "incubator.lock",
         "SOMA": tmp_path / "soma",
@@ -104,6 +105,7 @@ def vessel(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     for name, p in paths.items():
         monkeypatch.setattr(config, name, p)
     monkeypatch.setattr(config, "FREEZE_EVERY", 0)  # tests that want automatic samples set the cadence
+    monkeypatch.setattr(config, "NOTES_EVERY", 0)  # and tests that want field notes set theirs
     monkeypatch.setattr(config, "REVIVE_WATCH", 100)
     monkeypatch.setattr(config, "API_KEY", None)
     monkeypatch.setattr(config, "BASE_URL", "https://example.invalid/v1")  # Mind.awake -> False

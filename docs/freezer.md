@@ -18,8 +18,11 @@ same instrument: a directory of samples under `vessel/freezer/`, and two verbs, 
 A **dish sample** is everything the next tick depends on: every cell with its exact energy, age
 and memory; the agar and the pheromone; the dish's random state; every living genome; the strain
 registry; and the culture's own state (the random stream that rolls mutations, the phase
-detector, a running mutagen boost, the revival chain, the strains under watch). Samples are
-gzipped JSON, about 25 KB for a 72×34 dish.
+detector, a running mutagen boost, the revival chain, the strains under watch). It also carries
+the naturalist's last note as it stood at the freeze, because the culture's state is saved
+whole; a revive ignores that part — the notebook is the vessel's, and the next entry after a
+revive says the dish was replaced (`docs/naturalist.md`). Samples are gzipped JSON, about 25 KB
+for a 72×34 dish.
 
 Samples are taken:
 

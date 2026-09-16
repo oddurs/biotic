@@ -68,6 +68,23 @@ turns the `Unreleased` section into a dated release.
   (`uv sync --extra plot`); without it the command says how to install it. It reads `curve.csv`,
   `events.jsonl` and `seed.txt` only and takes no lock, so it runs beside a live incubator.
   `bio.curve.branches()`, `bio.curve.events()` and `bio.plot` are the library form. See `docs/curve.md`.
+- The naturalist: every `BIOTIC_NOTES_EVERY` ticks (default 600; `0` turns it off) an observer call to the
+  mind writes a field note — three to eight hedged sentences on what changed since the last entry — to
+  `vessel/fieldnotes.md` under `## tick N · date time`, logged as a `note` event (`¶` in the incubator log).
+  It is shown the readings, the census with the mutagen's notes, births and deaths by cause, the dish's own
+  events since the last entry, a coarse sketch of the dish and its own previous entry; never a genome, and
+  nothing it writes reaches the mutagen. A sweep — a strain under 10 % at the last entry and over 70 % now —
+  is put in its prompt as a computed fact. `biotic notes [-n N]` prints the notebook, `biotic status` counts
+  it, and the eyepiece's footer shows the latest entry's first sentence in place of the command help. The
+  naturalist runs on its own thread, never touches the dish (a culture with notes walks the same trajectory
+  as one without), replaces a look it has not yet written rather than queueing it, takes no look sooner than
+  two minutes after the last, backs off from a failing mind like the mutagen, and continues its record across
+  a resume and a hard kill; after a revive its next entry says the dish was replaced and compares nothing
+  across the seam. Its calls count against the dish budget like any other, about a tenth of a cent each.
+  See `docs/naturalist.md`.
+- `call` events carry `role`: `genesis`, `mutagen`, `naturalist` or `probe`, so an observer's spend can be
+  told from the mutagen's. A call that names no role is logged as `unknown` — unattributed, never folded
+  into another role's spend.
 
 ### Changed
 

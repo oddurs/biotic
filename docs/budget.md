@@ -7,9 +7,12 @@ a week-long run has a worst case, and the worst case is a number.
 ## what is counted
 
 Every call the dish makes: the genesis calls that write the founding cell,
-every mutagen call, and any observer the roadmap adds later. All of them go
-through `Mind.think`, and `Mind.think` is where the budget is enforced, so
-nothing the dish does can spend past it.
+every mutagen call, and every field note the naturalist writes
+(`docs/naturalist.md`; about a tenth of a cent a note, one every 600 ticks by
+default, `BIOTIC_NOTES_EVERY=0` for none). All of them go through
+`Mind.think`, and `Mind.think` is where the budget is enforced, so nothing the
+dish does can spend past it. When the budget is spent the mutagen and the
+naturalist both stop.
 
 `biotic probe` is not a dish call. It is uncapped, prints what its one call
 cost, and records nothing in any dish's ledger; it does fetch and cache the
@@ -136,7 +139,11 @@ other error; the retries cost nothing.
 
 - `events.jsonl`, kind `call`: `model`, `prompt_tokens`, `completion_tokens`,
   `usd`, `spent_usd` and `calls` (the running totals after this call),
-  `latency`, `cost_source`. `biotic log` prints them. They are bookkeeping:
+  `latency`, `cost_source`, and `role` — `genesis`, `mutagen`, `naturalist` or
+  `probe` — so the observer's spend can be summed apart from the mutagen's
+  (`spent_usd` counts both). Every caller names its role; a call that names
+  none is logged as `unknown`, unattributed rather than counted as any one
+  role's. `biotic log` prints them. They are bookkeeping:
   in the file, but not among the recent events the eyepiece shows, so one
   call every twelve seconds cannot crowd the dish's own events out of the
   incubator log. `prepared` events are kept the same way.
