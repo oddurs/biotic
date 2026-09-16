@@ -12,9 +12,9 @@ if ! command -v pnpm >/dev/null 2>&1; then
   printf '+ corepack enable\n' >&2
   corepack enable
 fi
-printf '+ pnpm --dir web install --frozen-lockfile\n' >&2
-pnpm --dir web install --frozen-lockfile
+printf '+ (cd web && pnpm install --frozen-lockfile)\n' >&2
+(cd web && pnpm install --frozen-lockfile)
 printf '+ playwright install chromium\n' >&2
-pnpm --dir web --filter @biotic/design exec playwright install chromium
+(cd web && pnpm --filter @biotic/design exec playwright install chromium)
 scripts/task check
 printf '\nready. start work with: scripts/agent start <type>/<slug>\n' >&2

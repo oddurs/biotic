@@ -27,13 +27,15 @@ jobs:
           node-version-file: web/.node-version
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
-      - run: pnpm --dir web install --frozen-lockfile
+      - run: pnpm install --frozen-lockfile
+        working-directory: web
       - name: cache playwright browsers
         uses: actions/cache@v5
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('web/pnpm-lock.yaml') }}
-      - run: pnpm --dir web --filter @biotic/design exec playwright install chromium --with-deps
+      - run: pnpm --filter @biotic/design exec playwright install chromium --with-deps
+        working-directory: web
       - run: scripts/task check
         env:
           TASK_SCOPE: all

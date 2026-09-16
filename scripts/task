@@ -37,16 +37,18 @@ web_in_scope() {
   return 1
 }
 
-# pnpm: install from the lockfile when node_modules is missing or older than it.
+# pnpm: install from the lockfile when node_modules is missing or older than it. Always run
+# from inside web/ so corepack honours the packageManager pin in web/package.json; from the
+# repo root it would use whatever pnpm it defaults to that week.
 web() {
   if ! web_in_scope; then
     printf '~ web: no changes under web/, skipped (TASK_SCOPE=all to force)\n' >&2
     return 0
   fi
   if [ ! -d web/node_modules ] || [ web/pnpm-lock.yaml -nt web/node_modules/.modules.yaml ]; then
-    run pnpm --dir web install --frozen-lockfile
+    (cd web && run pnpm install --frozen-lockfile)
   fi
-  run pnpm --dir web "$@"
+  (cd web && run pnpm "$@")
 }
 
 case "${1:-}" in
