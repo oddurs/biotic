@@ -83,7 +83,8 @@ turns the `Unreleased` section into a dated release.
   across the seam. Its calls count against the dish budget like any other, about a tenth of a cent each.
   See `docs/naturalist.md`.
 - `call` events carry `role`: `genesis`, `mutagen`, `naturalist` or `probe`, so an observer's spend can be
-  told from the mutagen's.
+  told from the mutagen's. A call that names no role is logged as `unknown` — unattributed, never folded
+  into another role's spend.
 
 ### Changed
 

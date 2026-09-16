@@ -77,3 +77,15 @@ Criterion 1's 'references the previous by content' is verified structurally: eve
 ## 2026-09-16
 
 Beyond the plan: due() does not test mind.exhausted, so a spent budget is met at the call and said once as 'field notes end at tick N — budget spent', whatever spent it; the prompt is told the incubator's pace (Culture.tick_seconds, set by run()) so 'ticks vs wall-clock' is computable; a notebook that cannot be written is one mind event per look and no backoff, baseline unchanged; call events carry role (genesis/mutagen/naturalist/probe). No vitals row for the naturalist: VITALS_H is pinned and a row would shrink the census everywhere; failures are mind events and biotic status counts the notebook.
+
+## 2026-09-16
+
+Review fix (finding 2): Mind.think's role default is now the neutral sentinel 'unknown', not 'mutagen', so a future call site that forgets role= is unattributed rather than silently folded into mutagen spend. The mutagen's call site now passes role='mutagen' explicitly (bio/mutagen.py). Chose the sentinel over making role required because ~30 role-less Mind.think('s','u') calls in test_mind.py exercise only budget/pricing and would otherwise all need a role. Guarded by test_mind.test_the_call_event... (role-less -> 'unknown') and test_budget's success path (mutagen -> 'mutagen'). docs/budget.md and CHANGELOG note 'unknown' = unattributed.
+
+## 2026-09-16
+
+Review fix (finding 1): the duplicated _n pluralisation helper is folded into one. It lives in bio/prompts.py (a leaf that imports only config) and bio/culture.py imports it. The reviewer's 'import culture._n' example would cycle, since culture already imports prompts; the dependency only runs one way.
+
+## 2026-09-16
+
+Review fix (criterion 4): added test_naturalist.test_the_naturalists_prompt_directs_no_action_at_the_dish. A whole-word STEERING_VERBS set (divide/eat/mutate/spread/genome/daughter...) must not appear in NATURALIST_SYSTEM or in the user prompt rendered from neutral data; whole-word so 'grow' does not strike 'growing', neutral data so a hit is scaffolding not an observed strain note (which may say anything). Non-vacuous: it asserts genesis/mutagen prompts DO contain those verbs.

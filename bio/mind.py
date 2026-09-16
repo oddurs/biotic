@@ -172,10 +172,12 @@ class Mind:
         temperature: float | None = None,
         max_tokens: int = 1400,
         timeout: float = 120,
-        role: str = "mutagen",
+        role: str = "unknown",
     ) -> str:
         """One call. `role` names who is asking — genesis, mutagen, naturalist, probe — and rides on
-        the `call` event, so an observer's spend can be told from the mutagen's in the log."""
+        the `call` event, so an observer's spend can be told from the mutagen's in the log. Every
+        caller states it; the "unknown" default is a neutral sentinel, so a call site that forgets
+        `role=` is counted as unattributed rather than silently added to any one role's spend."""
         if not self.awake:
             raise Dormant("no OPENROUTER_API_KEY (put it in .env)")
         if self.exhausted:

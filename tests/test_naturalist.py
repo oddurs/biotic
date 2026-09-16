@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import threading
 import time
 
@@ -62,6 +63,46 @@ LEAKS = (
     "Write the daughter",
     "Write the founding cell",
 )
+
+# The dish's own action verbs: the imperatives genesis and the mutagen use to make a cell act, and
+# the words for writing a genome. They are instructions the culture can act on; the observer, told
+# only to watch and describe, must never be given one. Matched as whole words so "grow" does not
+# strike "growing"; the strain notes and events the observer is shown are data and may say anything,
+# so this is checked only against the prompt's own authored text.
+STEERING_VERBS = (
+    "divide",
+    "divides",
+    "eat",
+    "eats",
+    "mutate",
+    "mutates",
+    "mutation",
+    "wander",
+    "wanders",
+    "signal",
+    "signals",
+    "reproduce",
+    "spread",
+    "colonize",
+    "colonise",
+    "evolve",
+    "optimize",
+    "optimise",
+    "select",
+    "breed",
+    "outcompete",
+    "inoculate",
+    "sterilize",
+    "sterilise",
+    "daughter",
+    "genome",
+    "heritable",
+)
+
+
+def steering_hits(text: str) -> list[str]:
+    low = text.lower()
+    return [v for v in STEERING_VERBS if re.search(rf"\b{re.escape(v)}\b", low)]
 
 
 class Recorder(FakeMind):
@@ -647,6 +688,33 @@ def test_nothing_the_culture_is_told_leaks_into_the_naturalists_prompt(make_cult
     assert "founder" in later and "eats where it stands" not in later, (
         "the note is the strain's, and this founder has none"
     )
+
+
+def test_the_naturalists_prompt_directs_no_action_at_the_dish():
+    """The other half of criterion 4: the observer's authored prompt tells it only to observe,
+    describe and interpret. None of the dish's action verbs — genesis's and the mutagen's
+    imperatives, the words a culture could act on — appears in the system prompt or in the fixed
+    scaffolding of the user prompt. The user prompt is rendered from neutral data (strain_* names,
+    no notes, no events), so any hit would be scaffolding and not an observed note or log line."""
+    assert steering_hits(prompts.NATURALIST_SYSTEM) == []
+    p = packet(120, 60.0, {"aa": 9, "bb": 1})
+    first = prompts.naturalist_user(compose(p, None))
+    prev = {
+        "tick": 60,
+        "t": 30.0,
+        "text": "An earlier entry, in plain prose.",
+        "branch": 0,
+        "seam": False,
+        "metrics": {k: 0 for k in naturalist.METRIC_KEYS},
+        "census": {"aa": 5},
+    }
+    later = prompts.naturalist_user(compose(p, prev))
+    for user in (first, later):
+        assert steering_hits(user) == [], user
+    # the verbs are real directives: genesis and the mutagen are built from them, which is exactly
+    # why the observer's prompt must not be — so this assertion cannot pass vacuously
+    assert {"divide", "eat", "genome"} <= set(steering_hits(prompts.GENESIS_SYSTEM))
+    assert {"daughter", "genome", "mutation"} <= set(steering_hits(prompts.MUTAGEN_SYSTEM))
 
 
 def test_the_prompt_reads_as_the_instruments_would(make_culture):

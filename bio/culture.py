@@ -22,6 +22,7 @@ from .membrane import admit, admit_isolated, inspect
 from .mind import Dormant, Exhausted, Mind, MindError, fmt_usd, parse_budget
 from .mutagen import Mutagen, exhausted_msg
 from .naturalist import EVENTS_KEPT, NOTE_EVENTS, Naturalist, sketch
+from .prompts import _n  # the pluralisation helper lives with the prompts that also use it
 from .strains import Registry, check_record
 
 # Bookkeeping events: every one is in events.jsonl, but none is kept among the recent events
@@ -926,10 +927,6 @@ def _last_note(path) -> dict | None:
     last 150 ticks, which is always in the tail; a dish with no notes at all is never made to
     read its whole log for them."""
     return _last_event(path, "note")
-
-
-def _n(n: int, word: str) -> str:
-    return f"{n} {word}" if n == 1 else f"{n} {word}s"
 
 
 def _strain_sample(path: Path) -> dict:

@@ -132,6 +132,8 @@ def test_success_resets_backoff_and_fills_the_pool(mutagen, clock, no_subprocess
     assert (m.failures, m.retry_at, m.state) == (0, 0.0, "idle")
     assert m.ready() == 1
     assert m.produced == 1
+    call = [ev for ev in m.mind.events if ev["kind"] == "call"][-1]
+    assert call["role"] == "mutagen", "the mutagen states its role, so its spend is attributed to it"
     prepared = [ev for ev in m.mind.events if ev["kind"] == "prepared"]
     assert len(prepared) == 1 and "divides a little sooner" in prepared[0]["msg"]
     dname, note, src = m.take("f")

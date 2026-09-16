@@ -104,6 +104,17 @@ def test_spent_grows_with_each_call():
         assert "2000 tok" in ev["msg"] and "$0.010" in ev["msg"]
 
 
+def test_the_call_event_carries_the_role_and_a_role_less_call_is_unattributed():
+    """`role` rides on every `call` event so per-role spend can be summed apart. Each caller states
+    it; the default is a neutral "unknown", not "mutagen", so a call site that forgets `role=` is
+    counted as unattributed and never silently added to the mutagen's spend."""
+    m = FakeMind()
+    m.think("s", "u", role="naturalist")
+    m.think("s", "u")  # no role: the caller forgot to say
+    roles = [ev["role"] for ev in _events(m, "call")]
+    assert roles == ["naturalist", "unknown"]
+
+
 def test_endpoint_reported_cost_wins():
     m = FakeMind(cost=0.003)
     m.think("s", "u")

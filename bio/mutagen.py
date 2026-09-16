@@ -179,7 +179,7 @@ class Mutagen(threading.Thread):
         self.state = "thinking"
         self.last_call = self.clock()
         try:
-            reply = self.mind.think(prompts.MUTAGEN_SYSTEM, user)
+            reply = self.mind.think(prompts.MUTAGEN_SYSTEM, user, role="mutagen")
         except Dormant:
             self.state = "dormant"
             return

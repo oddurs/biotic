@@ -141,7 +141,9 @@ other error; the retries cost nothing.
   `usd`, `spent_usd` and `calls` (the running totals after this call),
   `latency`, `cost_source`, and `role` — `genesis`, `mutagen`, `naturalist` or
   `probe` — so the observer's spend can be summed apart from the mutagen's
-  (`spent_usd` counts both). `biotic log` prints them. They are bookkeeping:
+  (`spent_usd` counts both). Every caller names its role; a call that names
+  none is logged as `unknown`, unattributed rather than counted as any one
+  role's. `biotic log` prints them. They are bookkeeping:
   in the file, but not among the recent events the eyepiece shows, so one
   call every twelve seconds cannot crowd the dish's own events out of the
   incubator log. `prepared` events are kept the same way.
