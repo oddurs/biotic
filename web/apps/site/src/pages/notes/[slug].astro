@@ -1,0 +1,22 @@
+---
+import { getCollection, render, type CollectionEntry } from "astro:content";
+import Base from "../../layouts/Base.astro";
+import { NoteArticle } from "../../components/pages/Notes";
+import { mdxComponents } from "../../components/docs/mdx";
+
+export async function getStaticPaths() {
+  const notes = await getCollection("notes");
+  return notes.map((note) => ({ params: { slug: note.id }, props: { note } }));
+}
+interface Props {
+  note: CollectionEntry<"notes">;
+}
+const { note } = Astro.props;
+const { Content } = await render(note);
+---
+
+<Base title={note.data.title} description={note.data.description} og={`notes/${note.id}`}>
+  <NoteArticle title={note.data.title} date={note.data.date}>
+    <Content components={mdxComponents} />
+  </NoteArticle>
+</Base>

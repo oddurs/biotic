@@ -26,7 +26,7 @@ const link = (d: Doc | undefined) => (d ? { title: d.data.title, href: docHref(d
 const editHref = `${site.repo}/edit/main/web/apps/site/src/content/docs/${doc.id}.mdx`;
 ---
 
-<Base title={doc.data.title} description={doc.data.description}>
+<Base title={doc.data.title} description={doc.data.description} og={`docs/${doc.id}`}>
   <SectionLayout
     section="Docs"
     nav={nav}

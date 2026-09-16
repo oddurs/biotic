@@ -5,8 +5,17 @@
     "jsxImportSource": "react",
     "types": ["astro/client", "node"],
     "baseUrl": ".",
-    "paths": { "~/*": ["src/*"] }
+    "paths": {
+      "~/*": ["src/*"]
+    }
   },
-  "include": [".astro/types.d.ts", "src", "site.config.ts", "astro.config.ts"],
+  "include": [
+    ".astro/types.d.ts",
+    "src",
+    "e2e",
+    "site.config.ts",
+    "astro.config.ts",
+    "playwright.config.ts"
+  ],
   "exclude": ["dist"]
 }

@@ -7,13 +7,16 @@
     "dev": "astro dev --port 6969",
     "build": "astro build",
     "preview": "astro preview --port 6969",
-    "typecheck": "astro check"
+    "typecheck": "astro check",
+    "test": "playwright test"
   },
   "dependencies": {
     "@astrojs/mdx": "^8.0.1",
     "@astrojs/react": "^6.0.5",
+    "@astrojs/rss": "^4.0.19",
     "@astrojs/sitemap": "^3.7.4",
     "@biotic/design": "workspace:*",
+    "@resvg/resvg-js": "^2.6.2",
     "@stylexjs/stylex": "^0.19.0",
     "astro": "^7.3.2",
     "astro-expressive-code": "^0.44.2",
@@ -21,10 +24,15 @@
     "diff": "^9.0.0",
     "pagefind": "^1.5.2",
     "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "react-dom": "^19.2.8",
+    "satori": "^0.33.4"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.10",
+    "@axe-core/playwright": "^4.13.0",
+    "@fontsource/fraunces": "^5.3.0",
+    "@fontsource/inter": "^5.3.0",
+    "@playwright/test": "^1.63.0",
     "@stylexjs/unplugin": "^0.19.0",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",

@@ -1,0 +1,14 @@
+---
+import { getCollection } from "astro:content";
+import Base from "../../layouts/Base.astro";
+import { NotesIndex } from "../../components/pages/Notes";
+import { href } from "../../lib/url";
+
+const notes = (await getCollection("notes"))
+  .sort((a, b) => b.data.date.getTime() - a.data.date.getTime())
+  .map((n) => ({ ...n.data, href: href(`/notes/${n.id}/`) }));
+---
+
+<Base title="Field notes" description="Dated entries from the bench.">
+  <NotesIndex notes={notes} rssHref={href("/notes/rss.xml")} />
+</Base>
