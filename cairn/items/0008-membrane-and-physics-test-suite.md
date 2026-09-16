@@ -6,7 +6,7 @@ status: done
 milestone: dish
 assignee: Oddur Sigurdsson
 created: 2026-09-08
-updated: 2026-09-09
+updated: 2026-09-16
 priority: p0
 effort: m
 area: tests/
@@ -118,3 +118,11 @@ Physics bands retightened after the review showed the old ones (0.35 K to K, min
 ## 2026-09-09
 
 After the review fixes scripts/task check is green: 193 tests in 4.4 s (criterion: under 30 s); the slowest is still the 1 s isolated-timeout case and the new module-level twin test takes 0.18 s. All ten fossils, the founder and the benign genome are still admitted; no fossil uses with, a decorator, an attribute store, a module-level assignment or one of the six exception names as anything but an except target.
+
+## 2026-09-16
+
+rebased onto main at 822ea3c (cairn format 3, the curve header pin from 0045, the site docs from #18). The only conflict was ROADMAP.md, which is generated; it was re-rendered from the items after the rebase. tests/conftest.py merged cleanly with main's make_culture docstring. scripts/task check is green on the rebased branch: 195 tests in 4.35 s, ruff clean, cli reference current, wheel and sdist built; the web half is skipped because nothing under web/ changed. All 17 fossils in soma/ of the tide run are still admitted by the rebased membrane, and the ten fixtures are byte-identical to their soma/ originals. Not re-claimed: the item was closed with every criterion met, and a claim/close cycle would only churn the dates.
+
+## 2026-09-16
+
+the site's docs page web/apps/site/src/content/docs/instrument/membrane.mdx, added on main by #18 after this branch forked, summarises the 0.1.0 rules and omits the ones this item added. Left untouched on purpose: any change under web/ pulls the pnpm toolchain (a network install and a Chromium for the design package's browser tests) into scripts/task check, and neither is present in this checkout. Filed as 0046 (docs, p3, part of 0039) so the page is brought in line with docs/membrane.md under its own gate.
