@@ -27,7 +27,7 @@ turns the `Unreleased` section into a dated release.
 - The ledger: every call the dish makes is priced (the endpoint's own `usage.cost` when it reports one, else
   its price list, fetched once from `/models` and cached in `vessel/prices.json`), logged as a `call` event
   with the running total, and saved with the dish in `dish.json`. A dish killed between saves catches its
-  ledger up from the log on the next load.
+  ledger up from the log on the next run; `biotic status` shows the caught-up figure without writing anything.
 - A per-dish budget: `BIOTIC_BUDGET_USD` (default 2.00), `--budget` on `seed`, `live` and `run`, `inf` for
   no cap, remembered in `dish.json`. When it is spent the mutagen goes `exhausted`, logs one event, and the
   culture grows on without variation. See `docs/budget.md`.
@@ -76,6 +76,9 @@ turns the `Unreleased` section into a dated release.
   strain, so requests stay queued and the oldest living one goes first when the schedule allows.
 - `MindError` carries the HTTP status and any `Retry-After`; `Exhausted` is the `MindError` raised, before
   any request, once the budget is spent.
+- `call` and `prepared` events are kept in `events.jsonl` only, not among the recent events the eyepiece
+  shows, so bookkeeping cannot crowd the incubator log. Lowering a dish's budget below what it has spent
+  exhausts it at once, with one event saying why.
 
 ### Fixed
 

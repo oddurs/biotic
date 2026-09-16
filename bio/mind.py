@@ -45,7 +45,9 @@ def backoff(failures: int, base: float | None = None, cap: float | None = None) 
         return 0.0
     base = config.MUTAGEN_BACKOFF if base is None else base
     cap = config.MUTAGEN_BACKOFF_MAX if cap is None else cap
-    return float(min(cap, base * 2 ** (failures - 1)))
+    # the exponent is clamped: base · 2^60 is past any cap, and a week of consecutive failures
+    # must not build a power of two too large to be a float
+    return float(min(cap, base * 2.0 ** min(failures - 1, 60)))
 
 
 def parse_budget(x: float | None) -> float:

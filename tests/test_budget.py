@@ -15,7 +15,7 @@ import bio.__main__ as cli
 import bio.culture
 import bio.mutagen
 from bio import config, tui
-from bio.culture import FALLBACK_GENESIS, Culture
+from bio.culture import FALLBACK_GENESIS, HIDDEN, Culture
 from bio.dish import Dish
 from bio.membrane import Verdict
 from bio.mutagen import Mutagen, fmt_wait
@@ -50,6 +50,26 @@ def _render(renderable, width: int = 80) -> str:
     console = Console(record=True, width=width, force_terminal=False)
     console.print(renderable)
     return console.export_text()
+
+
+def _logged() -> list[dict]:
+    """Every event in events.jsonl: the complete record, as against the culture's recent events."""
+    if not config.EVENTS.exists():
+        return []
+    return [json.loads(line) for line in config.EVENTS.read_text().splitlines()]
+
+
+def _said(prefix: str) -> list[dict]:
+    return [ev for ev in _logged() if ev["msg"].startswith(prefix)]
+
+
+def _run_a_tick(c: Culture) -> None:
+    """One tick through run(): what a resumed process does first. The mutagen thread is started
+    and closed with it; a dormant or exhausted mind makes no call, and at tick 1 nothing divides,
+    so an idle one has nothing to pick either."""
+    c.run(ticks=1, tick_seconds=0)
+    c.mutagen.join(2)
+    assert not c.mutagen.is_alive()
 
 
 # --- the mutagen: backoff -------------------------------------------------------
@@ -204,6 +224,43 @@ def test_forgotten_strain_does_not_kill_the_thread(mutagen, clock, monkeypatch):
     assert m.retry_at == 15
 
 
+def test_a_fault_in_the_fault_handling_does_not_end_the_thread(mutagen, clock):
+    """`_turn` is the loop body. When even `_fail` raises — here the log is what is broken — the
+    turn ends in the error state with the longest wait, nothing propagates, and the next turn
+    backs off like any other."""
+    m = mutagen(FakeMind(replies=[http_error(500)]))
+    recorded = m.mind._record
+
+    def broken_log(kind, msg, **data):
+        if msg.startswith("mutagen"):
+            raise OSError("disk full")
+        recorded(kind, msg, **data)
+
+    m.log = broken_log
+    m.last_call = -1000
+    m.request("f")
+    assert m._turn() is False
+    assert m.state == "error"
+    assert m.failures == 3, "the failed call, the fault in saying so, and the last resort"
+    assert m.retry_at == clock.now + config.MUTAGEN_BACKOFF_MAX
+    assert m.mind.chat_requests == 1
+    assert [ev for ev in m.mind.events if ev["msg"].startswith("mutagen")] == []
+    m.request("f")
+    assert m._turn() is False
+    assert m.mind.chat_requests == 1, "backing off"
+    assert m.pending() == 1
+
+
+def test_a_keyless_mind_with_no_budget_is_dormant_not_exhausted(mutagen):
+    m = mutagen(_dormant(budget_usd=0.0))
+    assert m.state == "dormant"
+    m.request("f")
+    assert m._cycle() is False
+    assert m.state == "dormant"
+    assert m.mind.chat_requests == 0
+    assert _exhaustions(m.mind.events) == []
+
+
 def test_waits_are_printed_for_people():
     assert [fmt_wait(s) for s in (15, 120, 600, 3600, 5400)] == ["15s", "2m00s", "10m00s", "1h00m", "1h30m"]
 
@@ -262,6 +319,23 @@ def test_exhausted_dish_keeps_growing(make_culture, no_subprocess, monkeypatch):
     assert len(_exhaustions(c.events)) == 1
     snap = c.snapshot()
     assert snap["mind"]["exhausted"] is True and snap["mutagen"]["state"] == "exhausted"
+
+
+def test_bookkeeping_does_not_crowd_the_incubator_log(make_culture):
+    """One `call` every twelve seconds would push the dish's own events out of the 200 the
+    eyepiece keeps. Bookkeeping goes to events.jsonl only, on a live dish and on a resumed one."""
+    c = make_culture(mind=_dormant())
+    c.save()
+    for i in range(300):
+        c.log("call", f"call {i}", usd=0.0)
+        c.log("prepared", f"variant {i}")
+        if i % 10 == 0:
+            c.log("arose", f"strain {i} arose")
+    assert len(_logged()) == 630
+    assert [ev["kind"] for ev in c.events] == ["arose"] * 30
+    back = Culture.load(mind=_dormant())
+    assert [ev["kind"] for ev in back.events] == ["arose"] * 30, "resumed: the last visible events, not the last lines"
+    assert "strain 290 arose" in tui.events(back, 7).plain
 
 
 def test_growth_is_the_same_with_and_without_a_ledger(make_culture):
@@ -331,24 +405,77 @@ def test_old_dish_json_loads_without_a_ledger(monkeypatch):
     assert c.dish.census() == {"f": config.INOCULUM}
 
 
-def test_ledger_catches_up_from_the_log_after_a_hard_kill(make_culture, no_subprocess):
+def test_ledger_catches_up_from_the_log_after_a_hard_kill(make_culture, no_subprocess, monkeypatch, capsys):
     c = make_culture(mind=FakeMind())
     c.save()  # the last save the process managed
     for _ in range(2):
         c.mutagen._mutate(_founder(c))  # two calls later the process is killed
     assert json.loads(config.DISH_FILE.read_text())["mind"]["spent_usd"] == 0.0
+    lines = len(_logged())
+
+    monkeypatch.setattr(bio.culture, "Mind", lambda: FakeMind())
+    cli.main(["status"])
+    out = capsys.readouterr().out
+    assert re.search(r"^spent\s+\$0\.020 / \$2\.00  \(2 calls\)$", out, re.M), out
+    assert len(_logged()) == lines, "status shows the true figure and writes nothing: it may run beside a live dish"
 
     back = Culture.load(mind=FakeMind())
     assert back.mind.spent_usd == pytest.approx(0.02)
     assert back.mind.calls == 2
-    said = [ev for ev in back.events if ev["msg"].startswith("ledger caught up")]
+    assert not [ev for ev in back.events if ev["msg"].startswith("ledger caught up")], "nothing said until it runs"
+    _run_a_tick(back)  # the process that runs the dish says it, and saves it
+    said = _said("ledger caught up")
     assert len(said) == 1 and "$0.000 saved, $0.020 spent" in said[0]["msg"]
+    assert json.loads(config.DISH_FILE.read_text())["mind"]["spent_usd"] == pytest.approx(0.02)
 
-    back.save()
     again = Culture.load(mind=FakeMind())
     assert again.mind.spent_usd == pytest.approx(0.02)
-    logged = [json.loads(line) for line in config.EVENTS.read_text().splitlines()]
-    assert sum(ev["msg"].startswith("ledger caught up") for ev in logged) == 1, "said once, when it changed something"
+    _run_a_tick(again)
+    assert len(_said("ledger caught up")) == 1, "said once, when it changed something"
+
+
+def test_the_log_is_read_from_its_tail(make_culture):
+    """A week's log is tens of megabytes. A load reads its last 64 KiB, and the whole of it only
+    when the tail holds no call at all."""
+    c = make_culture(mind=_dormant())
+    c.save()
+    pad = "x" * 200
+    c.log("call", "early", spent_usd=0.5, calls=1)
+    for i in range(600):
+        c.log("curve", f"row {i} {pad}")
+    assert config.EVENTS.stat().st_size > 2 * 64 * 1024
+    lines, whole = bio.culture._tail(config.EVENTS)
+    assert not whole
+    assert 100 < len(lines) < 600
+    assert all(json.loads(line)["kind"] == "curve" for line in lines), "the cut line is dropped; the rest parse"
+    assert bio.culture._last_call(config.EVENTS)["spent_usd"] == 0.5, "found past the tail when the tail holds none"
+    c.log("call", "late", spent_usd=0.7, calls=2)
+    assert bio.culture._last_call(config.EVENTS)["spent_usd"] == 0.7
+    back = Culture.load(mind=_dormant())
+    assert back.mind.spent_usd == 0.7
+    assert len(back.events) == 60 and all(ev["kind"] == "curve" for ev in back.events)
+    assert back.events[-1]["msg"].startswith("row 599")
+
+
+def test_lowering_the_budget_below_the_spend_exhausts_once(make_culture, no_subprocess):
+    c = make_culture(mind=FakeMind())
+    for _ in range(2):
+        c.mutagen._mutate(_founder(c))
+    c.save()
+    assert _said("mutagen exhausted") == []
+    back = Culture.load(mind=FakeMind(), budget=0.015)
+    assert back.mind.exhausted and back.mutagen.state == "exhausted"
+    assert _said("mutagen exhausted") == [], "load says nothing"
+    _run_a_tick(back)
+    said = _said("mutagen exhausted")
+    assert len(said) == 1
+    assert "$0.020 / $0.015" in said[0]["msg"] and "lowered below the spend" in said[0]["msg"]
+    assert (said[0]["spent_usd"], said[0]["budget_usd"]) == (pytest.approx(0.02), 0.015)
+    assert back.mind.calls == 2, "no call was made"
+    again = Culture.load(mind=FakeMind())
+    assert (again.mind.budget_usd, again.mutagen.state) == (0.015, "exhausted")
+    _run_a_tick(again)
+    assert len(_said("mutagen exhausted")) == 1, "resumed as it is, nothing more is said"
 
 
 def test_genesis_calls_are_costed(monkeypatch, no_subprocess):
@@ -376,6 +503,13 @@ def test_genesis_calls_are_costed(monkeypatch, no_subprocess):
     assert founder.name == "founder" and founder.source == FALLBACK_GENESIS
     failed = [ev for ev in c.events if ev["msg"].startswith("genesis call failed")]
     assert len(failed) == 1 and "budget spent" in failed[0]["msg"]
+    said = _exhaustions(c.events)
+    assert len(said) == 1 and "nothing to spend" in said[0]["msg"] and "$0.000 / $0.00" in said[0]["msg"]
+    assert c.mutagen.state == "exhausted"
+    back = Culture.load(mind=FakeMind(budget_usd=None))
+    assert back.mutagen.state == "exhausted"
+    _run_a_tick(back)
+    assert len(_said("mutagen exhausted")) == 1, "taken up again, nothing more is said"
 
 
 # --- status, run, the eyepiece --------------------------------------------------
@@ -390,6 +524,17 @@ def test_status_prints_spent_over_budget(make_culture, no_subprocess, monkeypatc
     out = capsys.readouterr().out
     assert re.search(r"^spent\s+\$0\.010 / \$0\.01  \(1 call\)  — exhausted$", out, re.M), out
     assert re.search(r"^mind\s+test/model  awake$", out, re.M)
+
+
+def test_status_of_a_dormant_dish_does_not_say_exhausted(make_culture, monkeypatch, capsys):
+    c = make_culture(mind=_dormant(budget_usd=0.0))
+    c.save()
+    monkeypatch.setattr(bio.culture, "Mind", lambda: _dormant(budget_usd=None))
+    cli.main(["status"])
+    out = capsys.readouterr().out
+    assert re.search(r"^mind\s+test/model  dormant$", out, re.M), out
+    assert re.search(r"^spent\s+\$0\.000 / \$0\.00  \(0 calls\)$", out, re.M), out
+    assert "exhausted" not in out
 
 
 def test_budget_flag_sticks_after_a_headless_run(make_culture, monkeypatch, capsys):
@@ -411,7 +556,8 @@ def test_budget_flag_sticks_after_a_headless_run(make_culture, monkeypatch, caps
 def test_eyepiece_hides_call_events_and_shows_the_budget(make_culture, no_subprocess):
     c = make_culture(mind=_one_call())
     c.mutagen._mutate(_founder(c))
-    assert any(ev["kind"] == "call" for ev in c.events)
+    assert [ev["kind"] for ev in _logged()].count("call") == 1, "the call is in events.jsonl"
+    assert not any(ev["kind"] in HIDDEN for ev in c.events), "and not among the recent events"
     log = tui.events(c, 20).plain
     assert "tok ·" not in log
     assert "mutagen exhausted" in log

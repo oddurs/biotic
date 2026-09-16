@@ -13,11 +13,10 @@ from rich.table import Table
 from rich.text import Text
 
 from . import config
-from .culture import Culture
+from .culture import HIDDEN, Culture  # HIDDEN: bookkeeping kinds, kept out of the incubator log
 from .mind import fmt_budget
 
 SPARK = "▁▂▃▄▅▆▇█"
-HIDDEN = {"prepared", "call"}  # bookkeeping; in events.jsonl but not in the incubator log
 ICONS = {
     "genesis": ("◉", "bold green"),
     "arose": ("✚", "bold cyan"),

@@ -237,6 +237,9 @@ def test_odd_reply_is_paid_for_and_then_rejected():
 def test_backoff_schedule():
     assert [backoff(n) for n in range(9)] == [0, 15, 30, 60, 120, 240, 480, 600, 600]
     assert backoff(3, base=1.0, cap=3.0) == 3.0
+    # a week of a dead endpoint is past the thousandth consecutive failure: still the cap, never an overflow
+    assert backoff(1024) == backoff(1025) == backoff(10_000) == 600.0
+    assert backoff(10_000, base=1.0, cap=float("inf")) == 2.0**60
 
 
 def test_ledger_round_trip():

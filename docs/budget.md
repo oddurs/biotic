@@ -95,7 +95,13 @@ genome prompt at $1 per million tokens that is a third of a cent.
 
 An exhausted dish resumes exhausted: the state is rebuilt from the ledger and
 nothing new is logged. `biotic live --budget 5` raises the cap and the mutagen
-picks up where it stopped.
+picks up where it stopped. Lowering the cap below what is already spent
+exhausts the dish at once, and the run says why:
+
+    mutagen exhausted at $0.500 / $0.25 — the budget was lowered below the spend; the culture grows on without variation
+
+`biotic seed --budget 0` with a key does the same at inoculation: the founder
+is the built-in one, and the one event reads `nothing to spend`.
 
 ## backoff
 
@@ -124,11 +130,15 @@ other error; the retries cost nothing.
 
 - `events.jsonl`, kind `call`: `model`, `prompt_tokens`, `completion_tokens`,
   `usd`, `spent_usd` and `calls` (the running totals after this call),
-  `latency`, `cost_source`. `biotic log` prints them; the eyepiece hides them.
+  `latency`, `cost_source`. `biotic log` prints them. They are bookkeeping:
+  in the file, but not among the recent events the eyepiece shows, so one
+  call every twelve seconds cannot crowd the dish's own events out of the
+  incubator log. `prepared` events are kept the same way.
 - `events.jsonl`, kind `mind`: the price-table message once per process, each
-  failed call with its `retry_in`, the one `mutagen exhausted` event, and
-  `ledger caught up from the log` when a resume found calls the last save had
-  missed (below).
+  failed call with its `retry_in`, the one `mutagen exhausted` event (with
+  its reason, when the budget was lowered below the spend), and `ledger
+  caught up from the log` when a run found calls the last save had missed
+  (below).
 - `dish.json`, key `mind`: `model`, `budget_usd` (`null` for no cap),
   `spent_usd`, `calls`, `prompt_tokens`, `completion_tokens`. Written with the
   dish, every 150 ticks and at exit.
@@ -140,8 +150,14 @@ other error; the retries cost nothing.
 A process killed between saves — a power cut, a `kill -9` — leaves its last
 calls in `events.jsonl` but not in `dish.json`. The next load takes the
 running totals from the last `call` event when they are ahead of what the
-dish saved, logs one `mind` event saying so, and the dish resumes with the
-true figure; if that figure is past the budget it resumes exhausted, quietly.
-The `call` events are the complete record either way. A call in flight at
-the moment of the kill is the one thing neither holds; the endpoint's own
-dashboard is the final word.
+dish saved: `biotic status` shows the true figure at once, and the next
+`biotic live` or `biotic run` logs one `mind` event saying so and saves it.
+Loading writes nothing, since `status` may run beside a live dish. If the
+true figure is past the budget the dish resumes exhausted, quietly: the
+process that spent the money said so. The `call` events are the complete
+record either way. A call in flight at the moment of the kill is the one
+thing neither holds; the endpoint's own dashboard is the final word.
+
+The log is read from its end: the last 64 KiB, which is hours of a busy dish,
+and the whole file only when that holds no `call` at all. A week's log is
+tens of megabytes, and a load should not have to read it.

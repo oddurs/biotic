@@ -16,8 +16,12 @@ from . import config, curve, prompts
 from .dish import Cell, Dish
 from .membrane import admit_isolated, inspect
 from .mind import Dormant, Exhausted, Mind, MindError, fmt_usd, parse_budget
-from .mutagen import Mutagen
+from .mutagen import Mutagen, exhausted_msg
 from .strains import Registry
+
+# Bookkeeping events: every one is in events.jsonl, but none is kept among the recent events
+# the eyepiece shows, where one per call would crowd out what happened in the dish.
+HIDDEN = {"call", "prepared"}
 
 FALLBACK_GENESIS = """\
 def live(me):
@@ -41,7 +45,8 @@ class Culture:
         self.registry = registry
         self.mind = mind
         mind.log = self.log  # every call the dish pays for is an event in its log
-        self.events: deque[dict] = deque(maxlen=200)
+        self.events: deque[dict] = deque(maxlen=200)  # the recent visible events, for the eyepiece
+        self._unsaid: list[tuple[str, str, dict]] = []  # what load() found out; run() logs it
         self.rng = random.Random(f"{seed}::culture")
         self.started = time.time()
         self.last_phase = None
@@ -74,6 +79,7 @@ class Culture:
         dish = Dish(seed, w, h)
         reg = Registry(seed)
         cult = cls(seed, dish, reg, mind)
+        broke = mind.awake and mind.exhausted  # a budget of nothing: the mutagen never had a call to make
         name, note, src = cult._genesis()
         s = reg.new(src, None, 0, name, note)
         dish.register(s.id, src)
@@ -83,6 +89,13 @@ class Culture:
         cult.log(
             "genesis", f"inoculated {n} cells of {s.name} — “{note}”" if note else f"inoculated {n} cells of {s.name}"
         )
+        if broke:
+            cult.log(
+                "mind",
+                exhausted_msg(mind.spent_usd, mind.budget_usd, "nothing to spend"),
+                spent_usd=mind.spent_usd,
+                budget_usd=mind.budget_usd,
+            )
         cult.save()
         return cult
 
@@ -128,7 +141,11 @@ class Culture:
         """Take up the dish in vessel/. The budget is the flag's if given, else what the dish
         remembers, else what the mind was constructed with (BIOTIC_BUDGET_USD). The spend is
         what the dish remembers, or the last `call` event in the log if that is further on:
-        a process killed between saves left its calls there and nowhere else."""
+        a process killed between saves left its calls there and nowhere else.
+
+        Nothing is written: `biotic status` loads too, while another process may be running
+        the dish. What there is to say about the ledger waits in `_unsaid` for `run()`, the
+        process that will save the dish."""
         if not config.DISH_FILE.exists():
             raise FileNotFoundError('nothing in the dish — `biotic seed "<word>"` first')
         seed = config.SEED_FILE.read_text().strip()
@@ -142,6 +159,7 @@ class Culture:
         last = _last_call(config.EVENTS)
         if last is not None:
             m.reconcile(last)
+        was = m.exhausted  # as restored: an exhaustion the process that spent the money already logged
         if budget is not None:
             m.budget_usd = parse_budget(budget)
         cult = cls(seed, dish, reg, m)
@@ -152,7 +170,11 @@ class Culture:
             except (TypeError, ValueError, IndexError):
                 pass
         if m.spent_usd > saved:
-            cult.log("mind", f"ledger caught up from the log — {fmt_usd(saved)} saved, {fmt_usd(m.spent_usd)} spent")
+            msg = f"ledger caught up from the log — {fmt_usd(saved)} saved, {fmt_usd(m.spent_usd)} spent"
+            cult._unsaid.append(("mind", msg, {}))
+        if m.awake and m.exhausted and not was:
+            msg = exhausted_msg(m.spent_usd, m.budget_usd, "the budget was lowered below the spend")
+            cult._unsaid.append(("mind", msg, {"spent_usd": m.spent_usd, "budget_usd": m.budget_usd}))
         return cult
 
     def save(self) -> None:
@@ -184,19 +206,27 @@ class Culture:
     # --- events -------------------------------------------------------------
     def log(self, kind: str, msg: str, **data) -> None:
         ev = {"t": time.time(), "tick": self.dish.tick, "kind": kind, "msg": msg, **data}
-        self.events.append(ev)
+        if kind not in HIDDEN:
+            self.events.append(ev)
         with open(config.EVENTS, "a") as f:
             f.write(json.dumps(ev) + "\n")
 
     def _load_recent_events(self) -> None:
+        """The last 60 visible events, from the tail of the log, so a resumed dish's incubator log
+        picks up where it left off; the bookkeeping between them is skipped, not counted."""
         if not config.EVENTS.exists():
             return
-        lines = config.EVENTS.read_text().splitlines()[-60:]
-        for line in lines:
+        recent: list[dict] = []
+        for line in reversed(_tail(config.EVENTS)[0]):
             try:
-                self.events.append(json.loads(line))
+                ev = json.loads(line)
             except json.JSONDecodeError:
-                pass
+                continue
+            if isinstance(ev, dict) and ev.get("kind") not in HIDDEN:
+                recent.append(ev)
+                if len(recent) == 60:
+                    break
+        self.events.extend(reversed(recent))
 
     # --- mutation hook ------------------------------------------------------
     def _on_divide(self, cell: Cell):
@@ -371,6 +401,9 @@ class Culture:
     def run(
         self, ticks: int | None = None, stop: threading.Event | None = None, tick_seconds: float = config.TICK_SECONDS
     ) -> None:
+        for kind, msg, data in self._unsaid:  # what load() found out, said by the process that runs the dish
+            self.log(kind, msg, **data)
+        self._unsaid.clear()
         self._screen()
         self.mutagen.start()
         n = 0
@@ -435,19 +468,42 @@ class Culture:
         }
 
 
-def _last_call(path) -> dict | None:
-    """The most recent `call` event in the log, or None. Its running totals are the truth about
-    what the dish has spent when the process that made the calls never got to save."""
-    if not path.exists():
-        return None
-    for line in reversed(path.read_text().splitlines()):
+def _tail(path, size: int = 64 * 1024) -> tuple[list[str], bool]:
+    """The last `size` bytes of a file as lines, and whether that was the whole file. The log is
+    the one thing in the vessel that grows without bound, and every load reads it: a week is
+    tens of megabytes, of which the end is what matters. When the read is partial the first
+    line is dropped, since the cut almost certainly fell inside it."""
+    start = max(0, path.stat().st_size - size)
+    with path.open("rb") as f:
+        f.seek(start)
+        lines = f.read().decode("utf-8", errors="replace").splitlines()
+    if start:
+        lines = lines[1:]
+    return lines, start == 0
+
+
+def _last_of_kind(lines: list[str], kind: str) -> dict | None:
+    for line in reversed(lines):
         try:
             ev = json.loads(line)
         except json.JSONDecodeError:
             continue
-        if isinstance(ev, dict) and ev.get("kind") == "call":
+        if isinstance(ev, dict) and ev.get("kind") == kind:
             return ev
     return None
+
+
+def _last_call(path) -> dict | None:
+    """The most recent `call` event in the log, or None. Its running totals are the truth about
+    what the dish has spent when the process that made the calls never got to save. Found in
+    the tail of the log; the whole of it is read only when the tail holds no call at all."""
+    if not path.exists():
+        return None
+    lines, whole = _tail(path)
+    ev = _last_of_kind(lines, "call")
+    if ev is None and not whole:
+        ev = _last_of_kind(path.read_text().splitlines(), "call")
+    return ev
 
 
 def sterilize() -> None:

@@ -86,9 +86,8 @@ def cmd_status(a):
     m = s["mind"]
     print(f"mind        {m['model']}  {'awake' if m['awake'] else 'dormant'}")
     calls = f"{m['calls']} call{'s' if m['calls'] != 1 else ''}"
-    print(
-        f"spent       {fmt_budget(m['spent_usd'], m['budget_usd'])}  ({calls}){'  — exhausted' if m['exhausted'] else ''}"
-    )
+    exhausted = "  — exhausted" if m["awake"] and m["exhausted"] else ""  # a dormant mind is dormant, whatever its cap
+    print(f"spent       {fmt_budget(m['spent_usd'], m['budget_usd'])}  ({calls}){exhausted}")
 
 
 def cmd_strains(a):

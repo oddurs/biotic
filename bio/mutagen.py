@@ -13,6 +13,7 @@ grows on without variation.
 
 from __future__ import annotations
 
+import contextlib
 import threading
 import time
 from collections import deque
@@ -86,11 +87,22 @@ class Mutagen(threading.Thread):
         while not self.stop.is_set():
             self.wake.wait(timeout=2.0)
             self.wake.clear()
-            if self._cycle():
+            if self._turn():
                 return
+
+    def _turn(self) -> bool:
+        """One turn of the loop, and the thread's last line of defence. Returns True when told to stop."""
+        try:
+            return self._cycle()
+        except Exception as e:  # noqa: BLE001 — a fault in the fault handling itself must not end the thread
+            self._last_resort(e)
+            return False
 
     def _cycle(self) -> bool:
         """One pass of the loop. Returns True when told to stop."""
+        if not self.mind.awake:
+            self.state = "dormant"  # a keyless mind with a zero budget is dormant, not exhausted
+            return False
         if self.mind.exhausted:
             self._exhaust()
             return False
@@ -206,21 +218,39 @@ class Mutagen(threading.Thread):
             latency=self.mind.last_latency,
         )
 
+    def _last_resort(self, e: BaseException) -> None:
+        """A fault that escaped `_cycle`'s own handling — one in `_fail` or `_exhaust` themselves —
+        is backed off by the cap and said, instead of ending the thread with a traceback on a
+        stderr the eyepiece has taken over. When the log is what is broken, it goes unsaid."""
+        self.failures += 1
+        self.retry_at = self.clock() + config.MUTAGEN_BACKOFF_MAX
+        self.state = "error"
+        with contextlib.suppress(Exception):  # nowhere left to say it
+            self.log(
+                "mind",
+                f"mutagen fault: {type(e).__name__}: {e} — next attempt in {fmt_wait(config.MUTAGEN_BACKOFF_MAX)}",
+                retry_in=config.MUTAGEN_BACKOFF_MAX,
+                failures=self.failures,
+            )
+
     def _exhaust(self) -> None:
         if self.state == "exhausted":
             return
         self.state = "exhausted"
         spent, budget = self.mind.spent_usd, self.mind.budget_usd
-        self.log(
-            "mind",
-            f"mutagen exhausted at {fmt_budget(spent, budget)} — the culture grows on without variation",
-            spent_usd=spent,
-            budget_usd=budget,
-        )
+        self.log("mind", exhausted_msg(spent, budget), spent_usd=spent, budget_usd=budget)
 
     def close(self) -> None:
         self.stop.set()
         self.wake.set()
+
+
+def exhausted_msg(spent: float, budget: float, why: str | None = None) -> str:
+    """The one exhaustion message, wherever it is said from: 'mutagen exhausted at $2.003 / $2.00 —
+    the culture grows on without variation', with the reason before the consequence when the
+    budget did not run out in the ordinary way."""
+    tail = "the culture grows on without variation"
+    return f"mutagen exhausted at {fmt_budget(spent, budget)} — " + (f"{why}; {tail}" if why else tail)
 
 
 def fmt_wait(seconds: float) -> str:
