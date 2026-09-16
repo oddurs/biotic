@@ -7,7 +7,7 @@ milestone: dish
 depends_on:
 - 3
 created: 2026-09-08
-updated: 2026-09-09
+updated: 2026-09-16
 priority: p1
 effort: m
 area: bio/__main__.py
@@ -41,3 +41,7 @@ curve.
 ## 2026-09-09
 
 From 0003/0045: read the curve through bio.curve.read(path); rows from a nine-column file carry None in the new columns. Markers (drops, phase changes, extinctions, incubation gaps) come from events.jsonl joined on tick, not from curve columns. docs/curve.md names dominance as the Berger-Parker index and defines mean_gen as lineage depth; use those words in axis labels.
+
+## 2026-09-16
+
+From 0005: after a dish revive, join events on (branch, tick), not on tick; the curve's branch column is 0 until the first revive and one more after each, and an event's branch is the number of revived dish events (the ones with from and was) before it in events.jsonl. The earlier advice to split the file where tick decreases is withdrawn: a forward revive leaves tick monotone. A plot is per branch, or of the last branch by default; rows from a file older than the column read None there and are branch 0.

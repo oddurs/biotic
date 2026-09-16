@@ -94,6 +94,24 @@ fine print.
 `BIOTIC_WIDTH`, `BIOTIC_HEIGHT` are the other knobs. The rest of the physics is in
 `bio/config.py`.
 
+### the freezer
+
+Lenski's flasks are replayable because a sample goes in the freezer every 500 generations.
+Here the dish is frozen at genesis and every `BIOTIC_FREEZE_EVERY` ticks (default 2000), and
+any sample can be thawed:
+
+    biotic freeze [--label L]                 # the whole dish, now; --strain ID for one genome
+    biotic freezer                            # what is frozen: tick, label, population, strains
+    biotic revive 4000                        # replace the dish with the sample from tick 4000
+    biotic revive --strain 3f1a               # a fresh dish of that strain: same seed, same agar
+    biotic revive --strain 3f1a --into current --at 30,12   # or drop it in as an invader
+
+The dish being replaced is frozen first as `pre-revive`; the log gets a `revived` event and
+the curve's `branch` column steps up; a revived strain is watched for 300 ticks and the log says
+whether it took. With no mind the replay is exact, tick for tick. While `biotic live` runs the
+commands go through the inbox, except a fresh dish, which needs the incubator stopped.
+`biotic sterilize` keeps the freezer. `docs/freezer.md` has the details.
+
 ## the mind
 
 Any OpenAI-compatible endpoint. `.env`:
@@ -142,14 +160,17 @@ string, and what the membrane cannot do.
       mutagen.py    the background thread that asks the mind for variants
       culture.py    dish + strains + mutagen + your interventions; owns vessel/
       curve.py      the growth curve: its columns, its reader, widening older files
+      freezer.py    the sample files: names, format, listing
       strains.py    lineage, colour, the fossil record
       prompts.py    what the mutagen is told
       tui.py        the eyepiece
     soma/         every strain that ever arose. written by the culture. do not edit.
     vessel/       the running state: seed, dish, strains, events, growth curve, whispers, prices
+      freezer/      frozen samples of the dish and of strains; survives `biotic sterilize`
     docs/         longer notes: docs/curve.md on reading the growth curve,
                   docs/membrane.md on what a genome may contain and why,
-                  docs/budget.md on what the mind costs
+                  docs/budget.md on what the mind costs,
+                  docs/freezer.md on the freezer
     tests/        the suite; tests/fixtures/genomes/ holds ten fossils from a real run
 
 ## development

@@ -79,6 +79,18 @@ class Mutagen(threading.Thread):
             self.pool.pop(strain, None)
             self.requests.pop(strain, None)
 
+    def reset(self, genomes: dict[str, tuple[str, str]]) -> None:
+        """The dish was replaced: these are the living genomes now. Prepared daughters and
+        pending requests belonged to the old dish and are dropped. The thread may be between
+        _pick and _mutate, waiting out the interval with a strain that is no longer here;
+        _mutate looks the strain up again and does nothing when it is gone. A call to the mind
+        that is already in flight may still append one daughter afterwards; _pick only serves
+        strains in `genomes`, so an orphan entry in the pool is inert."""
+        with self.lock:
+            self.genomes = dict(genomes)
+            self.pool.clear()
+            self.requests.clear()
+
     # --- the thread ---------------------------------------------------------
     def run(self) -> None:
         if not self.mind.awake:

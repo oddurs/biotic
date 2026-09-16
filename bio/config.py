@@ -18,6 +18,8 @@ EVENTS = VESSEL / "events.jsonl"
 CURVE = VESSEL / "curve.csv"
 WHISPERS = VESSEL / "whispers.md"
 PRICES_FILE = VESSEL / "prices.json"
+FREEZER = VESSEL / "freezer"  # frozen samples of the dish and of strains; sterilize keeps it
+LOCK_FILE = VESSEL / "incubator.lock"  # held (flock) while a culture runs
 
 
 def _load_dotenv() -> None:
@@ -82,5 +84,9 @@ MUTATION_RATE = float(env("BIOTIC_MUTATION_RATE", "0.06"))  # per division
 CELL_TIME_BUDGET = 0.004  # seconds a single live() may take before lysis
 GENOME_MAX_CHARS = 2400
 INOCULUM = 5  # cells placed at seeding
+
+# --- the freezer (bookkeeping, not physics) ------------------------------
+FREEZE_EVERY = int(env("BIOTIC_FREEZE_EVERY", "2000"))  # ticks between automatic samples; 0 disables
+REVIVE_WATCH = 300  # ticks a revived strain is watched before the log says whether it took
 
 PALETTE_SEED = 0.61803398875

@@ -5,19 +5,23 @@ This is the thing you run. It owns the vessel/ directory.
 
 from __future__ import annotations
 
+import fcntl
 import json
+import os
 import random
 import shutil
 import threading
 import time
 from collections import deque
+from dataclasses import asdict
+from pathlib import Path
 
-from . import config, curve, prompts
-from .dish import Cell, Dish
-from .membrane import admit_isolated, inspect
+from . import config, curve, freezer, prompts
+from .dish import Cell, Dish, _jsonable
+from .membrane import admit, admit_isolated, inspect
 from .mind import Dormant, Exhausted, Mind, MindError, fmt_usd, parse_budget
 from .mutagen import Mutagen, exhausted_msg
-from .strains import Registry
+from .strains import Registry, check_record
 
 # Bookkeeping events: every one is in events.jsonl, but none is kept among the recent events
 # the eyepiece shows, where one per call would crowd out what happened in the dish.
@@ -53,10 +57,14 @@ class Culture:
         self._candidate = None
         self._candidate_for = 0
         self.mutation_rate = config.MUTATION_RATE
+        self.revivals: list[dict] = []  # how this dish came to be: one entry per revive, oldest first
+        self.branch = 0  # the vessel's timeline: 0 until its first dish revive, one more at each; a curve coordinate
+        self.watching: list[dict] = []  # revived strains still under observation
         self.lock = threading.Lock()
         self._curve_fields: list[str] | None = None  # header of curve.csv, reconciled on the first row
         self._curve_broken = False  # the last row could not be written; said once, retried every row
         self._save_broken = False  # the last dish.json could not be written; said once, retried every save
+        self._freezer_broken = False  # the last unattended freeze failed; said once, retried at every cadence
         self.mutagen = Mutagen(mind, seed, self.log)
         for sid, s in registry.strains.items():
             if sid in dish.genomes:
@@ -67,27 +75,77 @@ class Culture:
 
     # --- creation / persistence --------------------------------------------
     @classmethod
-    def germinate(cls, seed: str, mind: Mind, fresh: bool = False, budget: float | None = None) -> Culture:
+    def germinate(
+        cls,
+        seed: str,
+        mind: Mind,
+        fresh: bool = False,
+        budget: float | None = None,
+        thaw: Path | None = None,
+        n: int | None = None,
+    ) -> Culture:
+        """Found a culture: autoclave the vessel (the freezer is kept), pour a dish, inoculate `n`
+        cells (default config.INOCULUM) of the founder, save, and freeze tick 0 as `genesis`. The
+        founder is what the mind writes from the seed, or the built-in default. With `thaw`, a
+        strain sample, the founder is that strain instead, in a dish of the sample's seed and
+        size — the same agar it was frozen from — and the strain is watched for
+        config.REVIVE_WATCH ticks so the log can say whether it took. A thaw is a revive, so the
+        dish that is there is frozen first as `pre-revive`; a sample that is refused — by the
+        membrane, or for what it is missing — is refused before that, and nothing changes."""
         if config.DISH_FILE.exists() and not fresh:
             raise FileExistsError("a culture already exists in vessel/ — `biotic sterilize` first, or use --fresh")
+        pid = incubating()
+        if pid is not None:
+            raise RuntimeError(f"the incubator is running (pid {pid}) — stop it first")
+        n = config.INOCULUM if n is None else int(n)
+        if n < 1:
+            raise ValueError(f"an inoculum is at least 1 cell, not {n}")
         if budget is not None:
             mind.budget_usd = parse_budget(budget)
+        sample = None
+        if thaw is not None:
+            sample = _strain_sample(thaw)  # read, checked and passed through the membrane before anything changes
+            if sample["seed"] != seed:
+                raise ValueError(
+                    f"the sample is from “{sample['seed']}”; a fresh dish for it has that seed, not “{seed}”"
+                )
+            if config.DISH_FILE.exists():
+                cls.load(mind).freeze("pre-revive")
         sterilize()
         config.VESSEL.mkdir(exist_ok=True)
         config.SEED_FILE.write_text(seed.strip() + "\n")
-        w, h = _fit_dish()
+        w, h = (int(sample["w"]), int(sample["h"])) if sample else _fit_dish()
         dish = Dish(seed, w, h)
         reg = Registry(seed)
         cult = cls(seed, dish, reg, mind)
-        name, note, src = cult._genesis()
-        s = reg.new(src, None, 0, name, note)
-        dish.register(s.id, src)
-        n = dish.inoculate(s.id)
+        if sample is None:
+            name, note, src = cult._genesis()
+            s = reg.new(src, None, 0, name, note)
+            memory = None
+        else:
+            s = reg.adopt(sample["strain"], 0)
+            note = s.note
+            memory = sample.get("memory") or {}
+        dish.register(s.id, s.source)
+        n = dish.inoculate(s.id, n, memory=memory)
         cult.mutagen.know(s.id, s.name, s.source)
-        config.GENESIS.write_text(src)
-        cult.log(
-            "genesis", f"inoculated {n} cells of {s.name} — “{note}”" if note else f"inoculated {n} cells of {s.name}"
-        )
+        config.GENESIS.write_text(s.source)
+        if sample is None:
+            cult.log(
+                "genesis",
+                f"inoculated {n} cells of {s.name} — “{note}”" if note else f"inoculated {n} cells of {s.name}",
+            )
+        else:
+            cult.watching.append({"strain": s.id, "since": 0, "until": config.REVIVE_WATCH})
+            cult.log(
+                "revived",
+                f"revived {s.name} ({s.id}) into a fresh dish — {_n(n, 'cell')}",
+                strain=s.id,
+                into="fresh",
+                n=n,
+                at=None,
+                sample=freezer.stem_of(Path(thaw)),
+            )
         if mind.awake and mind.exhausted:
             # The budget went at the founding — there was none, or the founding calls spent it —
             # so the mutagen never has a call to make. Said here, once, or the dish would run for
@@ -102,6 +160,7 @@ class Culture:
                 budget_usd=mind.budget_usd,
             )
         cult.save()
+        cult._freeze_or_log("genesis")
         return cult
 
     def _genesis(self) -> tuple[str, str, str]:
@@ -169,12 +228,7 @@ class Culture:
         if budget is not None:
             m.budget_usd = parse_budget(budget)
         cult = cls(seed, dish, reg, m)
-        st = (blob.get("culture") or {}).get("rng")  # absent from a dish.json written before it was saved
-        if st:
-            try:
-                cult.rng.setstate((st[0], tuple(st[1]), st[2]))
-            except (TypeError, ValueError, IndexError):
-                pass
+        cult.restore_state(blob.get("culture") or {})  # absent from a dish.json written before it was saved
         if m.spent_usd > saved:
             msg = f"ledger caught up from the log — {fmt_usd(saved)} saved, {fmt_usd(m.spent_usd)} spent"
             cult._unsaid.append(("mind", msg, {}))
@@ -186,15 +240,16 @@ class Culture:
     def save(self) -> None:
         """Write dish.json and strains.json, atomically.
 
-        The blob is the dish's, plus the culture's own generator, which rolls the mutations, so
-        a resumed culture rolls them at the divisions the running one would have. A save that
+        The blob is the dish's, plus the culture's own state (state_dict: the generator that rolls
+        the mutations, the phase detector, the revival chain) and the mind's ledger, so a resumed
+        culture rolls them at the divisions the running one would have. A save that
         fails must not stop the dish: it is logged once as a `freezer` event, every later save
         is tried again, and another event says when writing works.
         """
         try:
             with self.lock:
                 blob = self.dish.to_dict()
-                blob["culture"] = {"rng": self.rng.getstate()}
+                blob["culture"] = self.state_dict()
                 blob["mind"] = self.mind.ledger()
                 tmp = config.DISH_FILE.with_suffix(".tmp")
                 tmp.write_text(json.dumps(blob))
@@ -209,11 +264,45 @@ class Culture:
             self._save_broken = False
             self.log("freezer", f"dish.json written again at tick {self.dish.tick}")
 
+    def state_dict(self) -> dict:
+        """The culture's own state — everything outside the dish and the registry that decides
+        the next tick: the mutation-roll RNG, the phase detector, the mutagen boost — plus the
+        revival chain, the branch and the watch list. Rides in dish.json and in every dish sample."""
+        return {
+            "rng": list(self.rng.getstate()),
+            "last_phase": self.last_phase,
+            "candidate": self._candidate,
+            "candidate_for": self._candidate_for,
+            "boost": self.mutagen.boost,
+            "boost_until": self.mutagen.boost_until,
+            "revivals": [dict(r) for r in self.revivals],
+            "branch": self.branch,
+            "watching": [dict(w) for w in self.watching],
+        }
+
+    def restore_state(self, d: dict) -> None:
+        """The inverse of state_dict. Missing keys mean a fresh culture; a bad RNG state is
+        ignored, as in Dish.from_dict."""
+        try:
+            st = d["rng"]
+            self.rng.setstate((st[0], tuple(st[1]), st[2]))
+        except Exception:  # noqa: BLE001
+            pass
+        self.last_phase = d.get("last_phase")
+        self._candidate = d.get("candidate")
+        self._candidate_for = int(d.get("candidate_for") or 0)
+        self.mutagen.boost = float(d.get("boost") or 1.0)
+        self.mutagen.boost_until = int(d.get("boost_until") or 0)
+        self.revivals = [dict(r) for r in d.get("revivals") or []]
+        self.branch = int(d.get("branch") or 0)
+        self.watching = [dict(w) for w in d.get("watching") or []]
+
     # --- events -------------------------------------------------------------
     def log(self, kind: str, msg: str, **data) -> None:
         ev = {"t": time.time(), "tick": self.dish.tick, "kind": kind, "msg": msg, **data}
         if kind not in HIDDEN:
             self.events.append(ev)
+        config.VESSEL.mkdir(parents=True, exist_ok=True)
         with open(config.EVENTS, "a") as f:
             f.write(json.dumps(ev) + "\n")
 
@@ -291,7 +380,10 @@ class Culture:
         self.log("drop", msg, what=what, at=list(at))
         return msg
 
-    def _inbox(self) -> None:
+    def _inbox(self) -> bool:
+        """Take the requests other processes left. Returns True if a revive replaced the dish,
+        in which case the caller's view of it — its tick, its census — is stale."""
+        replaced = False
         for p in sorted(config.INBOX.glob("*.json")):
             try:
                 req = json.loads(p.read_text())
@@ -300,13 +392,256 @@ class Culture:
                 continue
             p.unlink(missing_ok=True)
             try:
+                pid = req.get("pid")
+                if pid and int(pid) != os.getpid():
+                    # queued for an incubator that has since stopped: a whisper or a drop keeps, a
+                    # freeze or a revive was meant for that run and would fire unannounced here
+                    what = next((k for k in ("freeze", "freeze_strain", "revive", "revive_strain") if k in req), "?")
+                    self.log("mind", f"dropped a {what} request queued for another incubator (pid {pid})")
+                    continue
                 if "whisper" in req:
                     self.whisper(req["whisper"])
                 elif "drop" in req:
                     at = tuple(req["at"]) if req.get("at") else None
                     self.drop(req["drop"], at, req.get("r"))
+                elif "freeze" in req:
+                    self.freeze(req["freeze"] or "manual")
+                elif "freeze_strain" in req:
+                    self.freeze_strain(req["freeze_strain"], req.get("label") or None)
+                elif "revive" in req:
+                    self.revive(freezer.resolve(str(req["revive"]), kind="dish"))
+                    replaced = True
+                elif "revive_strain" in req:
+                    if (req.get("into") or "current") != "current":
+                        raise ValueError(
+                            "a fresh dish needs a stopped incubator — ctrl-c, then `biotic revive --strain`"
+                        )
+                    at = tuple(req["at"]) if req.get("at") else None
+                    n = config.INOCULUM if req.get("n") is None else int(req["n"])
+                    self.revive_strain(freezer.resolve(str(req["revive_strain"]), kind="strain"), n=n, at=at)
             except Exception as e:  # noqa: BLE001
                 self.log("mind", f"bad intervention: {e}")
+        return replaced
+
+    # --- the freezer --------------------------------------------------------
+    def freeze(self, label: str = "manual") -> Path:
+        """Put the whole dish in the freezer: cells, agar, pheromone, RNGs, genomes, the strain
+        registry and the culture's own state, as vessel/freezer/<tick>-<label>.json.gz.
+        Never overwrites an earlier sample. Returns the path."""
+        label = freezer.clean_label(label)
+        with self.lock:
+            d = self.dish
+            census = d.census()
+            doc = {
+                "format": freezer.FORMAT,
+                "kind": "dish",
+                "biotic": freezer.version(),
+                "seed": self.seed,
+                "tick": d.tick,
+                "label": label,
+                "frozen_at": time.time(),
+                "population": sum(census.values()),
+                "strains_living": len(census),
+                "strains_total": len(self.registry.strains),
+                "revivals": [dict(r) for r in self.revivals],
+                "dish": d.to_dict(),
+                "culture": self.state_dict(),
+                "strains": self.registry.to_dict(),
+            }
+        path = freezer.unique_path(config.FREEZER / (freezer.stem(doc["tick"], label) + ".json.gz"))
+        freezer.write(doc, path)
+        stem = freezer.stem_of(path)
+        self.log(
+            "frozen",
+            f"frozen as {stem} ({_n(doc['population'], 'cell')}, {_n(doc['strains_living'], 'strain')})",
+            sample=stem,
+            label=label,
+        )
+        return path
+
+    def _freeze_or_log(self, label: str) -> Path | None:
+        """The culture's own freezes — genesis, and the cadence — must not stop the dish when the
+        freezer cannot be written (permissions, a full disk, a file where the directory should
+        be): say so once as a `freezer` event, try again at the next cadence, and say when it
+        works again. A freeze a person asked for raises instead, so the CLI and the inbox can
+        tell them."""
+        try:
+            path = self.freeze(label)
+        except OSError as e:
+            if not self._freezer_broken:
+                self.log("freezer", f"sample not written at tick {self.dish.tick}: {e}")
+            self._freezer_broken = True
+            return None
+        if self._freezer_broken:
+            self._freezer_broken = False
+            self.log("freezer", f"freezer resumed at tick {self.dish.tick}")
+        return path
+
+    def freeze_strain(self, sid: str, label: str | None = None) -> Path:
+        """A strain sample: the genome, its lineage, and the memory of its most energetic living
+        cell (none if the strain is extinct), as vessel/freezer/strain-<id>[-<label>].json."""
+        label = freezer.clean_label(label) if label else None
+        s = self.registry.strains.get(sid)
+        if s is None:
+            raise KeyError(f"no strain {sid}")
+        with self.lock:
+            d = self.dish
+            cells = [c for c in d.cells.values() if c.strain == sid]
+            best = max(cells, key=lambda c: (c.energy, -c.y, -c.x), default=None)
+            doc = {
+                "format": freezer.FORMAT,
+                "kind": "strain",
+                "biotic": freezer.version(),
+                "seed": self.seed,
+                "w": d.w,
+                "h": d.h,
+                "tick": d.tick,
+                "frozen_at": time.time(),
+                "label": label,
+                "strain": asdict(s),
+                "lineage": [x.name for x in self.registry.lineage_of(sid)],
+                "memory": _jsonable(best.memory) if best else {},
+                "living": len(cells),
+            }
+        path = freezer.unique_path(config.FREEZER / (freezer.strain_stem(sid, label) + ".json"))
+        freezer.write(doc, path)
+        stem = freezer.stem_of(path)
+        self.log("frozen", f"strain {s.name} ({s.id}) frozen as {stem}", sample=stem, strain=sid)
+        return path
+
+    def _swap(self, dish: Dish, registry: Registry, state: dict) -> None:
+        """Replace the dish and registry in one motion, so the eyepiece never sees half of each."""
+        with self.lock:
+            self.dish, self.registry = dish, registry
+            dish.on_divide = self._on_divide
+            self.restore_state(state)
+        self.mutagen.reset({sid: (s.name, s.source) for sid, s in registry.strains.items() if sid in dish.genomes})
+
+    def _occupied(self) -> bool:
+        """Whether there is a dish to protect: cells, ticks on the clock, or a dish.json in the
+        vessel. Decides the seed rule and whether a revive freezes `pre-revive` first."""
+        return bool(self.dish.cells) or self.dish.tick > 0 or config.DISH_FILE.exists()
+
+    def revive(self, path: Path) -> None:
+        """Replace the dish with a dish sample. Every genome in the sample passes the membrane's
+        static gate again, before anything changes; the dish that is there is frozen as
+        `pre-revive`; then the sample becomes the dish, the registry and the culture's own state,
+        a `revived` event is logged at the revived tick, and the vessel is saved. No curve row is
+        written for the revive; the rows that follow carry the vessel's next branch number, one
+        more than the dish had, whatever the sample's own was, so (branch, tick) stays unique in
+        curve.csv however far forward or back the revive went (docs/curve.md)."""
+        path = Path(path)
+        doc = freezer.read(path)
+        stem = freezer.stem_of(path)
+        if doc["kind"] != "dish":
+            raise ValueError(f"{stem} is a strain sample — `biotic revive --strain {stem}`")
+        for sid, src in doc["dish"]["genomes"].items():
+            v = inspect(src)
+            if not v:
+                raise ValueError(f"genome of strain {sid} in {stem} fails the membrane: {v.reasons[0]}")
+        occupied = self._occupied()
+        if occupied and doc["seed"] != self.seed:
+            # the agar is a function of the seed: a vessel that holds a dish keeps its seed
+            raise ValueError(
+                f"the sample is from “{doc['seed']}”; this vessel is “{self.seed}” — "
+                "sterilize first (the freezer is kept), then revive"
+            )
+        # the sample is read in full before the dish is frozen, so a sample that cannot be read
+        # (a hand edit that broke a record) refuses before anything changes
+        dish = Dish.from_dict(doc["dish"])
+        reg = Registry.from_dict(doc["seed"], doc["strains"])
+        if occupied:
+            self.freeze("pre-revive")
+        old_tick = self.dish.tick
+        state = dict(doc.get("culture") or {})
+        state["revivals"] = list(state.get("revivals") or []) + [
+            {"from": doc["tick"], "was": old_tick, "at": time.time(), "sample": stem}
+        ]
+        state["branch"] = self.branch + 1  # the vessel's count, not the sample's: monotone over curve.csv
+        self.seed = self.mutagen.seed = doc["seed"]
+        self._swap(dish, reg, state)
+        config.VESSEL.mkdir(parents=True, exist_ok=True)
+        config.SEED_FILE.write_text(self.seed + "\n")
+        census = dish.census()
+        where = f"the dish was at {old_tick}" if occupied else "into an empty vessel"
+        self.log(
+            "revived",
+            f"revived from tick {doc['tick']} ({where}) — {_n(sum(census.values()), 'cell')}, {_n(len(census), 'strain')}",
+            sample=stem,
+            was=old_tick,
+            branch=self.branch,
+            **{"from": doc["tick"]},
+        )
+        self.save()
+
+    def revive_strain(self, path: Path, n: int = config.INOCULUM, at: tuple[int, int] | None = None) -> None:
+        """Inoculate a strain sample into the current dish as an invader: `n` cells on the free
+        tiles nearest `at` (default: the centre; a point outside the dish is refused), each
+        carrying the sampled memory; the dish's RNG is not touched. The genome passes the whole
+        membrane again; the dish is frozen first as `pre-revive`; the strain is then watched for
+        config.REVIVE_WATCH ticks and the log says whether it took. A fresh dish of the strain
+        is germinate(thaw=path)."""
+        path = Path(path)
+        if n < 1:
+            raise ValueError(f"an inoculum is at least 1 cell, not {n}")
+        doc = _strain_sample(path)
+        if not self._occupied():
+            raise ValueError("nothing in the dish to revive into — leave out --into for a fresh dish")
+        d = self.dish
+        at = (int(at[0]), int(at[1])) if at else d.center()
+        if not (0 <= at[0] < d.w and 0 <= at[1] < d.h):
+            # inoculate(at=) takes the nearest free tiles, so a point off the dish would land on the rim
+            raise ValueError(f"({at[0]},{at[1]}) is outside the dish ({d.w}×{d.h})")
+        self.registry.check(doc["strain"])  # every refusal comes before the pre-revive freeze
+        self.freeze("pre-revive")
+        with self.lock:  # the eyepiece reads the registry under the lock too
+            s = self.registry.adopt(doc["strain"], d.tick)
+            d.register(s.id, s.source)  # before the first tick: a genome the dish does not know lyses its cells
+            placed = d.inoculate(s.id, n, at=at, memory=doc.get("memory") or {})
+        self.mutagen.know(s.id, s.name, s.source)
+        self.watching.append({"strain": s.id, "since": d.tick, "until": d.tick + config.REVIVE_WATCH})
+        self.log(
+            "revived",
+            f"revived {s.name} ({s.id}) into the dish at ({at[0]},{at[1]}) — {_n(placed, 'cell')}",
+            strain=s.id,
+            into="current",
+            n=placed,
+            at=list(at),
+            sample=freezer.stem_of(path),
+        )
+        self.save()
+
+    def _watch(self, census: dict) -> None:
+        """Report on revived strains: extinct before the watch ends is `did not take`; alive at
+        the end is `took`. Bookkeeping only — nothing here touches the dish."""
+        keep = []
+        for w in self.watching:
+            sid = w["strain"]
+            n = census.get(sid, 0)
+            ticks = self.dish.tick - w["since"]
+            s = self.registry.strains.get(sid)
+            name = s.name if s else sid
+            if n == 0:
+                self.log(
+                    "revived",
+                    f"revived {name} did not take — extinct after {_n(ticks, 'tick')}",
+                    strain=sid,
+                    took=False,
+                    cells=0,
+                    ticks=ticks,
+                )
+            elif self.dish.tick >= w["until"]:
+                self.log(
+                    "revived",
+                    f"revived {name} took — {_n(n, 'cell')} after {_n(ticks, 'tick')}",
+                    strain=sid,
+                    took=True,
+                    cells=n,
+                    ticks=ticks,
+                )
+            else:
+                keep.append(w)
+        self.watching = keep
 
     # --- the loop -----------------------------------------------------------
     def _screen(self) -> None:
@@ -343,6 +678,8 @@ class Culture:
             self.mutagen.forget(s.id)
             lived = d.tick - s.born
             self.log("extinct", f"{s.name} went extinct after {lived} ticks (peak {s.peak})", strain=s.id)
+        if self.watching:
+            self._watch(census)
         raw = d.phase()
         if raw == self._candidate:
             self._candidate_for += 1
@@ -361,11 +698,14 @@ class Culture:
                 "nutrient": d.nutrient_mean(),
                 "whispers": self.whispers(),
             }
-            self._inbox()
+            if self._inbox():
+                return  # the dish was replaced: the rest of this step would describe the old one
         if d.tick % curve.CADENCE == 0:
             self._curve(census, phase)
         if d.tick % 150 == 0:
             self.save()
+        if config.FREEZE_EVERY and d.tick % config.FREEZE_EVERY == 0:
+            self._freeze_or_log("auto")
 
     def metrics(self, census: dict[str, int] | None = None, phase: str | None = None) -> dict:
         """One row of the growth curve: what the dish knows about itself, plus lineage and
@@ -383,6 +723,7 @@ class Culture:
         row["extinct"] = sum(1 for s in strains.values() if s.extinct_at is not None)
         row["mutations_ready"] = self.mutagen.ready()
         row["mutations_taken"] = sum(1 for s in strains.values() if s.parent is not None)
+        row["branch"] = self.branch
         return row
 
     def _curve(self, census: dict, phase: str) -> None:
@@ -407,6 +748,7 @@ class Culture:
     def run(
         self, ticks: int | None = None, stop: threading.Event | None = None, tick_seconds: float = config.TICK_SECONDS
     ) -> None:
+        lock = _lock_incubator()
         for kind, msg, data in self._unsaid:  # what load() found out, said by the process that runs the dish
             self.log(kind, msg, **data)
         self._unsaid.clear()
@@ -429,6 +771,7 @@ class Culture:
         finally:
             self.mutagen.close()
             self.save()
+            _unlock_incubator(lock)
 
     # --- for observers ------------------------------------------------------
     def snapshot(self) -> dict:
@@ -512,12 +855,99 @@ def _last_call(path) -> dict | None:
     return ev
 
 
-def sterilize() -> None:
-    """Autoclave: wipe the vessel and the soma."""
+def _n(n: int, word: str) -> str:
+    return f"{n} {word}" if n == 1 else f"{n} {word}s"
+
+
+def _strain_sample(path: Path) -> dict:
+    """A strain sample, read and admitted. Samples are files anyone can edit, so the genome
+    passes the whole membrane again — the static gate and the smoke test — before it touches a
+    dish. Main thread only: the smoke test's budget is signal-based."""
+    path = Path(path)
+    doc = freezer.read(path)
+    stem = freezer.stem_of(path)
+    if doc["kind"] != "strain":
+        raise ValueError(f"{stem} is a dish sample — `biotic revive {stem}`")
+    sd = doc["strain"]
+    check_record(sd)
+    v = admit(sd["source"])
+    if not v:
+        raise ValueError(f"{sd.get('name', '?')} ({sd.get('id', '?')}) does not pass the membrane: {v.reasons[0]}")
+    return doc
+
+
+# --- the incubator lock -------------------------------------------------------
+LOCK_TRIES = 8  # a probe by `biotic status` holds the lock for microseconds; do not mistake it for an incubator
+LOCK_RETRY = 0.03
+
+
+def _lock_incubator():
+    """Hold vessel/incubator.lock for as long as a culture runs. Advisory (flock), so the kernel
+    lets go of it if the process dies; the pid inside is for the message only."""
+    config.VESSEL.mkdir(parents=True, exist_ok=True)
+    f = open(config.LOCK_FILE, "a+")
+    for attempt in range(LOCK_TRIES):
+        try:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            break
+        except BlockingIOError:
+            if attempt + 1 < LOCK_TRIES:
+                time.sleep(LOCK_RETRY)
+                continue
+            f.seek(0)
+            pid = f.read().strip() or "?"
+            f.close()
+            raise RuntimeError(f"the incubator is already running (pid {pid})") from None
+    f.seek(0)
+    f.truncate()
+    f.write(f"{os.getpid()}\n")
+    f.flush()
+    return f
+
+
+def _unlock_incubator(f) -> None:
+    try:
+        fcntl.flock(f, fcntl.LOCK_UN)
+    finally:
+        f.close()
+
+
+def incubating() -> int | None:
+    """The pid of the process running this vessel's culture, or None if nothing is. 0 if the
+    lock is held but the pid could not be read."""
+    if not config.LOCK_FILE.exists():
+        return None
+    with open(config.LOCK_FILE, "a+") as f:
+        try:
+            # a shared probe: an incubator's exclusive lock refuses it, and probes do not refuse
+            # each other; the incubator retries in case a probe is what it ran into
+            fcntl.flock(f, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        except BlockingIOError:
+            f.seek(0)
+            try:
+                return int(f.read().strip())
+            except ValueError:
+                return 0
+        fcntl.flock(f, fcntl.LOCK_UN)
+    return None
+
+
+def sterilize(freezer: bool = False) -> None:
+    """Autoclave: wipe the vessel and the soma. The freezer is not in the flask: vessel/freezer/
+    is kept unless `freezer` is true."""
+    pid = incubating()
+    if pid is not None:
+        raise RuntimeError(f"the incubator is running (pid {pid}) — stop it first")
     if config.VESSEL.exists():
-        shutil.rmtree(config.VESSEL)
-    config.VESSEL.mkdir()
-    (config.VESSEL / "inbox").mkdir()
+        for p in config.VESSEL.iterdir():
+            if p == config.FREEZER and not freezer:
+                continue
+            if p.is_dir() and not p.is_symlink():
+                shutil.rmtree(p)
+            else:
+                p.unlink()
+    config.VESSEL.mkdir(exist_ok=True)
+    config.INBOX.mkdir(exist_ok=True)
     if config.SOMA.exists():
         for p in config.SOMA.glob("*.py"):
             if p.name != "__init__.py":

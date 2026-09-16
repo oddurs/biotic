@@ -546,7 +546,8 @@ def test_a_budget_spent_by_the_founding_calls_is_said_once(monkeypatch, no_subpr
     said = _exhaustions(c.events)
     assert len(said) == 1 and "$0.010 / $0.01" in said[0]["msg"] and "spent by the founding calls" in said[0]["msg"]
     assert (said[0]["spent_usd"], said[0]["budget_usd"]) == (pytest.approx(0.01), 0.01)
-    assert [ev["kind"] for ev in c.events][-2:] == ["genesis", "mind"], "said after the genesis event"
+    # said after the genesis event; the genesis freeze comes last of all
+    assert [ev["kind"] for ev in c.events][-3:] == ["genesis", "mind", "frozen"]
     assert c.mutagen.state == "exhausted"
     back = Culture.load(mind=FakeMind(budget_usd=None))
     assert back.mutagen.state == "exhausted"

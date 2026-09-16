@@ -28,7 +28,9 @@ ICONS = {
     "phase": ("◐", "bold white"),
     "mind": ("…", "dim"),
     "curve": ("≡", "dim"),
-    "freezer": ("≣", "dim"),
+    "frozen": ("▫", "dim cyan"),
+    "freezer": ("▫", "dim red"),
+    "revived": ("↺", "bold cyan"),
 }
 AGAR = [
     (0.02, " ", "grey23"),
@@ -179,7 +181,8 @@ def events(c: Culture, n: int) -> Text:
         t.append(f"{ev['tick']:>6} ", style="dim")
         t.append(f"{icon} ", style=style)
         t.append(
-            ev["msg"] + "\n", style="" if ev["kind"] in ("arose", "extinct", "drop", "phase", "genesis") else "dim"
+            ev["msg"] + "\n",
+            style="" if ev["kind"] in ("arose", "extinct", "drop", "phase", "genesis", "revived") else "dim",
         )
     return t
 

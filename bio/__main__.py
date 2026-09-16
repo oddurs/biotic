@@ -7,12 +7,15 @@ import json
 import sys
 import time
 
-from . import config
-from .culture import Culture, sterilize
+from . import config, freezer
+from .culture import Culture, incubating, sterilize
+from .dish import Dish
 from .mind import Dormant, Mind, MindError, fmt_budget, fmt_usd
+from .strains import Registry
 
 
 def cmd_seed(a):
+    _not_running()
     mind = Mind()
     if not mind.awake:
         print(
@@ -21,7 +24,7 @@ def cmd_seed(a):
         )
     try:
         c = Culture.germinate(a.seed, mind, fresh=a.fresh, budget=a.budget)
-    except FileExistsError as e:
+    except (FileExistsError, RuntimeError) as e:
         sys.exit(str(e))
     s = next(iter(c.registry.strains.values()))
     print(f"seeded “{a.seed}” — founding strain {s.id} {s.name}: {s.note}")
@@ -33,11 +36,16 @@ def cmd_seed(a):
 def cmd_live(a):
     from .tui import observe
 
+    _not_running()
     c = _culture(a.budget)
-    observe(c, tick_seconds=a.tick if a.tick else config.TICK_SECONDS)
+    try:
+        observe(c, tick_seconds=a.tick if a.tick else config.TICK_SECONDS)
+    except RuntimeError as e:
+        sys.exit(str(e))
 
 
 def cmd_run(a):
+    _not_running()
     c = _culture(a.budget)
     t0 = time.time()
 
@@ -65,6 +73,8 @@ def cmd_run(a):
         c.run(ticks=a.ticks, tick_seconds=a.tick if a.tick is not None else config.TICK_SECONDS)
     except KeyboardInterrupt:
         pass
+    except RuntimeError as e:
+        sys.exit(str(e))
     stop.set()
     progress()
     print(f"done in {time.time() - t0:.0f}s · growth curve in {config.CURVE}", file=sys.stderr)
@@ -88,6 +98,16 @@ def cmd_status(a):
     calls = f"{m['calls']} call{'s' if m['calls'] != 1 else ''}"
     exhausted = "  — exhausted" if m["awake"] and m["exhausted"] else ""  # a dormant mind is dormant, whatever its cap
     print(f"spent       {fmt_budget(m['spent_usd'], m['budget_usd'])}  ({calls}){exhausted}")
+    ticks = freezer.dish_ticks()
+    n = len(freezer.stems())
+    if n:
+        last = f" · last at tick {ticks[-1]}" if ticks else ""
+        print(f"freezer     {n} sample{'s' if n != 1 else ''}{last}")
+    else:
+        print("freezer     empty")
+    pid = incubating()
+    if pid is not None:
+        print(f"incubator   running (pid {pid})")
 
 
 def cmd_strains(a):
@@ -181,12 +201,202 @@ def cmd_probe(a):
 
 
 def cmd_sterilize(a):
+    _not_running()
     if not a.yes:
-        ans = input("autoclave the dish? this destroys the culture and the fossil record in soma/ [y/N] ")
+        what = "the freezer too" if a.freezer else "the freezer is kept; --freezer empties it"
+        ans = input(f"autoclave the dish? this destroys the culture and the fossil record in soma/ ({what}) [y/N] ")
         if ans.strip().lower() != "y":
             return
-    sterilize()
-    print("sterile")
+    try:
+        sterilize(freezer=a.freezer)
+    except RuntimeError as e:
+        sys.exit(str(e))
+    print("sterile" + (" — the freezer is empty too" if a.freezer else " — the freezer is kept"))
+
+
+# --- the freezer ------------------------------------------------------------
+def cmd_freeze(a):
+    if a.label is not None:
+        try:
+            a.label = freezer.clean_label(a.label)
+        except ValueError as e:
+            sys.exit(str(e))
+    if a.strain:
+        req = {"freeze_strain": a.strain, "label": a.label}
+    else:
+        req = {"freeze": a.label or "manual"}
+    if _queue_if_running(req, "freeze"):
+        return
+    c = _culture()
+    try:
+        path = c.freeze_strain(a.strain, a.label) if a.strain else c.freeze(a.label or "manual")
+    except KeyError:
+        sys.exit(f"no strain {a.strain}")
+    except ValueError as e:
+        sys.exit(str(e))
+    except OSError as e:
+        sys.exit(f"freezer not writable: {e}")
+    print(f"frozen as {freezer.stem_of(path)}")
+    print(f"  {path}")
+
+
+def cmd_revive(a):
+    if bool(a.key) == bool(a.strain):
+        sys.exit("say what to revive: a tick or sample name, or --strain ID")
+    if not a.strain and (a.into or a.n is not None or a.at):
+        sys.exit("--into, --n and --at go with --strain")
+    if a.strain and a.label:
+        sys.exit("--label picks one of several dish samples at a tick; it does not go with --strain")
+    if a.at and (a.into or "fresh") == "fresh":
+        sys.exit("--at goes with --into current; a fresh dish is inoculated at the centre")
+    if a.label is not None:
+        try:
+            a.label = freezer.clean_label(a.label)  # as `freeze --label` stored it
+        except ValueError as e:
+            sys.exit(str(e))
+    try:
+        path = freezer.resolve(a.strain or a.key, label=a.label, kind="strain" if a.strain else "dish")
+        doc = freezer.read(path)
+    except (LookupError, ValueError) as e:
+        sys.exit(str(e))
+    stem = freezer.stem_of(path)
+    had_dish = config.DISH_FILE.exists()
+    at = None
+    if a.at:
+        try:
+            x, y = a.at.split(",")
+            at = (int(x), int(y))
+        except ValueError:
+            sys.exit("--at wants x,y")
+    if a.strain:
+        if doc["kind"] != "strain":
+            sys.exit(f"{stem} is a dish sample — `biotic revive {stem}`")
+        n = config.INOCULUM if a.n is None else a.n
+        if (a.into or "fresh") == "fresh":
+            _revive_fresh(a, path, doc, had_dish, n)
+            return
+        if not had_dish:
+            sys.exit("nothing in the dish to revive into — leave out --into for a fresh dish")
+        req = {"revive_strain": stem, "n": n, "at": list(at) if at else None}
+    else:
+        if doc["kind"] != "dish":
+            sys.exit(f"{stem} is a strain sample — `biotic revive --strain {stem}`")
+        if had_dish and not a.yes:
+            about = "about " if incubating() else ""  # dish.json trails a running incubator by up to 150 ticks
+            q = f"replace the dish at {about}tick {_dish_tick()} with the sample from tick {doc['tick']}? "
+            if not _confirm(q + "it is frozen first as pre-revive"):
+                return
+        req = {"revive": stem}
+    if _queue_if_running(req, "revive"):
+        return
+    if had_dish:
+        c = _culture()
+    else:
+        seed, w, h = doc["seed"], doc["dish"]["w"], doc["dish"]["h"]
+        c = Culture(seed, Dish(seed, int(w), int(h)), Registry(seed), Mind())
+    try:
+        if a.strain:
+            c.revive_strain(path, n=n, at=at)
+        else:
+            c.revive(path)
+    except (ValueError, KeyError) as e:
+        sys.exit(str(e))
+    except OSError as e:
+        sys.exit(f"freezer not writable: {e}")  # the pre-revive freeze; nothing has changed
+    print(c.events[-1]["msg"])
+
+
+def _revive_fresh(a, path, doc, had_dish: bool, n: int) -> None:
+    """A fresh dish of a frozen strain is a germination with a given founder: it autoclaves the
+    vessel, so it needs a stopped incubator. germinate() passes the sample through the membrane,
+    then freezes the dish that is there as pre-revive, then autoclaves — in that order, so a
+    refused sample leaves nothing behind."""
+    pid = incubating()
+    if pid is not None:
+        sys.exit(f"the incubator is running (pid {pid}); stop it (ctrl-c) before reviving into a fresh dish")
+    s = doc["strain"]
+    if had_dish and not a.yes:
+        q = f"autoclave the dish at tick {_dish_tick()} and inoculate {s['name']} ({s['id']}) into fresh agar? "
+        if not _confirm(q + "it is frozen first as pre-revive"):
+            return
+    try:
+        c = Culture.germinate(doc["seed"], Mind(), fresh=True, thaw=path, n=n)
+    except (ValueError, KeyError, RuntimeError) as e:
+        sys.exit(str(e))
+    except OSError as e:
+        sys.exit(f"freezer not writable: {e}")  # the pre-revive freeze comes before the autoclave
+    print(next(e["msg"] for e in reversed(c.events) if e["kind"] == "revived"))
+    print(f"  seed “{c.seed}”, {c.dish.w}×{c.dish.h} — `biotic live` to watch it grow")
+
+
+def cmd_freezer(a):
+    es = freezer.entries()
+    if a.json:
+        from dataclasses import asdict
+
+        print(json.dumps([asdict(e) for e in es], indent=1))
+        return
+    if not es:
+        print("nothing in the freezer")
+        return
+    seed = config.SEED_FILE.read_text().strip() if config.SEED_FILE.exists() else None
+    size = sum(e.size for e in es) / 1e6
+    where = config.FREEZER
+    try:
+        where = where.relative_to(config.ROOT)
+    except ValueError:
+        pass
+    head = f"freezer for “{seed}”" if seed else "freezer"
+    print(f"{head} — {len(es)} sample{'s' if len(es) != 1 else ''}, {size:.1f} MB, {where}")
+    dishes = [e for e in es if e.kind == "dish"]
+    strains = [e for e in es if e.kind == "strain"]
+    if dishes:
+        print(f"{'tick':>7}  {'label':<12} {'frozen':<16} {'pop':>5}  {'strains':<8} from")
+        for e in dishes:
+            branch = f"← {e.revived_from}" if e.revived_from is not None else ""  # the last hop of the revival chain
+            foreign = f"  seed “{e.seed}”" if seed and e.seed != seed else ""
+            strains_col = f"{e.strains_living}/{e.strains_total}"
+            print(
+                f"{e.tick:>7}  {e.label or '':<12} {freezer.when(e.frozen_at):<16} "
+                f"{e.population if e.population is not None else '?':>5}  {strains_col:<8} {branch}{foreign}"
+            )
+    if strains:
+        print("strains")
+        for e in strains:
+            foreign = f"  seed “{e.seed}”" if seed and e.seed != seed else ""
+            print(
+                f"{e.strain_id or '':>7}  {e.strain_name or '':<12} gen {e.generation if e.generation is not None else '?':<3} "
+                f"from tick {e.tick:<7} {freezer.when(e.frozen_at):<16} {e.stem}{foreign}"
+            )
+
+
+def _confirm(question: str) -> bool:
+    return input(question + " [y/N] ").strip().lower() == "y"
+
+
+def _dish_tick() -> int:
+    try:
+        return int(json.loads(config.DISH_FILE.read_text())["tick"])
+    except (OSError, ValueError, KeyError):
+        return 0
+
+
+def _not_running() -> None:
+    pid = incubating()
+    if pid is not None:
+        sys.exit(f"the incubator is already running (pid {pid})")
+
+
+def _queue_if_running(req: dict, verb: str) -> bool:
+    """Hand a freezer request to the running incubator. It is stamped with that incubator's pid:
+    a freeze or a revive queued for a run that has since stopped is dropped by the next one, not
+    applied days later unannounced (a whisper or a drop is kept; those are notes on the bench)."""
+    pid = incubating()
+    if pid is None:
+        return False
+    _intervene({**req, "pid": pid})
+    print(f"the incubator is running (pid {pid}); {verb} queued — taken within 3 ticks. `biotic log` shows the result")
+    return True
 
 
 def _culture(budget: float | None = None) -> Culture:
@@ -194,6 +404,13 @@ def _culture(budget: float | None = None) -> Culture:
         return Culture.load(budget=budget)
     except FileNotFoundError as e:
         sys.exit(str(e))
+
+
+def _cells(v: str) -> int:
+    n = int(v)
+    if n < 1:
+        raise argparse.ArgumentTypeError(f"an inoculum is at least 1 cell, not {n}")
+    return n
 
 
 def _intervene(req: dict) -> None:
@@ -253,9 +470,31 @@ def main(argv=None):
     s.add_argument("query", nargs="?")
     s.set_defaults(f=cmd_minds)
     sub.add_parser("probe", help="check the mind answers").set_defaults(f=cmd_probe)
-    s = sub.add_parser("sterilize", help="autoclave everything")
+    s = sub.add_parser("sterilize", help="autoclave everything (the freezer is kept unless --freezer)")
     s.add_argument("--yes", "-y", action="store_true")
+    s.add_argument("--freezer", action="store_true", help="empty the freezer too")
     s.set_defaults(f=cmd_sterilize)
+
+    s = sub.add_parser("freeze", help="put the dish, or one strain, in the freezer")
+    s.add_argument("--label", help="a-z, 0-9, _ and -; default `manual`")
+    s.add_argument("--strain", metavar="ID", help="freeze one strain's genome and a cell's memory instead")
+    s.set_defaults(f=cmd_freeze)
+    s = sub.add_parser("revive", help="replace the dish with a frozen sample, or inoculate a frozen strain")
+    s.add_argument("key", nargs="?", metavar="TICK|SAMPLE", help="a tick, or a sample name from `biotic freezer`")
+    s.add_argument("--label", help="with a tick: which of the samples at that tick")
+    s.add_argument("--strain", metavar="ID|SAMPLE", help="a strain sample instead of a dish sample")
+    s.add_argument(
+        "--into",
+        choices=["fresh", "current"],
+        help="a fresh dish (default; the incubator must be stopped) or the current one",
+    )
+    s.add_argument("--n", type=_cells, help=f"cells to inoculate, fresh or current (default {config.INOCULUM})")
+    s.add_argument("--at", help="x,y — where in the current dish (default: the centre); --into current only")
+    s.add_argument("--yes", "-y", action="store_true", help="do not ask before replacing the dish")
+    s.set_defaults(f=cmd_revive)
+    s = sub.add_parser("freezer", help="what is in the freezer")
+    s.add_argument("--json", action="store_true")
+    s.set_defaults(f=cmd_freezer)
 
     a = p.parse_args(argv)
     if not a.cmd:
