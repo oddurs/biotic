@@ -17,8 +17,8 @@ from dataclasses import asdict
 from pathlib import Path
 
 from . import config, curve, freezer, prompts
-from .dish import Cell, Dish, _jsonable
-from .membrane import admit, admit_isolated, inspect
+from .dish import Cell, Dish, decode_memory, encode_memory
+from .membrane import admit, admit_isolated, inspect, memory_fault
 from .mind import Dormant, Exhausted, Mind, MindError, fmt_usd, parse_budget
 from .mutagen import Mutagen, exhausted_msg
 from .naturalist import EVENTS_KEPT, NOTE_EVENTS, Naturalist, sketch
@@ -129,7 +129,7 @@ class Culture:
         else:
             s = reg.adopt(sample["strain"], 0)
             note = s.note
-            memory = sample.get("memory") or {}
+            memory = sample["memory"]
         dish.register(s.id, s.source)
         n = dish.inoculate(s.id, n, memory=memory)
         cult.mutagen.know(s.id, s.name, s.source)
@@ -490,7 +490,9 @@ class Culture:
 
     def freeze_strain(self, sid: str, label: str | None = None) -> Path:
         """A strain sample: the genome, its lineage, and the memory of its most energetic living
-        cell (none if the strain is extinct), as vessel/freezer/strain-<id>[-<label>].json."""
+        cell (none if the strain is extinct), as vessel/freezer/strain-<id>[-<label>].json. The
+        memory is written as encode_memory writes it: tuples and non-string keys tagged, so it
+        thaws exactly."""
         label = freezer.clean_label(label) if label else None
         s = self.registry.strains.get(sid)
         if s is None:
@@ -511,7 +513,7 @@ class Culture:
                 "label": label,
                 "strain": asdict(s),
                 "lineage": [x.name for x in self.registry.lineage_of(sid)],
-                "memory": _jsonable(best.memory) if best else {},
+                "memory": encode_memory(best.memory) if best else {},
                 "living": len(cells),
             }
         path = freezer.unique_path(config.FREEZER / (freezer.strain_stem(sid, label) + ".json"))
@@ -612,7 +614,7 @@ class Culture:
         with self.lock:  # the eyepiece reads the registry under the lock too
             s = self.registry.adopt(doc["strain"], d.tick)
             d.register(s.id, s.source)  # before the first tick: a genome the dish does not know lyses its cells
-            placed = d.inoculate(s.id, n, at=at, memory=doc.get("memory") or {})
+            placed = d.inoculate(s.id, n, at=at, memory=doc["memory"])
         self.mutagen.know(s.id, s.name, s.source)
         self.watching.append({"strain": s.id, "since": d.tick, "until": d.tick + config.REVIVE_WATCH})
         self.log(
@@ -932,7 +934,10 @@ def _last_note(path) -> dict | None:
 def _strain_sample(path: Path) -> dict:
     """A strain sample, read and admitted. Samples are files anyone can edit, so the genome
     passes the whole membrane again — the static gate and the smoke test — before it touches a
-    dish. Main thread only: the smoke test's budget is signal-based."""
+    dish, and the memory, decoded from its tags, is held to the rule the dish applies after
+    every tick (both callers save right after placing the cells, before any tick runs it), so
+    a sample whose memory breaks it is refused by name here, before the pre-revive freeze.
+    Main thread only: the smoke test's budget is signal-based."""
     path = Path(path)
     doc = freezer.read(path)
     stem = freezer.stem_of(path)
@@ -943,6 +948,11 @@ def _strain_sample(path: Path) -> dict:
     v = admit(sd["source"])
     if not v:
         raise ValueError(f"{sd.get('name', '?')} ({sd.get('id', '?')}) does not pass the membrane: {v.reasons[0]}")
+    mem = decode_memory(doc.get("memory") or {})
+    fault = memory_fault(mem)
+    if fault:
+        raise ValueError(f"{stem}: {fault}")
+    doc["memory"] = mem
     return doc
 
 

@@ -121,6 +121,32 @@ def test_thawed_strain_the_membrane_now_refuses_is_lysed_when_the_culture_runs(m
     assert relic.id not in Culture.load(Mind()).dish.genomes  # the save on the way out carries it
 
 
+def test_a_cell_whose_saved_memory_breaks_the_rule_is_lysed_on_the_first_tick(make_culture):
+    """dish.json is a file too. A cell whose memory is over the cap when the dish is loaded (a
+    hand edit, or a vessel saved before the rule) is not refused at load — `biotic status` reads
+    the same file — but bursts on the first tick the culture runs, alone: every other cell lives
+    on, nothing else dies, and the save on the way out no longer holds it."""
+    c = make_culture()
+    for _ in range(20):
+        c.step()
+    c.save()
+    blob = json.loads(config.DISH_FILE.read_text())
+    x, y = blob["cells"][0][0], blob["cells"][0][1]
+    blob["cells"][0][6] = {"x": "y" * (config.MEMORY_MAX_CHARS + 52)}
+    config.DISH_FILE.write_text(json.dumps(blob))
+    again = Culture.load(Mind())
+    n, deaths = len(again.dish.cells), dict(again.dish.deaths)
+    assert again.dish.cells[(x, y)].memory == {"x": "y" * (config.MEMORY_MAX_CHARS + 52)}
+    again.run(ticks=1, tick_seconds=0)
+    again.mutagen.join(timeout=5)
+    assert (x, y) not in again.dish.cells
+    assert len(again.dish.cells) == n - 1 + (again.dish.births - c.dish.births)
+    assert again.dish.deaths == {**deaths, "lysed": deaths["lysed"] + 1}
+    assert _events("nonviable") == [], "the genome is fine; the cell's memory was not"
+    saved = json.loads(config.DISH_FILE.read_text())
+    assert saved["tick"] == 21 and all(not (row[0] == x and row[1] == y) for row in saved["cells"])
+
+
 def test_network_guard_is_armed():
     """An awake mind that tries to think hits the suite's guard, not the network, so a test
     that forgets to fake Mind.think fails loudly instead of spending from the key."""

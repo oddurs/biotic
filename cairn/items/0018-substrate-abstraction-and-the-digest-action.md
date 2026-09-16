@@ -5,7 +5,7 @@ type: feature
 status: planned
 milestone: substrates
 created: 2026-09-08
-updated: 2026-09-08
+updated: 2026-09-16
 priority: p0
 effort: l
 area: bio/substrates.py, bio/dish.py, bio/prompts.py
@@ -55,3 +55,7 @@ class Substrate:
 - [ ] A hand-written genome that digests one substrate correctly outcompetes the fallback founder on that patch
 - [ ] Wrong answers cost energy; a genome that answers randomly starves on substrate and survives on glucose
 - [ ] Fossil headers include the diet: `digests: sequence 0.91, sort 0.12`
+
+## 2026-09-16
+
+From 0043: MEMORY_MAX_CHARS (2048, bio/config.py) is the number to revisit when a substrate window has to fit in me.memory; it is the per-tick cost knob. The digest answer's 'JSON-serialisable and <= 256 bytes' rule is membrane._walk with a smaller cap (it already refuses non-JSON types, tuple keys, depth and aliasing, and bounds its own work by the cap).

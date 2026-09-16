@@ -8,8 +8,9 @@ Two kinds of sample:
 
   <tick:08d>-<label>.json.gz   a dish sample: the whole dish, the culture's own state, and the
                                strain registry at that tick. Gzipped JSON.
-  strain-<id>[-<label>].json   a strain sample: one genome, its lineage, and one cell's memory.
-                               Plain JSON, small enough to read and edit by hand.
+  strain-<id>[-<label>].json   a strain sample: one genome, its lineage, and one cell's memory
+                               (tuples and non-string keys tagged; docs/freezer.md). Plain JSON,
+                               small enough to read and edit by hand.
 
 Nothing in the freezer is ever overwritten: a second sample with the same name gets -2, -3, ...
 """

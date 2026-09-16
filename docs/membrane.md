@@ -129,7 +129,82 @@ Time is measured with the same wall-clock budget the dish uses, `CELL_TIME_BUDGE
 | a round ran past its budget | `too slow: exceeded time budget` |
 | an exception escaped `live` | `threw on tick N: <Type>: <msg>` |
 | a return value `parse_action` rejects | `returned an unknown action: <repr>` |
+| the memory held something a save cannot carry, or too much, after a round | `<reason> (tick N)` — the reasons are in the next section |
 | the source did not compile | `failed to compile: <Type>: <msg>` |
+
+## What a cell may keep: `me.memory`
+
+`me.memory` is the one thing a genome can change that lives on between ticks; it is what
+a daughter inherits and what `dish.json` and every sample carry. So after every `live()`
+the dish holds the memory to one rule, `membrane.memory_fault`, and a cell whose memory
+breaks it bursts, before its action applies. The smoke test applies the same rule after
+each of its forty rounds (the stand-in cell keeps one memory across them, so counters and
+trails grow as they would in the dish) and refuses the genome with the reason and the
+round. After a tick a cell's memory must satisfy all of:
+
+1. **Values** are `None`, bools, ints, floats, strings, and lists, tuples and dicts of
+   those, at any nesting; **keys** are strings, numbers, bools or `None`. That is what
+   JSON can carry, and a save is JSON.
+2. **Nesting** is at most `MEMORY_MAX_DEPTH` (16) deep, the memory dict itself being
+   depth 1. A daughter's memory is a `copy.deepcopy` of her mother's and the save runs a
+   recursive codec over it; the bound keeps both far from the interpreter's recursion
+   limit, where `deepcopy` gives up and mother and daughter end up sharing the structure.
+3. **No list or dict appears twice** — in two places, or inside itself. A save separates
+   what was one object: before it a write to `rows[0]` showed in all eight rows of
+   `[[0] * 8] * 8`, after it in one. A tuple is immutable and may appear anywhere, any
+   number of times.
+4. **Written as plain JSON it is at most `MEMORY_MAX_CHARS` (2048) characters**: about a hundred
+   floats, or four hundred small ints, or a two-thousand-character string. The figure is
+   `len(json.dumps(memory))` — the memory as JSON writes it, a tuple counted as its list and a
+   numeric key as its string. It is not the tagged on-disk form (below): the file's type tags
+   are not counted, so a tuple- or numeric-key-heavy memory can serialise to somewhat more than
+   this on disk.
+
+Over the bound is lysis, not trimming: trimming would have to pick a key to drop, a silent
+change to what the genome sees, where a burst shows in the death ledger and the smoke test
+tells the mutagen why. The rule runs in the tick and not at the save because only then can
+the save be exact: whatever a save dropped, the running dish would still have, and its twin
+would not.
+
+| what the memory held after a tick | reason |
+|---|---|
+| a value of any other type: a function, `me`, `me.rng`, a range, an iterator | `memory holds a range; only None, bools, numbers, strings, lists, tuples and dicts may stay in it` (`a function` for anything callable, `me` for the cell itself) |
+| a key of any other type | `memory has a tuple as a key; keys must be strings, numbers, bools or None` |
+| a container at depth 17 | `memory nested deeper than 16` |
+| one list or dict in two places, or containing itself | `memory holds one list or dict in two places, or inside itself; keep a copy in each` |
+| more than 2048 characters as JSON | `memory over 2048 chars as JSON` |
+
+In the smoke test each reason ends with ` (tick N)`, the round it happened on.
+
+The check is one walk over the memory, then `json.dumps` only when the walk cannot settle
+the length on its own. The walk is not an optimisation: `json.dumps` cannot see that one
+list sits in two places, and on Python 3.12 and later it recurses thousands of levels
+deeper than `deepcopy` does. It keeps a lower and an upper bound on the JSON length as it
+goes, stops as soon as the lower one passes the cap, and skips `json.dumps` when the upper
+one is under it, so its work is bounded by the cap and not by the memory: a list that
+repeats a nested list a thousand times three levels down is a billion leaves as JSON and is
+refused in microseconds. For a cell with an empty memory, as in every fossil, it costs
+nothing measurable; for a cell keeping a six-int trail about a microsecond; on a 72×34 dish
+of 588 such cells stepped flat out about 0.5 ms on 2.9 ms per tick, and nothing at
+`TICK_SECONDS` = 0.5. `tests/test_membrane.py` pins, on two thousand seeded memories, that
+the walk's two bounds bracket the real length, so neither short cut can change a verdict.
+
+### the file format
+
+JSON cannot tell a tuple from a list or an int key from a string key, so `dish.json` and
+strain samples tag them (`encode_memory` and `decode_memory` in `bio/dish.py`): a tuple is
+`{"~t": [items]}`; a dict whose keys are all strings and none begins with `~` is a plain
+object; any other dict is `{"~d": [[key, value], ...]}`, which also carries a key that
+happens to begin with `~`. Everything the rule admits goes through exactly, insertion order
+included, and comes back with its types. The cap in rule 4 above is measured on the plain form
+(`json.dumps(memory)`), not on this tagged file, so a memory that is admitted can serialise to
+somewhat more than `MEMORY_MAX_CHARS` on disk when it holds many tuples or numeric keys. A
+`dish.json` or a sample written before the tags,
+or by hand with plain lists and string keys, reads as JSON gives it; a malformed tag is left
+as the plain JSON it is; memory an older save had already flattened to a string stays flat,
+since nothing can tell what it was. Forbidding tuples and numeric keys would have been
+simpler than tagging, and would have pushed evolution toward a JSON dialect; the tag costs
+nothing per tick.
 
 ## Lysis: why a genome cannot catch the budget
 
@@ -209,14 +284,20 @@ locals, module-level constants with arithmetic, a tuple and an alias of `random`
 helper with constant defaults and annotations, a docstring, `random.random()` and
 `random.choice()` — must be admitted. The tests that prove the static gate alone refuses
 a construct replace the smoke test with one that fails loudly, so "nothing ran" is a
-structural fact and not a timing. `tests/test_persistence.py` resumes a genome with the
-fullest module level the gate admits and asserts an exact twin for fifty ticks, once in
-the same interpreter and once in a child interpreter under a different `PYTHONHASHSEED`;
-pins what the freezer keeps of `me.memory` at every boundary; and runs a genome whose
-counter passes the 4300-digit limit until its save goes through. `tests/test_culture.py`
+structural fact and not a timing. The memory rule has one case per reason string, through
+the rule and through the smoke test, a lysis in the dish that comes before the cell's
+action, and the seeded bound test above; genomes keeping trails, tuples and int-keyed
+dicts are its positive control. `tests/test_persistence.py` resumes a genome with the
+fullest module level the gate admits, and one that keeps a tuple, a dict keyed by
+direction, a counter past 2**63 and a `~` key in memory, and asserts an exact twin for
+fifty ticks, once in the same interpreter and once in a child interpreter under a different
+`PYTHONHASHSEED`, with a control twin built from plain JSON that leaves the trajectory; it
+pins the codec and the file format; and it runs a genome whose counter passes the cap to
+see every cell burst on the same tick in the dish and in its twin. `tests/test_culture.py`
 runs a culture whose `dish.json` cannot be written, checks that the culture's generator
-comes back from a save, and thaws a dish holding a strain with a bare `except` to see it
-lysed, named and marked extinct when the culture runs.
+comes back from a save, thaws a dish holding a strain with a bare `except` to see it lysed,
+named and marked extinct when the culture runs, and loads a `dish.json` in which one cell's
+memory is over the cap to see that cell alone burst on the first tick.
 
 ## Thawing a dish
 
@@ -229,14 +310,15 @@ way out, atomically. A save that fails, whatever the reason, is logged once as a
 announced again when writing works; the dish keeps stepping meanwhile, and the last
 `dish.json` that was written stands.
 
-Of `me.memory` the freezer keeps at most 64 keys. Floats, strings, bools, `None` and
-ints in `[-2**63, 2**63)` are kept as they are and come back exactly; a list, a tuple or
-a dict that JSON can write in 200 characters or fewer comes back as JSON carries it (a
-tuple as a list, a nested key as a string); anything else, a set, a longer container, an
-int wider than that, comes back as the first 80 characters of its `str()`. The bound on
-ints is what keeps a save writable: `json.dumps` refuses an int past 4300 digits, and a
-genome that multiplies a counter every tick gets there in an afternoon. Before the bound
-such a genome made the save raise and the loop die with it.
+Of `me.memory` the freezer keeps everything. The rule above runs after every tick, so at
+any save every cell's memory is something the codec carries exactly: tuples, numeric keys,
+nesting and ints of any width the cap admits. The 64-key, 200-character-per-value and
+`[-2**63, 2**63)` limits of earlier builds are gone. A cell whose memory is over the cap
+when a dish is loaded — a hand edit, or a vessel saved before the rule — is not refused at
+load (`biotic status` reads the same file); it bursts on the first tick the culture runs,
+alone, and the next save no longer holds it. A strain sample whose memory breaks the rule
+is refused by name before the pre-revive freeze, because both revives save right after
+placing the cells, before any tick runs the rule.
 
 Every strain in a thawed dish is held against the static gate again when the culture
 starts to run. A dish saved under older rules may hold strains admitted with a bare
@@ -258,7 +340,8 @@ harder one.
   smoke test catches such a genome if it does this within its forty rounds; in the
   isolated child the 20 s ceiling ends it. A genome that only does it later, in the
   dish, stalls the culture until the operation finishes. There is no memory cap
-  either.
+  either. The memory check itself cannot be made to stall: its work is bounded by
+  `MEMORY_MAX_CHARS`, not by the memory (above).
 - **`%`-formatting and `repr` are a read-only channel.** `"%r" % me`, `str(random)` and
   `str(live)` reveal a class name and an address. Nothing can be called through it, but
   the address differs from process to process, so a genome that branches on such a
@@ -267,12 +350,6 @@ harder one.
 - **The stand-in cell is not the dish.** Forty rounds against random situations find
   genomes that throw on ordinary inputs. They do not find one that throws on a state
   only a real dish produces; that is what lysis in the dish is for.
-- **The twin holds for memory JSON can carry.** `dish.json` keeps ints in `[-2**63, 2**63)`,
-  floats, strings, bools and `None` in `me.memory`, and lists and dicts of them up to 200
-  characters each, at most 64 keys, and stringifies the rest (above); a genome that keeps
-  a set there, a long list, or an int wider than that, gets a string back after a resume.
-  Module level and attributes are closed, so this is the one place a genome's state can
-  differ from its save.
 - **A thawed strain is inspected, not smoke-tested.** The screening at the start of a run
   applies the static rules only. A genome that a newer smoke test would refuse but the
   older one admitted keeps living until the dish itself lyses it.

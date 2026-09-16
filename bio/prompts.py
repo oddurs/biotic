@@ -21,7 +21,7 @@ A genome is Python source that defines exactly one function:
     me.kin         8 bools: is that neighbor occupied by a cell of my own strain
     me.scent       8 floats: pheromone on neighbor tiles
     me.scent_here  pheromone on this tile
-    me.memory      a dict that persists across ticks and is copied into daughters
+    me.memory      a dict that persists across ticks and is copied into daughters; the rules below say what it may hold
     me.rng         a random.Random — the dish's own seeded generator. `random` in scope is the same object.
     me.tick        the dish clock
     me.population  how many cells are alive in the whole dish
@@ -58,6 +58,14 @@ Hard rules of the membrane — a genome breaking any of these is discarded befor
     decorators, no mutable or computed default arguments. Module level runs again whenever the
     culture is reloaded, so anything that must persist goes in me.memory. Keep it short (well
     under 2000 chars).
+  - me.memory holds only None, True/False, ints, floats, strings, and lists, tuples and dicts of
+    those (keys: strings, numbers, bools or None), nested at most {_c.MEMORY_MAX_DEPTH} deep, at most
+    {_c.MEMORY_MAX_CHARS} characters as plain JSON (a tuple counts as its list, a numeric key as its
+    string; the file's own type tags are not counted), and never the same list or dict in two
+    places (copy it: list(x)). That is exactly what a save carries, so a cell resumes as it left
+    off. A cell whose memory breaks
+    this at the end of a tick (a function, `me`, a range, a trail that is never trimmed, one row
+    list repeated eight times) bursts.
   - live() must return within a few milliseconds every tick. A loop that does not end bursts
     the cell, and nothing in the genome can catch that.
 """

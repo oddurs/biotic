@@ -67,6 +67,73 @@ def live(me):
     return "rest"
 """
 
+# A genome that keeps in memory what plain JSON cannot carry back: a tuple, a dict keyed by
+# direction (an int), a counter that passes 2**63 (3**40 does) and a key beginning with "~".
+# It branches on the tuple-ness of `home` and on an int-keyed lookup within a few ticks, so a
+# twin built from plain JSON (a list, string keys) leaves the trajectory rather than passing
+# by luck. Draws only through me.rng.
+TUPLE_GENOME = """\
+def live(me):
+    m = me.memory
+    m["n"] = m.get("n", 0) + 1
+    d = int(me.rng.random() * 8)
+    home = m.setdefault("home", (d, me.tick))
+    counts = m.setdefault("counts", {})
+    counts[d] = counts.get(d, 0) + 1
+    m["big"] = m.get("big", 1) * 3
+    m["~odd"] = me.tick
+    free = [x for x in range(8) if not me.crowd[x]]
+    if me.energy > 1.0 and free:
+        return ("divide", free[int(me.rng.random() * len(free))])
+    if counts.get(home[0], 0) > 3 or home == (d, me.tick):
+        return "eat" if me.here > 0.02 else "rest"
+    if me.here > 0.04 and isinstance(home, tuple):
+        return "eat"
+    if free:
+        return ("move", free[int(me.rng.random() * len(free))])
+    return "rest"
+"""
+
+# The founder, multiplying one int in memory by 10**50 every tick: admitted (2008 characters as
+# JSON after the smoke test's forty rounds) and over MEMORY_MAX_CHARS on the next tick of a
+# lineage, so every cell bursts on the same tick, in the dish and in its twin.
+TOO_MUCH_GENOME = FALLBACK_GENESIS.replace(
+    "def live(me):\n", "def live(me):\n    me.memory['x'] = me.memory.get('x', 1) * 10**50\n"
+)
+
+# The founder, keeping one row list eight times over: a write to one row shows in all eight
+# before a save and in one after it, so the smoke test refuses it on its first round.
+ALIAS_GENOME = FALLBACK_GENESIS.replace("def live(me):\n", "def live(me):\n    me.memory['rows'] = [[0] * 8] * 8\n")
+
+# the fullest module level the membrane admits: constants, arithmetic on them, a tuple, an
+# f-string, math.pi, an alias of the generator, and a helper with constant defaults and
+# annotations; live() draws through the alias every tick and counts the ticks it has lived
+MODULE_GENOME = '''\
+"""A genome with module-level state, all of it constant."""
+
+THRESH = 0.04
+HALF = THRESH / 2
+DIRS = (0, 1, 2, 3, 4, 5, 6, 7)
+LABEL = f"{THRESH:.2f}"
+PI: float = math.pi
+R = random
+
+
+def wander(me, dirs=DIRS, jitter: float = HALF):
+    free = [d for d in dirs if not me.crowd[d]]
+    return ("move", R.choice(free)) if free and R.random() < jitter * 10 else "rest"
+
+
+def live(me):
+    me.memory["n"] = me.memory.get("n", 0) + 1
+    free = [d for d in DIRS if not me.crowd[d]]
+    if me.energy > 1.0 and free:
+        return "divide"
+    if me.here > THRESH:
+        return "eat"
+    return wander(me)
+'''
+
 
 def _no_network(*args, **kwargs):
     raise AssertionError("a test reached for the network")
@@ -195,9 +262,8 @@ def make_dish(
 
 def dish_state(d: Dish) -> tuple:
     """Everything that determines the dish's future, as one comparable value."""
-    cells = sorted(
-        (c.x, c.y, c.strain, c.energy, c.age, c.born, tuple(sorted(c.memory.items()))) for c in d.cells.values()
-    )
+    # memory items in insertion order, which a genome can observe; sorted() would raise on mixed keys
+    cells = sorted((c.x, c.y, c.strain, c.energy, c.age, c.born, tuple(c.memory.items())) for c in d.cells.values())
     return (
         d.tick,
         cells,

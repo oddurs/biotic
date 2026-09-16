@@ -5,7 +5,7 @@ type: bug
 status: backlog
 milestone: dish
 created: 2026-09-08
-updated: 2026-09-08
+updated: 2026-09-16
 priority: p1
 area: bio/membrane.py
 ---
@@ -36,3 +36,7 @@ whatever is chosen; the dish runs at about 3 ms per tick on 72×34 today.
 - [ ] A genome that runs `sum(range(10**12))` only after tick 40 cannot stall the dish for more than a bounded time
 - [ ] The smoke test's child cannot exhaust memory
 - [ ] A test in `tests/test_membrane.py` demonstrates each
+
+## 2026-09-16
+
+From 0043: the me.memory check the dish runs after every live() (membrane.memory_fault) is O(MEMORY_MAX_CHARS) per cell, not O(memory): its walk stops as soon as a lower bound on the JSON length passes the cap, and json.dumps only runs on a memory the walk has already bounded. A 10**9-leaf list DAG is refused in ~7 us. It cannot itself be made to stall; no need to re-measure it here.

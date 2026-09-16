@@ -8,7 +8,6 @@ and a strain id; the strain id resolves to a genome, and the genome is a
 from __future__ import annotations
 
 import copy
-import json
 import math
 import random
 from collections import deque
@@ -16,7 +15,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from . import config
-from .membrane import Budget, Lysis, compile_genome
+from .membrane import Budget, Lysis, compile_genome, memory_fault
 
 # clockwise from north
 DIRS = [(0, -1), (1, -1), (1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1)]
@@ -330,9 +329,12 @@ class Dish:
                 me = Me(cell, self)
                 with Budget(config.CELL_TIME_BUDGET):
                     out = self._fn(cell.strain)(me)
+                    fault = memory_fault(cell.memory)  # the walk over what this cell built is charged to it
                 action = parse_action(out)
                 if action is None:
                     raise ValueError("unparseable action")
+                if fault:
+                    raise ValueError(fault)  # what the genome left in memory cannot be saved: lysis, before its action
                 self._apply(cell, action)
             except (Lysis, Exception):  # noqa: BLE001 — anything a genome does wrong is lysis
                 self._die(cell, "lysed")
@@ -443,7 +445,9 @@ class Dish:
             "rng": self.rng.getstate(),
             "nutrient": self.nutrient,
             "pheromone": self.pheromone,
-            "cells": [[c.x, c.y, c.strain, c.energy, c.age, c.born, _jsonable(c.memory)] for c in self.cells.values()],
+            "cells": [
+                [c.x, c.y, c.strain, c.energy, c.age, c.born, encode_memory(c.memory)] for c in self.cells.values()
+            ],
             "genomes": self.genomes,
             "history": list(self.history),
             "deaths": self.deaths,
@@ -468,24 +472,21 @@ class Dish:
         dish.births = d.get("births", 0)
         dish.replenish = d.get("replenish", config.REPLENISH)
         for x, y, strain, energy, age, born, mem in d["cells"]:
-            dish.cells[(x, y)] = Cell(x, y, strain, energy, age, born, mem or {})
+            dish.cells[(x, y)] = Cell(x, y, strain, energy, age, born, decode_memory(mem or {}))
         return dish
 
 
-# What dish.json keeps of me.memory: this many keys; ints in this range as ints, everything that
-# is not a primitive as this many characters of its str(). The bound on ints is what keeps a save
-# writable: json.dumps refuses an int past sys.get_int_max_str_digits() (4300 digits), and a genome
-# that multiplies a counter every tick gets there in an afternoon.
-MEMORY_KEYS = 64
-MEMORY_CHARS = 80
-MEMORY_INT = 2**63
-MEMORY_JSON = 200  # a list or a dict whose JSON is this long or shorter is kept as a value, not a string
+# Memory is bounded in the tick: membrane.memory_fault runs on every cell's memory after every
+# live(), and a cell that breaks the rule bursts. What is here is a faithful codec for what
+# passes, not a bound: JSON cannot tell a tuple from a list or an int key from a str key, so the
+# encoder tags those and the decoder undoes the tags.
 
 
 def _inherit(memory: dict | None) -> dict:
     """What a new cell gets of the memory it is given: a deep copy, so a mother and her daughter
-    never share a list or a dict. Anything deepcopy cannot take (a genome may keep odd things in
-    memory) is shared, as a shallow copy would have shared it."""
+    never share a list or a dict. The shallow copy is for memory deepcopy cannot take; nothing
+    that has lived a tick holds any (memory_fault admits only what deepcopy copies exactly), so
+    it is reachable only from place() and inoculate() with hand-made memory."""
     if not memory:
         return {}
     try:
@@ -494,46 +495,82 @@ def _inherit(memory: dict | None) -> dict:
         return dict(memory)
 
 
-def _jsonable(m: dict) -> dict:
-    """A cell's memory as `dish.json` keeps it.
+def encode_memory(m: dict) -> dict:
+    """A cell's memory as dish.json and a strain sample carry it.
 
-    Floats, strings, bools, None and ints in [-2**63, 2**63) are kept as they are, so they come
-    back exactly. A list, a tuple or a dict that JSON can carry in MEMORY_JSON characters or
-    fewer is kept as JSON carries it (a tuple comes back as a list, a nested key as a string), so
-    a genome's trail survives a save, a freeze and a revive. Anything else — a wider int, a set,
-    a dict keyed by tuples, a longer container — comes back as the first 80 characters of its
-    str(). bool is tested first because it is an int.
+    None, bools, ints, floats and strings are themselves; a list is a list; a tuple is
+    {"~t": [items]}; a dict whose keys are all strings and none begins with "~" is a plain
+    object, and any other dict is {"~d": [[key, value], ...]}, so an int key, a bool key or a
+    key that happens to begin with "~" comes back as it was. Insertion order is kept. Everything
+    memory_fault admits goes through exactly. Anything else — a set or a range in hand-made
+    memory a test placed, never a cell that has lived a tick — is written as up to 80
+    characters of its str(), so a save never fails on it.
     """
-    out = {}
-    for k, v in list(m.items())[:MEMORY_KEYS]:
-        key = k if isinstance(k, str) else _text(k)
-        if isinstance(v, bool) or v is None or isinstance(v, (float, str)):
-            out[key] = v
-        elif isinstance(v, int) and -MEMORY_INT <= v < MEMORY_INT:
-            out[key] = v
-        elif isinstance(v, (list, tuple, dict)) and (enc := _encoded(v)) is not None:
-            out[key] = json.loads(enc)
-        else:
-            out[key] = _text(v)[:MEMORY_CHARS]
-    return out
+    if _plain(m):
+        return {k: _value(v) for k, v in m.items()}
+    return {"~d": [[_value(k), _value(v)] for k, v in m.items()]}
 
 
-def _encoded(v) -> str | None:
-    """json.dumps(v) if JSON can carry v in MEMORY_JSON characters, else None. An int past the
-    decimal limit, a container nested past the recursion limit and a tuple key all refuse."""
+def decode_memory(d) -> dict:
+    """The inverse of encode_memory, total on any JSON: {"~t": [...]} is a tuple, {"~d": [[k, v],
+    ...]} is a dict with those keys, any other object is a dict with string keys, and anything
+    malformed under a tag stays the plain JSON it is. Untagged input — a dish.json or a sample
+    written before the tags, or by hand — comes back as JSON gives it. The result is a dict: a
+    top level that is not one (a hand-edited {"~t": [...]}) is an empty memory."""
+    m = _decode(d)
+    return m if type(m) is dict else {}
+
+
+def _plain(d: dict) -> bool:
+    return all(type(k) is str and not k.startswith("~") for k in d)
+
+
+def _value(v):
     try:
-        enc = json.dumps(v)
-    except (TypeError, ValueError, RecursionError):
-        return None
-    return enc if len(enc) <= MEMORY_JSON else None
+        return _encode(v)
+    except RecursionError:  # nested past the interpreter's limit: never admitted, and not a save's problem
+        return _text(v)[:80]
+
+
+def _encode(v):
+    t = type(v)
+    if v is None or t is bool or t is int or t is float or t is str:
+        return v
+    if t is list:
+        return [_encode(x) for x in v]
+    if t is tuple:
+        return {"~t": [_encode(x) for x in v]}
+    if t is dict:
+        if _plain(v):
+            return {k: _encode(x) for k, x in v.items()}
+        return {"~d": [[_encode(k), _encode(x)] for k, x in v.items()]}
+    return _text(v)[:80]
+
+
+def _decode(v):
+    t = type(v)
+    if t is list:
+        return [_decode(x) for x in v]
+    if t is not dict:
+        return v
+    if len(v) == 1:
+        tag, body = next(iter(v.items()))
+        if tag == "~t" and type(body) is list:
+            return tuple(_decode(x) for x in body)
+        if tag == "~d" and type(body) is list and all(type(p) is list and len(p) == 2 for p in body):
+            try:
+                return {_decode(k): _decode(x) for k, x in body}
+            except TypeError:  # an unhashable key: not a dict the encoder wrote
+                pass
+    return {k: _decode(x) for k, x in v.items()}
 
 
 def _text(v) -> str:
     """str(v), or a placeholder when str() itself refuses.
 
     An int past sys.get_int_max_str_digits() has no decimal form, and a container nested past
-    the recursion limit has no repr; a genome can build either in its budget, and neither may
-    stop a save.
+    the recursion limit has no repr. Neither survives a tick any more, but hand-made memory can
+    hold either, and neither may stop a save.
     """
     try:
         return str(v)

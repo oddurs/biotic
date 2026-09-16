@@ -84,6 +84,8 @@ PHEROMONE_DIFFUSION = 0.10
 MUTATION_RATE = float(env("BIOTIC_MUTATION_RATE", "0.06"))  # per division
 CELL_TIME_BUDGET = 0.004  # seconds a single live() may take before lysis
 GENOME_MAX_CHARS = 2400
+MEMORY_MAX_CHARS = 2048  # a cell's memory as plain JSON, after every tick; more bursts the cell
+MEMORY_MAX_DEPTH = 16  # how deep lists, tuples and dicts may nest inside it
 INOCULUM = 5  # cells placed at seeding
 
 # --- the freezer (bookkeeping, not physics) ------------------------------

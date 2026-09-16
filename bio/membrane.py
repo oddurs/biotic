@@ -10,12 +10,14 @@ bursts it. Module level holds only `def` and constants, and attributes are
 read-only, so everything a genome can change lives in `me.memory` or the dish's
 generator, both of which the freezer saves. No sets: a set of strings iterates
 in an order the interpreter's hash seed picks, and the dish's seed does not fix
-that.
+that. What `me.memory` may hold is bounded here too (`memory_fault`), and the
+dish applies that rule after every tick, so a save carries memory exactly.
 """
 
 from __future__ import annotations
 
 import ast
+import json
 import math
 import random
 import signal
@@ -387,6 +389,9 @@ def smoke_test(source: str, rounds: int = 40) -> Verdict:
             return Verdict(False, [f"threw on tick {i}: {type(e).__name__}: {e}"])
         if not _valid_action(out):
             return Verdict(False, [f"returned an unknown action: {out!r}"])
+        fault = memory_fault(me.memory)  # one dict across the rounds, so counters and trails grow as in the dish
+        if fault:
+            return Verdict(False, [f"{fault} (tick {i})"])
     return Verdict(True)
 
 
@@ -394,6 +399,142 @@ def _valid_action(out) -> bool:
     from .dish import parse_action
 
     return parse_action(out) is not None
+
+
+# --- what a cell may keep: me.memory ------------------------------------------
+_MEMORY_VALUES = "only None, bools, numbers, strings, lists, tuples and dicts may stay in it"
+_MEMORY_KEYS = "keys must be strings, numbers, bools or None"
+_MEMORY_ALIAS = "memory holds one list or dict in two places, or inside itself; keep a copy in each"
+
+
+class _Fault(Exception):
+    """Raised inside _walk with the reason; memory_fault returns it."""
+
+
+def memory_fault(memory: dict) -> str | None:
+    """The one rule the dish applies to `me.memory` after every `live()`: the reason the memory
+    breaks it, or None.
+
+    After a tick a cell's memory may hold only None, bools, ints, floats, strings, and lists,
+    tuples and dicts of those, with string, number, bool or None keys; it may nest no deeper
+    than MEMORY_MAX_DEPTH (the memory dict itself is depth 1); no list or dict in it may sit in
+    two places or inside itself; and written as plain JSON (json.dumps of the memory itself, a
+    tuple as a list and a numeric key as its string, before the file's type tags) it is at most
+    MEMORY_MAX_CHARS long. One reason per clause. JSON is what a save is, so only what JSON can
+    carry may stay. A save
+    separates a list that sits in two places (a write to one shows in both before the save
+    and in one after), so a shared list or dict is refused where a shared tuple, immutable,
+    is not. `copy.deepcopy`, which a daughter's memory goes through, and the codec both
+    recurse, so nesting stops where neither can run out of stack. And the check runs on every
+    cell every tick, so its cost is bounded by the cap: one walk that keeps a lower and an
+    upper bound on the JSON length and stops as soon as the lower one passes the cap, then
+    `json.dumps` only for the few memories whose upper bound does not settle it.
+
+    A cell whose memory breaks the rule bursts (lysis, before its action applies), so a
+    daughter's memory is always a copy of one that passed; the smoke test refuses a genome
+    that breaks it within its forty rounds and tells the mutagen the reason and the round.
+    """
+    if type(memory) is not dict:
+        return f"memory is {_name(memory)}, not a dict"
+    if not memory:
+        return None
+    cap, deepest = config.MEMORY_MAX_CHARS, config.MEMORY_MAX_DEPTH
+    try:
+        lo, hi = _walk(memory, 1, {id(memory)}, 0, 0, cap, deepest)
+        if hi <= cap:  # certainly under: most memories, and no json.dumps for them
+            return None
+        n = len(json.dumps(memory))
+    except _Fault as f:
+        return f.args[0]
+    except ValueError:  # an int json refuses (past 4300 digits) is over any cap this dish has run with
+        return _too_large(cap)
+    return _too_large(cap) if n > cap else None
+
+
+def _too_large(cap: int) -> str:
+    return f"memory over {cap} chars as JSON"
+
+
+def _walk(v, depth: int, seen: set, lo: int, hi: int, cap: int, deepest: int) -> tuple[int, int]:
+    """Walk one admitted container (a list, tuple or dict at `depth`): its leaves inline, its
+    containers by recursion. Returns two running figures that bracket the length of the JSON so
+    far, `lo <= len(json.dumps(...)) <= hi` (a seeded test pins both): per element 2 for brackets
+    and separators; per string len + 2 below and 12 * len + 2 above (ensure_ascii writes an
+    astral character as twelve); per key 4 more; per int a quarter of its bits below and a third
+    plus a sign above; 3 to 24 per float, 4 to 5 per bool or None. The walk stops as soon as `lo`
+    passes the cap, so it can only say "too large" earlier than json.dumps would, never
+    differently, and the work it does is bounded by the cap and not by the memory. Raises _Fault
+    with the reason for anything the rule refuses."""
+    n = len(v)
+    lo += 2 * n
+    hi += 2 * n or 2
+    if lo > cap:
+        raise _Fault(_too_large(cap))
+    if type(v) is dict:
+        for k in v:
+            tk = type(k)
+            if tk is str:
+                m = len(k)
+                lo += m + 4
+                hi += 12 * m + 4
+            elif tk is int:
+                b = k.bit_length()
+                lo += (b >> 2) + 4
+                hi += b // 3 + 7
+            elif tk is float:
+                lo += 7
+                hi += 28
+            elif tk is bool or k is None:
+                lo += 7
+                hi += 9
+            else:
+                raise _Fault(f"memory has {_name(k)} as a key; {_MEMORY_KEYS}")
+        if lo > cap:
+            raise _Fault(_too_large(cap))
+        v = v.values()
+    for x in v:
+        tx = type(x)
+        if tx is int:
+            b = x.bit_length()
+            lo += b >> 2
+            hi += b // 3 + 3
+        elif tx is str:
+            m = len(x)
+            lo += m + 2
+            hi += 12 * m + 2
+        elif tx is float:
+            lo += 3
+            hi += 24
+        elif tx is bool or x is None:
+            lo += 4
+            hi += 5
+        elif tx is list or tx is dict:
+            if depth >= deepest:
+                raise _Fault(f"memory nested deeper than {deepest}")
+            if id(x) in seen:
+                raise _Fault(_MEMORY_ALIAS)
+            seen.add(id(x))
+            lo, hi = _walk(x, depth + 1, seen, lo, hi, cap, deepest)
+        elif tx is tuple:  # immutable, so one tuple in two places is no different from two copies
+            if depth >= deepest:
+                raise _Fault(f"memory nested deeper than {deepest}")
+            lo, hi = _walk(x, depth + 1, seen, lo, hi, cap, deepest)
+        else:
+            raise _Fault(f"memory holds {_name(x)}; {_MEMORY_VALUES}")
+    if lo > cap:
+        raise _Fault(_too_large(cap))
+    return lo, hi
+
+
+def _name(v) -> str:
+    """What to call a value the rule refuses: `me` for the cell itself, `a function` for
+    anything callable, otherwise its type."""
+    kind = type(v).__name__
+    if kind in ("Me", "_FakeMe"):
+        return "me"
+    if callable(v):
+        return "a function"
+    return f"an {kind}" if kind[:1].lower() in "aeiou" else f"a {kind}"
 
 
 def admit(source: str) -> Verdict:
@@ -406,7 +547,6 @@ def admit(source: str) -> Verdict:
 
 def admit_isolated(source: str, timeout: float = 20.0) -> Verdict:
     """admit(), but in a fresh interpreter. Safe to call from any thread."""
-    import json
     import subprocess
     import sys
 
@@ -429,7 +569,6 @@ def admit_isolated(source: str, timeout: float = 20.0) -> Verdict:
 
 
 if __name__ == "__main__":
-    import json
     import sys
 
     v = admit(sys.stdin.read())

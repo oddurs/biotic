@@ -7,6 +7,7 @@ a count.
 
 from __future__ import annotations
 
+import json
 import os
 import random
 import shutil
@@ -19,20 +20,22 @@ import pytest
 
 from bio import config, membrane
 from bio.culture import FALLBACK_GENESIS
-from bio.dish import Dish
+from bio.dish import Dish, encode_memory
 from bio.membrane import (
     ALLOWED_EXCEPTIONS,
     SAFE_BUILTINS,
     Budget,
     Lysis,
+    _walk,
     admit,
     admit_isolated,
     compile_genome,
     inspect,
+    memory_fault,
     smoke_test,
 )
 
-from .conftest import fixture_genomes, make_dish
+from .conftest import ALIAS_GENOME, MODULE_GENOME, TUPLE_GENOME, WANDERER, fixture_genomes, make_dish
 
 LIVE_REST = "def live(me):\n    return 'rest'\n"
 EXCEPT_RULE = "except may only name"
@@ -615,6 +618,219 @@ def test_random_in_scope_is_the_dish_rng():
     fn = compile_genome("def live(me):\n    return random.SystemRandom\n", random.Random(7))
     with pytest.raises(AttributeError):
         fn(None)
+
+
+# --- what a cell may keep: me.memory ---------------------------------------------
+
+VALUES_RULE = "only None, bools, numbers, strings, lists, tuples and dicts may stay in it"
+KEYS_RULE = "keys must be strings, numbers, bools or None"
+ALIAS_RULE = "memory holds one list or dict in two places, or inside itself; keep a copy in each"
+TOO_LARGE = f"memory over {config.MEMORY_MAX_CHARS} chars as JSON"
+TOO_DEEP = f"memory nested deeper than {config.MEMORY_MAX_DEPTH}"
+
+
+def _nested(k: int) -> list:
+    """k lists, one inside the next; inside a memory dict the innermost sits at depth k + 1."""
+    v: list = [0]
+    for _ in range(k - 1):
+        v = [v]
+    return v
+
+
+def _cyclic() -> list:
+    c: list = []
+    c.append(c)
+    return c
+
+
+# (name, the smallest memory that breaks the rule, the lines of live() that build it, the reason)
+MEMORY_FAULTS = [
+    ("function", {"f": len}, "me.memory['f'] = me.rng.random", f"memory holds a function; {VALUES_RULE}"),
+    ("me", None, "me.memory['me'] = me", f"memory holds me; {VALUES_RULE}"),
+    ("range", {"r": range(3)}, "me.memory['r'] = range(3)", f"memory holds a range; {VALUES_RULE}"),
+    ("tuple_key", {(1, 2): 3}, "me.memory[(1, 2)] = 3", f"memory has a tuple as a key; {KEYS_RULE}"),
+    (
+        "depth",
+        {"v": _nested(config.MEMORY_MAX_DEPTH)},
+        f"v = [0]\n    for _ in range({config.MEMORY_MAX_DEPTH - 1}):\n        v = [v]\n    me.memory['v'] = v",
+        TOO_DEEP,
+    ),
+    ("alias", {"rows": [[0] * 8] * 8}, "me.memory['rows'] = [[0] * 8] * 8", ALIAS_RULE),
+    ("cycle", {"c": _cyclic()}, "c = []\n    c.append(c)\n    me.memory['c'] = c", ALIAS_RULE),
+    ("string", {"s": "x" * 3000}, "me.memory['s'] = 'x' * 3000", TOO_LARGE),
+    ("int", {"i": 10**5000}, "me.memory['i'] = 10 ** 5000", TOO_LARGE),
+]
+
+
+@pytest.mark.parametrize("name,memory,lines,reason", MEMORY_FAULTS, ids=[f[0] for f in MEMORY_FAULTS])
+def test_memory_the_save_cannot_carry_is_refused_and_named(name, memory, lines, reason):
+    """One case per reason string: the rule refuses the memory directly, and the smoke test
+    refuses a genome that builds it on its first round, naming the reason and the round."""
+    if memory is not None:
+        assert memory_fault(memory) == reason
+    src = f"def live(me):\n    {lines}\n    return 'rest'\n"
+    assert inspect(src).reasons == []
+    v = admit(src)
+    assert not v
+    assert v.reasons == [f"{reason} (tick 0)"]
+
+
+def test_memory_that_grows_past_the_cap_is_refused_at_the_round_it_does():
+    """The stand-in cell keeps one memory across the forty rounds, so a counter that multiplies
+    every tick is over the cap at the round arithmetic says, not admitted by a fresh dict."""
+    src = "def live(me):\n    me.memory['x'] = me.memory.get('x', 1) * 10**100\n    return 'rest'\n"
+    cap = config.MEMORY_MAX_CHARS
+    tick = next(k for k in range(200) if len(json.dumps({"x": 10 ** (100 * (k + 1))})) > cap)
+    assert 0 < tick < 40
+    assert admit(src).reasons == [f"{TOO_LARGE} (tick {tick})"]
+
+
+def test_memory_the_rule_refuses_bursts_the_cell_before_its_action_applies(monkeypatch):
+    """In the dish the fault is a lysis like any other, and it comes before the action: the cell
+    that put `me` in its memory and returned "eat" ate nothing; its tile holds only what it gave
+    back as necromass. Its neighbour, whose memory is clean, ate."""
+    monkeypatch.setattr(Dish, "_diffuse", lambda self: None)
+    src = "def live(me):\n    if me.here > 0.5:\n        me.memory['me'] = me\n    return 'eat'\n"
+    d = make_dish(genome=src, replenish=0.0, n=0)
+    d.place(2, 6, "f")
+    clean = d.place(3, 6, "f")
+    d.nutrient[6][2], d.nutrient[6][3] = 0.9, 0.3
+    d.step()
+    assert (2, 6) not in d.cells and d.cells[(3, 6)] is clean
+    assert d.deaths["lysed"] == 1
+    back = (config.INITIAL_ENERGY - config.BASAL_COST) * config.NECROMASS + config.CORPSE_NUTRIENT
+    assert d.nutrient[6][2] == pytest.approx(min(1.0, 0.9 + back)), "nothing was eaten from the dirty cell's tile"
+    assert d.nutrient[6][3] == pytest.approx(0.3 - config.EAT_RATE)
+    assert clean.memory == {}
+
+
+def test_tuples_may_sit_in_two_places():
+    """A tuple is immutable, so one in two places is no different from two copies after a save;
+    `()` is one object for the whole interpreter. A list inside a shared tuple is still one list."""
+    t = (1, 2)
+    assert memory_fault({"a": t, "b": t, "c": (1, 2)}) is None
+    assert memory_fault({"a": (), "b": (), "c": [(), ()]}) is None
+    assert memory_fault({"a": (t, t), "b": [t]}) is None
+    shared = ([1],)
+    assert memory_fault({"a": shared, "b": shared}) == ALIAS_RULE
+    assert memory_fault({"a": [1], "b": [1]}) is None, "two equal lists are two lists"
+
+
+def test_memory_rule_admits_what_json_carries_at_the_edges():
+    """Keys may be any of the four JSON key types, values any of the seven; the memory dict
+    itself is depth 1, so a chain of MEMORY_MAX_DEPTH - 1 containers inside it is the deepest
+    admitted; exactly the cap is admitted; an empty memory is nothing to check."""
+    assert memory_fault({}) is None
+    assert memory_fault({True: 1, None: 2, 1.5: 3, -4: 4, "s": 5}) is None
+    assert memory_fault({"v": [None, True, 1, 2.5, "s", [1], (1,), {"k": 1}]}) is None
+    assert memory_fault({"v": _nested(config.MEMORY_MAX_DEPTH - 1)}) is None
+    assert memory_fault({"v": _nested(config.MEMORY_MAX_DEPTH)}) == TOO_DEEP
+    exact = {"s": "x" * (config.MEMORY_MAX_CHARS - len('{"s": ""}'))}
+    assert len(json.dumps(exact)) == config.MEMORY_MAX_CHARS
+    assert memory_fault(exact) is None
+    assert memory_fault({"s": exact["s"] + "x"}) == TOO_LARGE
+    assert memory_fault([1]) == "memory is a list, not a dict"
+
+
+def test_the_cap_is_measured_on_plain_json_not_the_tagged_file():
+    """The cap is `len(json.dumps(memory))` — the memory as JSON writes it, a tuple as a list and
+    a numeric key as its string — not `encode_memory`'s tagged on-disk form, whose `~t`/`~d` tags
+    add a little. So a tuple-heavy memory that is under the cap as plain JSON is admitted even
+    though the file it saves to runs over it. CELL_API and docs/membrane.md say the cap is on the
+    plain form; this pins that the rule matches the prose (measuring the tagged form would refuse
+    this)."""
+    m = {f"k{i}": (i,) for i in range(150)}
+    assert len(json.dumps(m)) <= config.MEMORY_MAX_CHARS
+    assert len(json.dumps(encode_memory(m))) > config.MEMORY_MAX_CHARS
+    assert memory_fault(m) is None
+
+
+def test_walk_size_is_a_lower_bound_on_the_json_length():
+    """The walk stops as soon as its lower bound passes the cap and skips json.dumps when its
+    upper bound is under it, so neither may be wrong: a lower bound over the real length would
+    refuse a memory json.dumps would have shown under the cap, an upper bound under it would
+    admit one over. Two thousand random memories, seeded: ints of up to 300 digits (negative
+    too), strings with escapes, non-ASCII and an astral character, floats, bools, None, lists,
+    tuples and dicts with mixed keys, nested up to five deep. For every one,
+    lo <= len(json.dumps) <= hi, and the verdict is exactly the one the real length gives; both
+    verdicts occur, and the upper bound settles most of the small ones on its own."""
+    rng = random.Random(1)
+
+    def leaf():
+        return rng.choice(
+            [
+                rng.randint(-(10 ** rng.randint(0, 300)), 10 ** rng.randint(0, 300)),
+                "x" * rng.randint(0, 60),
+                "é" * rng.randint(0, 5),
+                "\U0001f600" * rng.randint(0, 2),
+                '"\\\n\t\x1f',
+                rng.random() * 10 ** rng.randint(-20, 20),
+                float(rng.randint(0, 3)),
+                True,
+                False,
+                None,
+                "",
+            ]
+        )
+
+    def value(depth):
+        r = rng.random()
+        if depth > 4 or r < 0.5:
+            return leaf()
+        if r < 0.7:
+            return [value(depth + 1) for _ in range(rng.randint(0, 6))]
+        if r < 0.85:
+            return tuple(value(depth + 1) for _ in range(rng.randint(0, 6)))
+        keys = ["k" * rng.randint(0, 9), rng.randint(0, 9), 1.5, True, None, -3, 10 ** rng.randint(0, 40), "~t"]
+        return {rng.choice(keys): value(depth + 1) for _ in range(rng.randint(0, 6))}
+
+    verdicts = {True: 0, False: 0}
+    settled = 0
+    for _ in range(2000):
+        m = {f"k{i}": value(1) for i in range(rng.randint(1, 4))}
+        lo, hi = _walk(m, 1, {id(m)}, 0, 0, 10**9, config.MEMORY_MAX_DEPTH)
+        n = len(json.dumps(m))
+        assert lo <= n <= hi, (lo, n, hi, m)
+        admitted = memory_fault(m) is None
+        assert admitted == (n <= config.MEMORY_MAX_CHARS), (n, m)
+        verdicts[admitted] += 1
+        settled += hi <= config.MEMORY_MAX_CHARS
+    assert verdicts[True] > 1000 and verdicts[False] > 100, verdicts
+    assert settled > 500, "the upper bound must settle most small memories without json.dumps"
+
+
+def test_memory_check_is_bounded_by_the_cap_not_the_memory():
+    """A list that repeats a nested list a thousand times three levels down is 10**9 leaves as
+    JSON; the walk refuses it as soon as its running size passes the cap, in microseconds, and
+    never calls json.dumps on it."""
+    x: list = [1]
+    for _ in range(3):
+        x = [x] * 1000
+    t0 = time.perf_counter()
+    assert memory_fault({"x": x}) in (TOO_LARGE, ALIAS_RULE)
+    assert time.perf_counter() - t0 < 0.05
+
+
+@pytest.mark.parametrize(
+    "name,source",
+    [
+        ("benign", None),
+        ("founder", FALLBACK_GENESIS),
+        ("wanderer", WANDERER),
+        ("tuple_memory", TUPLE_GENOME),
+        ("module_level", MODULE_GENOME),
+    ],
+)
+def test_genomes_that_keep_admitted_memory_are_still_admitted(name, source):
+    """The positive control for the memory rule: trails, counters, tuples, int-keyed dicts and
+    `~` keys all pass the forty rounds. The ten fossils are checked by their own test."""
+    v = admit(source if source is not None else BENIGN)
+    assert v, (name, v.reasons)
+
+
+def test_aliased_rows_are_refused_by_name():
+    v = admit(ALIAS_GENOME)
+    assert v.reasons == [f"{ALIAS_RULE} (tick 0)"]
 
 
 # --- isolation: admit_isolated in a child interpreter -------------------------

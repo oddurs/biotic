@@ -5,7 +5,7 @@ type: feature
 status: planned
 milestone: transitions
 created: 2026-09-08
-updated: 2026-09-08
+updated: 2026-09-16
 priority: p1
 effort: m
 area: bio/dish.py
@@ -32,3 +32,7 @@ and something that makes staying together pay.
 - [ ] Component computation stays under 5 ms for 2,000 cells
 - [ ] A fixture genome using `me.colony` to coordinate direction moves as a block
 - [ ] Curve reports colony statistics
+
+## 2026-09-16
+
+From 0043: run me.colony through the same rule (membrane.memory_fault) and codec (dish.encode_memory/decode_memory) as me.memory; both take any dict, and the twin argument is the same.
