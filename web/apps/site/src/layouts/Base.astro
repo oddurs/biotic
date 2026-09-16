@@ -10,8 +10,11 @@ import { href } from "../lib/url";
 interface Props {
   title?: string;
   description?: string;
+  /** Path under /og/ for this page's image; defaults to the site image. */
+  og?: string;
 }
-const { title, description = site.description } = Astro.props;
+const { title, description = site.description, og = "default" } = Astro.props;
+const ogUrl = new URL(href(`/og/${og}.png`), site.url).toString();
 const fullTitle = title ? `${title} · ${site.name}` : `${site.name} · ${site.tagline}`;
 const current = Astro.url.pathname.replace(site.base.replace(/\/$/, ""), "") || "/";
 ---
@@ -27,6 +30,14 @@ const current = Astro.url.pathname.replace(site.base.replace(/\/$/, ""), "") || 
     <meta property="og:title" content={fullTitle} />
     <meta property="og:description" content={description} />
     <meta property="og:type" content="website" />
+    <meta property="og:image" content={ogUrl} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link
+      rel="alternate"
+      type="application/rss+xml"
+      title={`${site.name} field notes`}
+      href={href("/notes/rss.xml")}
+    />
     <link rel="icon" href={href("/favicon.svg")} type="image/svg+xml" />
     <link rel="sitemap" href={href("/sitemap-index.xml")} />
     <script is:inline set:html={themeBootScript}></script>

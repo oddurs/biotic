@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://oddurs.github.io/biotic/sitemap-index.xml

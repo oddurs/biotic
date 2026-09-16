@@ -8,7 +8,16 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["**/node_modules/", "**/dist/", "**/.astro/", "**/generated/"] },
+  {
+    ignores: [
+      "**/node_modules/",
+      "**/dist/",
+      "**/.astro/",
+      "**/generated/",
+      "**/test-results/",
+      "**/playwright-report/",
+    ],
+  },
   js.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
   ...tseslint.configs.stylisticTypeChecked,
@@ -54,7 +63,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ["**/*.test.{ts,tsx}", "**/scripts/**"],
+    files: ["**/*.test.{ts,tsx}", "**/scripts/**", "**/e2e/**"],
     rules: { "no-console": "off" },
   },
   {
@@ -66,6 +75,6 @@ export default tseslint.config(
       "@typescript-eslint/no-unsafe-member-access": "off",
     },
   },
-  { files: ["**/*.js"], ...tseslint.configs.disableTypeChecked },
+  { files: ["**/*.{js,mjs}"], ...tseslint.configs.disableTypeChecked },
   prettier,
 );

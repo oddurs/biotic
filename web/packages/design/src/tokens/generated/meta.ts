@@ -113,8 +113,8 @@ export const colorMeta = {
     "dark": "oklch(79% 0.01 155)"
   },
   "inkMuted": {
-    "light": "oklch(60% 0.012 155)",
-    "dark": "oklch(60% 0.012 155)"
+    "light": "oklch(51% 0.011 155)",
+    "dark": "oklch(70% 0.011 155)"
   },
   "inkInverse": {
     "light": "oklch(97.5% 0.001 155)",
@@ -129,15 +129,15 @@ export const colorMeta = {
     "dark": "oklch(43% 0.01 155)"
   },
   "edgeFocus": {
-    "light": "oklch(51% 0.143 152)",
+    "light": "oklch(43% 0.123 152)",
     "dark": "oklch(70% 0.143 152)"
   },
   "accentBase": {
-    "light": "oklch(51% 0.143 152)",
+    "light": "oklch(43% 0.123 152)",
     "dark": "oklch(70% 0.143 152)"
   },
   "accentHover": {
-    "light": "oklch(43% 0.123 152)",
+    "light": "oklch(35% 0.092 152)",
     "dark": "oklch(79% 0.123 152)"
   },
   "accentSoft": {

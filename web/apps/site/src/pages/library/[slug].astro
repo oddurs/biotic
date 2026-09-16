@@ -21,7 +21,7 @@ const { id, data } = Astro.props;
 const title = `“${data.seed}” by ${data.by}`;
 ---
 
-<Base title={title} description={data.summary}>
+<Base title={title} description={data.summary} og={`library/${id}`}>
   <SectionLayout
     section="Library"
     nav={libraryNav}

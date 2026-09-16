@@ -16,6 +16,7 @@ export const site = {
     { label: "Docs", href: "/docs/" },
     { label: "Library", href: "/library/" },
     { label: "Research", href: "/research/" },
+    { label: "Notes", href: "/notes/" },
     { label: "Design", href: "/design/" },
   ],
 } as const;
