@@ -38,7 +38,7 @@ Show `shannon` and `dominance` in the vitals panel.
 
 ## Acceptance criteria
 
-- [x] `curve.csv` has the new columns and an old file is still readable by `biotic curve`
+- [x] `curve.csv` has the new columns; an old nine-column file reads through `bio.curve.read()` with `None` in the new columns and is widened in place on the next append (`biotic curve` itself is 0004)
 - [x] A monoculture reports `shannon=0.0, dominance=1.0`
 - [x] Vitals panel shows diversity next to the strain count
 
@@ -101,3 +101,15 @@ Also from review: 'curve' events get an icon in the incubator log (≡, dim); th
 ## 2026-09-16
 
 0005 appended a nineteenth column, branch, to curve.COLUMNS: the vessel's timeline, 0 at genesis and one more after every dish revive. It is a coordinate, not a marker — markers stay in events.jsonl — and exists because after a revive tick alone no longer names a row. NEW_HEADER in tests/test_metrics.py is extended; older files are widened as before and read None there, which means branch 0.
+
+## 2026-09-16
+
+Review follow-up. curve.ERRORS now includes ValueError: read() raises it, naming the line and column, for a cell that is not the number its column says (a hand-edited or truncated file), so 0004's biotic curve catches curve.ERRORS and nothing else. In the culture the only new thing caught is a formatting failure inside append(), logged once as a curve event like any other; the dish still never stops for the curve. Chosen over returning None for the cell (a damaged cell would read as an empty one) and over narrowing the comment to reconcile/append (every reader would need two catches).
+
+## 2026-09-16
+
+reconcile() copies through csv.reader and refuses a row with more cells than the header with csv.Error naming the line; the file and no .tmp are left behind. DictReader -> DictWriter(extrasaction='ignore') silently dropped those cells. Refused rather than counted in the widened event because the widening is the one rewrite of history and it must not be lossy. The culture treats it like any curve it cannot read: said once with the tick, tried every row, widened and resumed after the repair (tested). read() still returns the rows of such a file without the nameless cells, since reading changes nothing.
+
+## 2026-09-16
+
+Criterion 1 reworded to what was proven here: an old nine-column file reads through bio.curve.read() with None in the new columns and is widened in place on the next append. biotic curve is 0004's to prove.

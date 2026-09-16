@@ -277,6 +277,61 @@ def test_read_tolerates_an_old_curve(tmp_path):
     assert curve.read(tmp_path / "absent.csv") == []
 
 
+@pytest.mark.parametrize(("cell", "column"), [("five", "population"), ("0.7x", "nutrient")])
+def test_read_raises_one_of_errors_on_a_cell_that_is_not_a_number(tmp_path, cell, column):
+    """A hand-edited or truncated cell is a damaged file: read() raises something curve.ERRORS
+    names, with the line and column, not a bare int()/float() message."""
+    p = tmp_path / "curve.csv"
+    damaged = OLD_ROWS[1].split(",")
+    damaged[OLD_HEADER.split(",").index(column)] = cell
+    p.write_text(OLD_HEADER + "\n" + "\n".join([OLD_ROWS[0], ",".join(damaged), OLD_ROWS[2]]) + "\n")
+    with pytest.raises(curve.ERRORS) as raised:
+        curve.read(p)
+    assert isinstance(raised.value, ValueError)
+    assert str(raised.value) == f"curve.csv line 3, {column}: {cell!r} is not a number"
+
+
+def test_reconcile_refuses_a_row_wider_than_the_header(tmp_path):
+    """The widening is the one moment the culture rewrites history; a cell with no column to
+    land in must not be dropped on the way, so the file is refused and left as it is."""
+    p = tmp_path / "curve.csv"
+    text = OLD_HEADER + "\n" + OLD_ROWS[0] + "\n" + OLD_ROWS[1] + ",EXTRA\n" + OLD_ROWS[2] + "\n"
+    p.write_text(text)
+    with pytest.raises(csv.Error, match=r"^curve\.csv line 3 has 10 cells under a 9-column header; not widened$"):
+        curve.reconcile(p)
+    assert p.read_text() == text
+    assert not p.with_name("curve.csv.tmp").exists()
+    assert [r["tick"] for r in curve.read(p)] == [10, 20, 30]  # reading loses nothing: the file is untouched
+
+
+def test_a_curve_that_cannot_be_widened_is_left_intact_and_said_once(make_culture):
+    """The culture treats a file it will not widen like one it cannot read: said once, no row
+    written, tried again every row, and picked up once the file is repaired."""
+    text = OLD_HEADER + "\n" + OLD_ROWS[0] + "\n" + OLD_ROWS[1] + ",EXTRA\n" + OLD_ROWS[2] + "\n"
+    config.CURVE.write_text(text)
+    c = make_culture()
+    c.dish.tick = 30
+    for _ in range(20):
+        c.step()
+    assert c.dish.tick == 50
+    assert config.CURVE.read_text() == text
+    assert not config.CURVE.with_name("curve.csv.tmp").exists()
+    said = _events(c, "curve")
+    assert len(said) == 1
+    assert said[0]["msg"] == (
+        "growth curve not written from tick 40: curve.csv line 3 has 10 cells under a 9-column header; not widened"
+    )
+    config.CURVE.write_text(OLD_HEADER + "\n" + "\n".join(OLD_ROWS) + "\n")  # the repair
+    for _ in range(10):
+        c.step()
+    later = [ev["msg"] for ev in _events(c, "curve")][1:]
+    assert later[0].startswith(f"growth curve widened: {len(curve.COLUMNS) - 9} columns added")
+    assert later[1:] == ["growth curve resumed at tick 60"]
+    assert [r["tick"] for r in curve.read()] == [10, 20, 30, 60]
+    with open(config.CURVE, newline="") as f:
+        assert {len(r) for r in csv.reader(f)} == {len(curve.COLUMNS)}
+
+
 def test_unknown_columns_are_kept(make_culture):
     header = list(curve.COLUMNS) + ["mystery"]
     row = ["10", "5", "1", "0.7000", "lag", "0", "0", "0", "0", "0", "0.0000", "1.0000", "0.00", "1", "0"]
