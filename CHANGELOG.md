@@ -111,7 +111,7 @@ turns the `Unreleased` section into a dated release.
 - A dish loaded from `dish.json` compiles its genomes again, so module-level code runs a second time. With module
   level held to constants and attributes read-only, everything a genome can change between ticks is in `me.memory`
   or the dish's generator, both of which the save carries, so a resumed dish is an exact twin of the running one
-  for any genome the membrane admits (memory JSON can carry; `docs/membrane.md` has the limit).
+  for any genome the membrane admits.
 - The membrane refuses sets: `set()`, `frozenset`, set displays and set comprehensions, and `set` is no longer in a
   genome's namespace. A set of strings iterates in an order the interpreter's hash seed picks, which differs from
   process to process, so a genome that walked one was the one admitted thing that could diverge from its twin
@@ -121,8 +121,7 @@ turns the `Unreleased` section into a dated release.
   before it can run, its genome leaves the dish, and one `nonviable` event names the strain and the reason.
   `biotic status` and the other readers do not screen, so they show the dish as it is on disk.
 - `dish.json` carries the culture's own generator, which rolls the mutations, so a resumed culture rolls them
-  at the divisions the running one would have. Of `me.memory` it keeps ints in `[-2**63, 2**63)` exactly and
-  stringifies wider ones like any other value JSON cannot carry.
+  at the divisions the running one would have.
 - A genome longer than `GENOME_MAX_CHARS` is rejected before it is parsed.
 - The mutagen's prompt states the rules the membrane enforces.
 - A failing mind is retried with exponential backoff, 15 s doubling to 10 min and reset on success, instead
@@ -137,8 +136,19 @@ turns the `Unreleased` section into a dated release.
   the phase detector, a running mutagen boost) under a `culture` key, so a resumed or revived dish continues on
   exactly the trajectory it left. A dish saved before this change resumes, but not bit-for-bit.
 - A daughter's memory is a deep copy of its mother's: nested lists and dicts are no longer shared between kin.
-  Memory values JSON can carry, lists and dicts included, survive a save unchanged up to 200 characters each
-  instead of becoming strings; sets, longer containers and ints outside `[-2**63, 2**63)` still become strings.
+- What a cell may keep in `me.memory` is a rule of the dish, applied after every `live()`: None, bools, ints,
+  floats, strings, and lists, tuples and dicts of those with string or numeric keys, nested at most
+  `MEMORY_MAX_DEPTH` (16) deep, never the same list or dict in two places, and at most `MEMORY_MAX_CHARS` (2048)
+  characters as JSON. A cell that breaks it bursts, before its action applies, and the smoke test refuses a
+  genome that does so within its forty rounds with the reason and the round (`memory over 2048 chars as JSON
+  (tick 21)`, `memory holds a function; …`, `memory holds one list or dict in two places, …`). `dish.json` and
+  freezer samples carry tuples and numeric keys under `~t`/`~d` tags and ints of any width the cap admits, so a
+  resumed or revived dish is an exact twin for every admitted genome, whatever it keeps in memory. The 64-key,
+  200-character-per-value and `[-2**63, 2**63)` limits are gone. Both constants are physics: a vessel saved
+  before this change loads, memory it had already flattened stays flat, and a cell whose memory already breaks
+  the rule (aliased rows, nesting past 16, over 2 KB) bursts on the first tick after upgrading. A strain
+  sample whose memory breaks it is refused by name before the pre-revive freeze. The mutagen's prompt states
+  the rule. See `docs/membrane.md`.
 - `biotic sterilize` keeps `vessel/freezer/`; `biotic sterilize --freezer` empties it too.
 
 ### Fixed
@@ -154,6 +164,9 @@ turns the `Unreleased` section into a dated release.
   event (`≣` in the incubator log), every later save is tried again, and an event says when writing works.
   Before, a memory int past 4300 digits, which an admitted genome can grow in an afternoon, made the save raise
   at tick 150 and killed the loop; the last good `dish.json` stood.
+- A genome that kept a tuple, a dict keyed by direction, a list over 200 characters, one row list repeated
+  (`[[0] * 8] * 8`) or a counter past 2**63 in `me.memory` came back changed after `ctrl-c` and `biotic live`,
+  and lysed or drifted on the first tick.
 - The mutagen thread no longer dies when the strain it was about to vary went extinct while it waited; an
   unexpected fault in a cycle is logged and backed off instead of ending the thread.
 - `biotic probe` without a key says so instead of printing a traceback.

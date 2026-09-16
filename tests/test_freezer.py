@@ -434,6 +434,79 @@ def test_revive_into_the_current_dish_needs_a_dish(vessel):
     assert not any(e.label == "pre-revive" for e in freezer.entries())
 
 
+# --- what a strain sample carries of memory -------------------------------------------------------
+def test_a_strain_sample_carries_tuples_and_int_keys_through_a_thaw(culture):
+    """The sampled memory is written with its tuples and non-string keys tagged, the sample still
+    reads as a record, and the cells a revive places — into the current dish and into a fresh
+    one — hold exactly what the frozen cell held, types included, each its own copy."""
+    c = culture
+    (fid,) = list(c.registry.strains)
+    step(c, 5)
+    best = max(c.dish.cells.values(), key=lambda x: (x.energy, -x.y, -x.x))
+    kept = {"home": (1, 2), "counts": {3: 4, True: 5}, "~odd": 6, "trail": [1, [2, (3,)]]}
+    best.memory.update(kept)
+    p = c.freeze_strain(fid)
+    doc = freezer.read(p)
+    assert doc["memory"] == {
+        "~d": [
+            ["home", {"~t": [1, 2]}],
+            ["counts", {"~d": [[3, 4], [True, 5]]}],
+            ["~odd", 6],
+            ["trail", [1, [2, {"~t": [3]}]]],
+        ]
+    }
+    c.revive_strain(p, n=2, at=(2, 6))
+    placed = [c.dish.cells[t].memory for t in ((2, 6), (1, 6))]
+    assert placed == [kept, kept]
+    assert all(type(m["home"]) is tuple and type(m["trail"][1][1]) is tuple for m in placed)
+    assert all(list(m["counts"]) == [3, True] and 3 in m["counts"] for m in placed)
+    assert len({id(m["counts"]) for m in placed}) == 2
+    c.save()
+    c2 = Culture.germinate("test", Mind(), fresh=True, thaw=p)
+    fresh = [x.memory for x in c2.dish.cells.values()]
+    assert len(fresh) == 5 and all(m == kept and type(m["home"]) is tuple for m in fresh)
+    assert len({id(m["trail"]) for m in fresh}) == 5
+    step(c2, 3)
+    assert c2.dish.deaths["lysed"] == 0
+
+
+@pytest.mark.parametrize(
+    "memory,said",
+    [
+        ({"x": "y" * (config.MEMORY_MAX_CHARS + 52)}, f"memory over {config.MEMORY_MAX_CHARS} chars as JSON"),
+        ({"~d": [[{"~t": [1, 2]}, 3]]}, "memory has a tuple as a key; keys must be strings, numbers, bools or None"),
+        (
+            {"v": json.loads("[" * config.MEMORY_MAX_DEPTH + "0" + "]" * config.MEMORY_MAX_DEPTH)},
+            f"memory nested deeper than {config.MEMORY_MAX_DEPTH}",
+        ),
+    ],
+    ids=["over_cap", "tuple_key", "too_deep"],
+)
+def test_a_strain_sample_whose_memory_breaks_the_rule_is_refused_before_anything_changes(culture, memory, said):
+    """Both revives save right after placing the cells, before any tick applies the rule, so a
+    sample whose memory the dish would refuse is refused by name here, from the library and the
+    CLI alike, before the pre-revive freeze. (Aliasing cannot be written in a file at all.)"""
+    c = culture
+    p = strain_sample("abcd", VARIANT, memory=memory)
+    assert freezer.read(p)["memory"] == memory, "the shape check accepts a tagged record; the rule is what refuses it"
+    before = freezer.stems()
+    with pytest.raises(ValueError, match=f"strain-abcd: {re.escape(said)}"):
+        c.revive_strain(p, n=2, at=(2, 6))
+    with pytest.raises(ValueError, match=f"strain-abcd: {re.escape(said)}"):
+        Culture.germinate("test", Mind(), fresh=True, thaw=p)
+    with pytest.raises(SystemExit, match=f"strain-abcd: {re.escape(said)}"):
+        main(["revive", "--strain", "abcd", "--into", "current"])
+    with pytest.raises(SystemExit, match=f"strain-abcd: {re.escape(said)}"):
+        main(["revive", "--strain", "abcd", "--yes"])
+    assert freezer.stems() == before, "the refusal comes before the pre-revive freeze"
+    assert "abcd" not in c.registry.strains and "abcd" not in c.mutagen.genomes
+    assert Culture.load(Mind()).dish.tick == 0 and [e["label"] for e in events("frozen")] == ["genesis"]
+    # a plain sample, as a person writes one, is admitted and comes back as JSON gives it
+    edit(p, lambda d: d.__setitem__("memory", {"n": 7, "trail": [1, 2], "d": {"3": 4}}))
+    c.revive_strain(p, n=1, at=(2, 6))
+    assert c.dish.cells[(2, 6)].memory == {"n": 7, "trail": [1, 2], "d": {"3": 4}}
+
+
 # --- the membrane, the seed rule, the freezer's housekeeping -------------------------------------
 def test_a_revived_genome_passes_the_membrane_again(culture):
     c = culture

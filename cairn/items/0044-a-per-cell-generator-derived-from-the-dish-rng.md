@@ -5,7 +5,7 @@ type: chore
 status: backlog
 milestone: dish
 created: 2026-09-08
-updated: 2026-09-08
+updated: 2026-09-16
 priority: p3
 area: bio/dish.py
 ---
@@ -30,3 +30,7 @@ traces back to one strain's draws.
 
 - [ ] Reseeding `random` inside one strain does not change another strain's draws
 - [ ] The exact-twin test still passes with per-cell generators serialised
+
+## 2026-09-16
+
+From 0043: store the per-cell generator on Cell as an 8th element of the cells row in dish.json ([x, y, strain, energy, age, born, mem, rng]), not inside memory; from_dict should then accept rows of 7 or 8. memory_fault would refuse a Random in memory, and memory is the genome's, not the dish's.

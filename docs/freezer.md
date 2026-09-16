@@ -39,8 +39,8 @@ are both kept, and comparing them is the whole point.
 
 A freeze is the state at the *end* of the tick named in the file, after that tick's extinctions
 and phase changes have been recorded, so sample N is exactly what the running culture was at
-tick N. A freeze draws no random numbers and changes nothing in the dish; it costs about 3 ms,
-which every 2000 ticks is not measurable.
+tick N. A freeze draws no random numbers and changes nothing in the dish; it costs a few
+milliseconds, which every 2000 ticks is not measurable.
 
 ## reviving a dish
 
@@ -111,6 +111,13 @@ closest thing a cell has to a life history. An extinct strain can be frozen too;
 then empty. The sample also records the vessel's seed and dish size, which is what makes a
 fresh dish from it the same dish.
 
+The memory is JSON with two tags: a tuple is `{"~t": [items]}`, and a dict with non-string
+keys, or a key beginning with `~`, is `{"~d": [[key, value], ...]}` (`docs/membrane.md` has
+the format). A sample written by hand with plain lists and string keys is fine and comes back
+as JSON gives it. One whose memory breaks the rule the dish applies after every tick — over
+2048 characters as JSON, nested past 16, a tuple as a key — is refused by name
+(`strain-3f1a: memory over 2048 chars as JSON`), before the pre-revive freeze.
+
 ## reviving a strain
 
     biotic revive --strain 3f1a                      # a fresh dish: same seed, same size, same agar
@@ -168,11 +175,13 @@ differs between replays for the same reason; the timestamps in the log are of co
 membrane is applied again on the way in, so a sample from before a rule was tightened may be
 refused. A manifest that also replays a run's mutations is its own roadmap item.
 
-One caveat for a genome author. A cell's memory is carried as JSON: values JSON can hold —
-numbers, strings, lists, dicts — come back as they were if they are 200 characters or less
-when written out; tuples come back as lists; anything else, and anything longer, becomes a
-short string; and a memory keeps at most 64 keys. A genome that relies on more than that will
-not replay exactly after a save.
+What a cell may keep in memory is a rule of the dish, applied after every tick
+(`docs/membrane.md`): `None`, bools, numbers, strings, and lists, tuples and dicts of those, at
+most 2048 characters as JSON, nested at most 16 deep, never one list or dict in two places. A
+cell that breaks it bursts, so at every save every memory is one the sample carries exactly,
+and a replay is exact whatever a genome keeps. A vessel saved before this rule resumes as it
+did: memory the old save had already flattened to a string stays a string, and a cell whose
+memory is over the cap bursts on the first tick.
 
 ## reading curve.csv after a revive
 

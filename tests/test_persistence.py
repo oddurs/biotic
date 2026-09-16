@@ -1,19 +1,22 @@
-"""dish.json: a saved dish is an exact twin of the one that was running."""
+"""dish.json: a saved dish is an exact twin of the one that was running, whatever its cells keep in memory."""
 
 from __future__ import annotations
 
 import copy
 import json
+import math
 import os
 import subprocess
 import sys
 
+import pytest
+
 from bio import config
 from bio.culture import FALLBACK_GENESIS
-from bio.dish import MEMORY_CHARS, MEMORY_INT, MEMORY_KEYS, Dish, _jsonable
-from bio.membrane import admit, inspect
+from bio.dish import Dish, decode_memory, encode_memory
+from bio.membrane import admit, inspect, memory_fault
 
-from .conftest import dish_state, make_dish
+from .conftest import TOO_MUCH_GENOME, TUPLE_GENOME, dish_state, make_dish
 
 # the founder, remembering how many ticks it has lived, so primitive memory is exercised
 MEMORY_GENOME = FALLBACK_GENESIS.replace(
@@ -55,6 +58,17 @@ def _grown(ticks: int = 120) -> Dish:
     for _ in range(ticks):
         d.step()
     return d
+
+
+def _trajectory(d: Dish) -> tuple:
+    """Where the cells are and what the dish has done, without the memories themselves."""
+    return (
+        d.tick,
+        sorted((c.x, c.y, c.strain, c.energy, c.age) for c in d.cells.values()),
+        d.rng.getstate(),
+        d.births,
+        dict(d.deaths),
+    )
 
 
 def test_dish_round_trips_through_dict():
@@ -104,13 +118,15 @@ def test_resumed_dish_with_module_level_constants_is_an_exact_twin():
     assert d.births > 0 and any(c.memory.get("n") for c in d.cells.values())
 
 
-def test_resumed_dish_is_an_exact_twin_in_another_process():
-    """A resume is a process boundary, and the twin above is checked inside one interpreter,
+@pytest.mark.parametrize("genome", [MODULE_GENOME, TUPLE_GENOME], ids=["module_level", "tuple_memory"])
+def test_resumed_dish_is_an_exact_twin_in_another_process(genome):
+    """A resume is a process boundary, and the twins above are checked inside one interpreter,
     where anything that depends on the hash seed agrees with itself. Here the saved dish is
     thawed by a child interpreter under a different `PYTHONHASHSEED` and stepped fifty ticks,
     and its save must equal the parent's. This is what refusing sets buys: before the rule a
-    genome that walked a set of strings diverged here and nowhere else."""
-    d = make_dish(genome=MODULE_GENOME)
+    genome that walked a set of strings diverged here and nowhere else. The tuple genome's
+    save carries tuples, int keys and a `~` key through the tags, in insertion order."""
+    d = make_dish(genome=genome)
     for _ in range(120):
         d.step()
     frozen = json.dumps(d.to_dict())
@@ -139,64 +155,133 @@ def test_resumed_dish_is_an_exact_twin_in_another_process():
     )
     assert r.returncode == 0, r.stderr
     assert json.loads(r.stdout) == want
+    assert d.births > 0 and len(d.cells) > 5
 
 
-def test_memory_keeps_primitives_exactly_and_bounds_the_rest():
-    """What dish.json keeps of me.memory: ints that fit a signed 64-bit word, floats, strings,
-    bools and None as they are; a wider int, and anything that is not a primitive, as the first
-    80 characters of its str(). bool is an int and must stay a bool. An int with no decimal
-    form at all (past sys.get_int_max_str_digits()) and a list nested past the recursion limit
-    get a placeholder instead of raising, and non-string keys are stringified the same way."""
-    deep: list = []
-    for _ in range(50_000):  # one level per tick is enough; str() of this raises RecursionError on every Python
-        deep = [deep]
+# --- what a cell keeps in memory comes back exactly ---------------------------------------------
+
+
+def test_memory_codec_is_the_identity_on_what_the_rule_admits():
+    """encode_memory tags what JSON cannot tell apart and decode_memory undoes the tags: a tuple
+    stays a tuple, an int, bool, None or float key stays what it was, a key beginning with `~` is
+    a plain string again, an int of any width the cap admits and -0.0 come back exactly, and
+    insertion order is kept at every level."""
     m = {
-        "hi": MEMORY_INT - 1,
-        "lo": -MEMORY_INT,
-        "wide": MEMORY_INT,
-        "neg_wide": -MEMORY_INT - 1,
-        "huge": 10**5000,
-        "in_list": [10**5000],
-        "deep": deep,
-        "f": 0.1,
-        "s": "x" * 200,
-        "t": True,
-        "n": None,
-        "lst": list(range(100)),
-        3: "int key",
-        10**5000: "unprintable key",
+        "home": (1, 2),
+        "counts": {3: 4, True: 5, None: 6, 1.5: 7, "~t": 8},
+        "nested": [(), (1, (2, [3])), {"a": [1]}],
+        "wide": 10**600,
+        "neg": -(10**600),
+        "zero": -0.0,
+        "flags": [True, False, None],
+        "text": 'é\n"\\',
+        "~x": 1,
+        "empty": ({}, [], ()),
     }
-    out = _jsonable(m)
-    assert out["hi"] == MEMORY_INT - 1 and type(out["hi"]) is int
-    assert out["lo"] == -MEMORY_INT and type(out["lo"]) is int
-    assert out["wide"] == str(MEMORY_INT) and out["neg_wide"] == str(-MEMORY_INT - 1)
-    assert out["huge"] == "<int>" and out["in_list"] == "<list>" and out["deep"] == "<list>"
-    assert out["f"] == 0.1 and out["s"] == "x" * 200 and out["t"] is True and out["n"] is None
-    assert out["lst"] == str(list(range(100)))[:MEMORY_CHARS]
-    assert out["3"] == "int key" and out["<int>"] == "unprintable key"
-    assert json.loads(json.dumps(out)) == out
-    assert len(_jsonable({i: i for i in range(MEMORY_KEYS + 20)})) == MEMORY_KEYS
+    assert memory_fault(m) is None
+    back = decode_memory(json.loads(json.dumps(encode_memory(m))))
+    assert back == m
+    assert list(back) == list(m)
+    assert type(back["home"]) is tuple
+    assert type(back["nested"][1]) is tuple and type(back["nested"][1][1]) is tuple
+    assert type(back["nested"][1][1][1]) is list and type(back["nested"][2]) is dict
+    assert [type(k) for k in back["counts"]] == [int, bool, type(None), float, str]
+    assert list(back["counts"]) == [3, True, None, 1.5, "~t"]
+    assert type(back["wide"]) is int and type(back["neg"]) is int
+    assert math.copysign(1.0, back["zero"]) == -1.0
+    assert [type(x) for x in back["empty"]] == [dict, list, tuple]
 
 
-def test_memory_int_past_the_json_limit_does_not_break_the_save():
-    """A genome that multiplies a counter every tick is admitted (the smoke test sees forty
-    rounds of it) and reaches 4300 digits, where json.dumps refuses the int, in the dish. That
-    used to make Culture.save() raise at the next save and kill the loop; now the int is kept as
-    text and the save goes through."""
-    src = FALLBACK_GENESIS.replace(
-        "def live(me):\n", "def live(me):\n    me.memory['x'] = me.memory.get('x', 1) * 10**100\n"
-    )
-    assert admit(src), admit(src).reasons
-    d = make_dish(genome=src)
-    for _ in range(60):
+def test_memory_encoding_is_pinned_and_untagged_json_reads_as_it_is():
+    """The file format: a dict whose keys are all strings and none begins with `~` is a plain
+    object; anything else is `~d` pairs; a tuple is `~t`. A dish.json or a sample written before
+    the tags, or by hand with plain lists and string keys, decodes to what JSON gives, and a
+    malformed tag is left as the plain JSON it is rather than raising."""
+    tagged = '{"~d": [["home", {"~t": [1, 2]}], ["c", {"~d": [[3, 4]]}], ["~x", 1]]}'
+    assert json.dumps(encode_memory({"home": (1, 2), "c": {3: 4}, "~x": 1})) == tagged
+    plain = '{"n": 3, "trail": [1, 2], "d": {"k": {"~t": [1]}}}'
+    assert json.dumps(encode_memory({"n": 3, "trail": [1, 2], "d": {"k": (1,)}})) == plain
+    untagged = {"n": 3, "trail": [1, 2], "d": {"3": 4}, "s": "[1, 2, 3]"}
+    assert decode_memory(untagged) == untagged
+    assert decode_memory({"~t": [1]}) == {}, "a top level that is not a dict is an empty memory"
+    assert decode_memory([1, 2]) == {} and decode_memory(None) == {}
+    for odd in ({"~t": 5}, {"~d": [[1, 2, 3]]}, {"~d": [[[1], 2]]}, {"~d": 7}, {"~d": [["a"]]}, {"~t": [1], "x": 2}):
+        assert decode_memory(odd) == odd, odd
+    assert decode_memory({"~d": []}) == {}
+
+
+def test_resumed_dish_is_an_exact_twin_for_memory_plain_json_cannot_carry():
+    """TUPLE_GENOME keeps a tuple, a dict keyed by direction, a counter past 2**63 and a `~` key
+    in memory, and branches on the tuple and the int key: the twin of a dish of it holds for
+    fifty ticks, types included."""
+    d = make_dish(genome=TUPLE_GENOME)
+    for _ in range(120):
         d.step()
-    widest = max(c.memory["x"] for c in d.cells.values())
-    assert widest.bit_length() > 4300 * 3  # past the decimal limit: str(widest) itself would raise
+    mems = [c.memory for c in d.cells.values()]
+    assert len(mems) > 5 and d.births > 0
+    assert any(type(m.get("home")) is tuple for m in mems)
+    assert any(any(type(k) is int for k in m.get("counts", {})) for m in mems)
+    assert any(m.get("big", 0) > 2**63 for m in mems)
+    assert all("~odd" in m for m in mems)
+    clone = Dish.from_dict(json.loads(json.dumps(d.to_dict())))
+    assert dish_state(clone) == dish_state(d)
+    assert all(type(c.memory["home"]) is tuple for c in clone.cells.values())
+    for _ in range(50):
+        d.step()
+        clone.step()
+        assert dish_state(clone) == dish_state(d), f"diverged at tick {d.tick}"
+
+
+def test_plain_json_memory_would_not_have_been_a_twin():
+    """The control for the test above: a twin whose memories went through plain JSON, as the dish
+    used to save them (a tuple as a list, an int key as a string), leaves the trajectory within
+    fifty ticks, not only the memories."""
+    d = make_dish(genome=TUPLE_GENOME)
+    for _ in range(120):
+        d.step()
     blob = json.loads(json.dumps(d.to_dict()))
-    assert all(isinstance(mem["x"], str) for *_, mem in blob["cells"])
-    clone = Dish.from_dict(blob)
-    clone.step()  # the twin does not hold for a stringified value, but the dish still runs
-    assert clone.tick == d.tick + 1
+    blob["cells"] = [
+        [x, y, s, e, a, b, json.loads(json.dumps(decode_memory(mem)))] for x, y, s, e, a, b, mem in blob["cells"]
+    ]
+    twin = Dish.from_dict(blob)
+    assert _trajectory(twin) == _trajectory(d), "the cells, the agar and the generator are the same at the save"
+    assert all(type(c.memory["home"]) is list for c in twin.cells.values())
+    diverged = None
+    for _ in range(50):
+        d.step()
+        twin.step()
+        if _trajectory(twin) != _trajectory(d):
+            diverged = d.tick
+            break
+    assert diverged is not None
+
+
+def test_a_memory_over_the_cap_bursts_the_cell_on_the_same_tick_in_both_twins():
+    """TOO_MUCH_GENOME multiplies one int by 10**50 every tick: admitted (the smoke test's forty
+    rounds stay under the cap) and over MEMORY_MAX_CHARS on the tick computed here, where every
+    cell bursts — in the running dish and in a twin resumed from a save taken before it, on the
+    same tick, since the rule runs at the same point of every tick in both."""
+    v = admit(TOO_MUCH_GENOME)
+    assert v, v.reasons
+    cap = config.MEMORY_MAX_CHARS
+    first = next(k for k in range(1, 10_000) if len(json.dumps({"x": 10 ** (50 * k)})) > cap)
+    assert 30 < first <= 70, f"the cap moved: the lineage now bursts at tick {first}; pick a new multiplier"
+    d = make_dish(genome=TOO_MUCH_GENOME)
+    for _ in range(30):
+        d.step()
+    assert d.deaths["lysed"] == 0 and len(d.cells) > 5
+    clone = Dish.from_dict(json.loads(json.dumps(d.to_dict())))
+    assert dish_state(clone) == dish_state(d)
+    lysed_at = None
+    while d.tick < 70:
+        d.step()
+        clone.step()
+        assert dish_state(clone) == dish_state(d), f"diverged at tick {d.tick}"
+        if lysed_at is None and d.deaths["lysed"]:
+            lysed_at = d.tick
+            assert not d.cells, "every cell held the same int, so every cell burst on that tick"
+    assert lysed_at == first
+    assert d.deaths["lysed"] > 5 and clone.deaths["lysed"] == d.deaths["lysed"]
 
 
 def test_from_dict_tolerates_missing_optional_keys():

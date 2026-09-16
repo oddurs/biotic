@@ -5,6 +5,7 @@ import json
 
 from bio.culture import FALLBACK_GENESIS
 from bio.dish import Dish
+from bio.membrane import memory_fault
 
 from .conftest import WANDERER
 
@@ -83,31 +84,37 @@ def test_rounded_energy_would_not_have_been_lossless():
     assert diverged
 
 
-def test_memory_values_survive_the_dict_when_json_can_carry_them():
+def test_memory_survives_the_dict_exactly():
+    """Everything the memory rule admits comes back from the dict with its types: a tuple, a list
+    of 300 ints, a dict keyed by an int, a bool, None and a float, a key beginning with `~`, an
+    int wider than 64 bits and an int key at the top level. Hand-made memory the rule would
+    refuse (a set, a range) is still written, as its str(), and the save does not raise."""
     dish = Dish("test", width=24, height=12)
     dish.register("f", FALLBACK_GENESIS)
     memory = {
         "n": 3,
-        "trail": [1, 2],
+        "trail": [1, 2, [3, (4,)]],
         "pt": (4, 5),
-        "big": list(range(500)),
-        "odd": {1, 2},
-        "seen": {3: 1},
-        "grid": {(0, 1): 2},
+        "big": list(range(300)),
+        "counts": {3: 1, True: 2, None: 3, 0.5: 4},
+        "~odd": 1,
+        "wide": 2**70,
         7: "int key",
     }
+    assert memory_fault(memory) is None
     dish.place(12, 6, "f", memory=memory)
-    (mem,) = [c[6] for c in dish.to_dict()["cells"]]
-    assert mem["n"] == 3
-    assert mem["trail"] == [1, 2]
-    assert mem["pt"] == [4, 5]
-    assert isinstance(mem["big"], str) and len(mem["big"]) <= 80
-    assert isinstance(mem["odd"], str)
-    # keys become strings, at the top and in a nested dict; a dict keyed by tuples cannot be
-    # written as JSON at all and comes back as a short string (docs/freezer.md says so)
-    assert mem["seen"] == {"3": 1}
-    assert isinstance(mem["grid"], str)
-    assert mem["7"] == "int key" and 7 not in mem
+    twin = Dish.from_dict(json.loads(json.dumps(dish.to_dict())))
+    (cell,) = twin.cells.values()
+    assert cell.memory == memory and list(cell.memory) == list(memory)
+    assert type(cell.memory["pt"]) is tuple and type(cell.memory["trail"][2][1]) is tuple
+    assert [type(k) for k in cell.memory["counts"]] == [int, bool, type(None), float]
+    assert 7 in cell.memory and "7" not in cell.memory
+    assert type(cell.memory["wide"]) is int
+    dish.place(13, 6, "f", memory={"odd": {1, 2}, "r": range(3), "grid": {(0, 1): 2}})
+    blob = json.loads(json.dumps(dish.to_dict()))
+    (mem,) = [row[6] for row in blob["cells"] if row[0] == 13]
+    assert mem == {"odd": "{1, 2}", "r": "range(0, 3)", "grid": {"~d": [[{"~t": [0, 1]}, 2]]}}
+    assert Dish.from_dict(blob).cells[(13, 6)].memory == {"odd": "{1, 2}", "r": "range(0, 3)", "grid": {(0, 1): 2}}
 
 
 def test_inoculate_at_takes_the_nearest_free_tiles_and_leaves_the_rng_alone():
