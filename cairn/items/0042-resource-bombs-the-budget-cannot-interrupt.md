@@ -57,3 +57,11 @@ Mult repeat rule guards on _is_const_expr(count) before folding, so a non-consta
 ## 2026-09-16
 
 rlimits are set inside the child (_limit_resources at top of __main__), not via subprocess preexec_fn: preexec_fn runs in a fork of the multithreaded mutagen and can deadlock on fork+threads. RLIMIT_AS/DATA=2GiB is best-effort (macOS refuses to lower below an infinite hard limit; CI is ubuntu so it is real there); RLIMIT_CPU=15s works on both, under admit_isolated's 20s wall timeout.
+
+## 2026-09-16
+
+Review fix: Pow branch banned only when _fold_number(exp) was an int > POW_MAX_EXP, but an oversized const exponent (2**10**19) folds to None past _FOLD_CAP and escaped; now bans on 'v is None or int>cap', mirroring the range/repeat branches. To keep None meaning 'oversized/unrepresentable' and not 'benign but unfoldable', _fold_number now carries / // % and float ** too, so x**(1/2) folds to 0.5 and stays admitted (the thaw re-inspect must not lyse a sqrt idiom).
+
+## 2026-09-16
+
+Review fix: chained repeat ([0]*1000*1000*1000) escaped because the outer Mult saw a BinOp on both sides; _mult_factors now flattens the Mult chain and the rule bans on the product of all constant factors against MAX_LITERAL_COUNT. Range now folds all bounds and bans on the actual len(range(*args)), so a negative-step form (range(0,-10**12,-1)) is caught like range(10**12); a bound past _FOLD_CAP is oversized. Added reject rows + tick-guard params (pow/repeat/range) and positive controls (division exponent, chained runtime multiplier, high-numbered short range window).

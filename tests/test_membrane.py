@@ -239,9 +239,21 @@ REJECTED = [
     # The literal memory bomb ([0] * 10**10) is criterion 2 on every platform via the static gate.
     ("pow_constant_exponent", "def live(me):\n    return 2 ** 10**9\n", POW_RULE),
     ("pow_nonconstant_exponent", "def live(me):\n    return 2 ** me.age\n", POW_RULE),
+    # An exponent past the fold cap (10**18) folds to None; it must be banned as oversized, not
+    # waved through as "not a plain literal" — the hole this item's review found in the Pow branch.
+    ("pow_oversized_constant_exponent", "def live(me):\n    return 2 ** 10**19\n", POW_RULE),
+    ("pow_power_tower_exponent", "def live(me):\n    return 2 ** (2 ** 100)\n", POW_RULE),
     ("repeat_list_literal", "def live(me):\n    x = [0] * 10**10\n    return 'rest'\n", REPEAT_RULE),
     ("repeat_str_literal", "def live(me):\n    x = '-' * 10**10\n    return 'rest'\n", REPEAT_RULE),
+    # A chained repeat: no single multiply is over the cap, but the product of the constant factors
+    # is. Left-associative, so the outer multiply sees a BinOp on both sides, not a literal.
+    ("repeat_chained_list", "def live(me):\n    x = [0] * 1000 * 1000 * 1000\n    return 'rest'\n", REPEAT_RULE),
+    ("repeat_chained_str", "def live(me):\n    x = 'a' * 1000 * 1000 * 1000\n    return 'rest'\n", REPEAT_RULE),
+    ("repeat_chained_parens", "def live(me):\n    x = ([0] * 10**6) * 10**6\n    return 'rest'\n", REPEAT_RULE),
     ("range_huge_literal", "def live(me):\n    return sum(range(10**12)) and 'rest'\n", RANGE_RULE),
+    # A negative bound with a negative step is under the cap in isolation but iterates 10**12 times;
+    # only the actual len(range(...)) catches it.
+    ("range_negative_step", "def live(me):\n    return sum(range(0, -10**12, -1)) and 'rest'\n", RANGE_RULE),
     ("two_args", "def live(me, other):\n    return 'rest'\n", "live() must take exactly one argument"),
     ("no_live", "def grow(me):\n    return 'eat'\n", "no live(me) function"),
     ("syntax_error", "def live(me)\n    return 'rest'\n", "SyntaxError:"),
@@ -531,16 +543,28 @@ def test_module_level_work_is_budgeted(tight_budget):
     assert v.reasons == ["too slow: module level exceeded time budget"]
 
 
-def test_bomb_behind_a_tick_guard_is_refused_at_admission(no_smoke_test):
-    """Acceptance criterion 1: a genome that runs sum(range(10**12)) only after tick 40 cannot
-    stall the dish. The stand-in cell in the smoke test never reaches tick 40, so a dynamic gate
-    would never see the bomb; the static gate refuses the construct at admission regardless of the
-    tick that would run it, so the dish never receives the strain. `no_smoke_test` proves the
-    refusal is static — nothing in the genome is executed."""
-    src = "def live(me):\n    if me.tick > 40:\n        return sum(range(10**12))\n    return 'rest'\n"
+BOMB_BEHIND_TICK_GUARD = [
+    ("range", "        return sum(range(10**12))", RANGE_RULE),
+    # Both constant forms below reached the dish before this item's review: each folds to None
+    # (past the fold cap) and the Pow and repeat branches used to wave a None through.
+    ("pow", "        return 2 ** 10**19", POW_RULE),
+    ("repeat", "        x = [0] * 1000 * 1000 * 1000", REPEAT_RULE),
+]
+
+
+@pytest.mark.parametrize("name,body,rule", BOMB_BEHIND_TICK_GUARD, ids=[r[0] for r in BOMB_BEHIND_TICK_GUARD])
+def test_bomb_behind_a_tick_guard_is_refused_at_admission(name, body, rule, no_smoke_test):
+    """Acceptance criterion 1: a genome that runs a resource bomb only after tick 40 cannot stall
+    the dish. The stand-in cell in the smoke test never reaches tick 40 (`smoke_test` runs ticks
+    0..39), so a dynamic gate would never see the bomb; the static gate refuses the construct at
+    admission regardless of the tick that would run it, so the dish never receives the strain. Each
+    constant form — a huge range, an oversized power, a chained repeat — is covered, since the whole
+    class, not one spelling, is what the item closes. `no_smoke_test` proves the refusal is static:
+    nothing in the genome is executed."""
+    src = f"def live(me):\n    if me.tick > 40:\n{body}\n    return 'rest'\n"
     v = admit(src)
     assert not v
-    assert RANGE_RULE in v.reasons
+    assert rule in v.reasons
 
 
 def test_genome_that_throws_fails_the_smoke_test():
@@ -636,8 +660,18 @@ def test_bomb_reason_strings_match_the_membrane():
 BOMB_GATE_ADMITS = [
     ("float_exponent", "def live(me):\n    return 'eat' if me.energy ** 0.5 > 0.5 else 'rest'\n"),
     ("small_int_exponent", "def live(me):\n    return 'eat' if me.age ** 2 < 100 else 'rest'\n"),
+    # A sqrt written as a division: the folder must evaluate 1/2 to 0.5, not leave it None, or the
+    # oversized-exponent ban (which now fires on None) would lyse this on the thaw re-inspect.
+    ("division_exponent", "def live(me):\n    return 'eat' if me.energy ** (1 / 2) > 0.5 else 'rest'\n"),
     ("nonconstant_multiplier", "def live(me):\n    grid = [0] * len(me.around)\n    return 'rest'\n"),
+    ("chained_nonconstant_multiplier", "def live(me):\n    grid = [0] * len(me.around) * 4\n    return 'rest'\n"),
     ("nonconstant_range", "def live(me):\n    n = 8\n    for d in range(n):\n        pass\n    return 'rest'\n"),
+    # A short window high up the number line: each bound is over the cap, but the range is five
+    # long. The length has to be computed, not each bound compared in isolation, or this is banned.
+    (
+        "small_constant_range_window",
+        "def live(me):\n    for d in range(10**7, 10**7 + 5):\n        pass\n    return 'rest'\n",
+    ),
 ]
 
 

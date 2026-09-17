@@ -225,12 +225,17 @@ def _is_const_expr(node: ast.expr) -> bool:
 
 
 def _fold_number(node: ast.expr) -> int | float | None:
-    """Evaluate a constant arithmetic tree to a number, or None if it is not one or is too large
-    to carry. A manual recursive descent over `+ - * **` on int and float literals: it never uses
-    eval, compile or ast.literal_eval, so the checker runs no genome-derived code and cannot
-    itself detonate. A `**` is computed only for a small integer exponent over a bounded base, and
-    any intermediate past `_FOLD_CAP` becomes None, so folding is always cheap and never a bomb of
-    its own. `bool` is not a number here (a genome that writes `[0] * True` meant the int)."""
+    """Evaluate a constant arithmetic tree to a number, or None if it is not one, uses an operator
+    this folder does not carry, or is too large to hold. A manual recursive descent over
+    `+ - * / // % **` on int and float literals: it never uses eval, compile or ast.literal_eval,
+    so the checker runs no genome-derived code and cannot itself detonate. Integer `**` is computed
+    only for a small exponent (0..64) over a bounded base, and every intermediate past `_FOLD_CAP`
+    collapses to None, so folding is always cheap and never a bomb of its own; a `**` with a float
+    operand is an ordinary O(1) float power. Because the folder carries all the everyday numeric
+    operators, a None result reliably means "oversized or unrepresentable" and not merely "not a
+    plain literal" — which is what lets the Pow, repeat and range rules treat None as a bomb rather
+    than wave it through. `bool` is not a number here (a genome that writes `[0] * True` meant the
+    int)."""
     if isinstance(node, ast.Constant):
         v = node.value
         if isinstance(v, bool) or not isinstance(v, (int, float)):
@@ -251,22 +256,46 @@ def _fold_number(node: ast.expr) -> int | float | None:
         if left is None or right is None:
             return None
         op = node.op
-        if isinstance(op, ast.Add):
-            v = left + right
-        elif isinstance(op, ast.Sub):
-            v = left - right
-        elif isinstance(op, ast.Mult):
-            v = left * right
-        elif isinstance(op, ast.Pow):
-            if not (
-                isinstance(left, int) and isinstance(right, int) and 0 <= right <= 64 and abs(left) <= MAX_LITERAL_COUNT
-            ):
+        try:
+            if isinstance(op, ast.Add):
+                v = left + right
+            elif isinstance(op, ast.Sub):
+                v = left - right
+            elif isinstance(op, ast.Mult):
+                v = left * right
+            elif isinstance(op, ast.Div):
+                v = left / right  # always a float; a zero divisor is caught below
+            elif isinstance(op, ast.FloorDiv):
+                v = left // right
+            elif isinstance(op, ast.Mod):
+                v = left % right
+            elif isinstance(op, ast.Pow):
+                if isinstance(left, int) and isinstance(right, int):
+                    if not (0 <= right <= 64 and abs(left) <= MAX_LITERAL_COUNT):
+                        return None  # a large integer power: oversized, and never computed here
+                    v = left**right
+                else:
+                    v = float(left) ** float(right)  # a float power is O(1) and never a bomb
+            else:
                 return None
-            v = left**right
-        else:
+        except (ZeroDivisionError, OverflowError, ValueError):
+            return None
+        if not isinstance(v, (int, float)) or isinstance(v, bool):
+            return None  # a complex, say, from a negative float raised to a fractional power
+        if isinstance(v, float) and not math.isfinite(v):
             return None
         return None if abs(v) > _FOLD_CAP else v
     return None
+
+
+def _mult_factors(node: ast.expr) -> list[ast.expr]:
+    """Flatten a tree of `*` into its operands, descending only through `Mult` BinOps, so a
+    left-associative chain like `[0] * 1000 * 1000` yields `[[0], 1000, 1000]`. An operand that is
+    not itself a `*` (a literal, a name, a `+` expression) is returned whole. This is what lets the
+    repeat rule fold the product of every constant factor in a chain, not just one multiply."""
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mult):
+        return _mult_factors(node.left) + _mult_factors(node.right)
+    return [node]
 
 
 def _is_seq_literal(node: ast.expr) -> bool:
@@ -357,24 +386,48 @@ def inspect(source: str) -> Verdict:
                 reasons.append(_POW_RULE)  # 2 ** me.age: the exponent is only known at runtime
             else:
                 v = _fold_number(exp)
-                if isinstance(v, int) and v > POW_MAX_EXP:
-                    reasons.append(_POW_RULE)  # 2 ** 10**9: an oversized constant exponent
-                # a float exponent, a small int, or a refused power tower (None) is not a bomb here;
-                # a nested Pow whose own exponent is oversized is visited by ast.walk and caught there
+                # None means the exponent folded past the cap or is otherwise unrepresentable — a
+                # constant bomb (2 ** 10**19, 2 ** 2**100), banned like the range and repeat rules
+                # below; a small int, or any float (x ** 0.5, energy ** (1/2)), is not one.
+                if v is None or (isinstance(v, int) and v > POW_MAX_EXP):
+                    reasons.append(_POW_RULE)  # 2 ** 10**9, 2 ** 10**19: an oversized exponent
         elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mult):
-            if _is_seq_literal(node.left) ^ _is_seq_literal(node.right):
-                count = node.right if _is_seq_literal(node.left) else node.left
-                if _is_const_expr(count):  # a non-constant count ([0] * len(me.around)) is left to the child
-                    v = _fold_number(count)
-                    if v is None or (isinstance(v, int) and v > MAX_LITERAL_COUNT):
-                        reasons.append(_REPEAT_RULE)  # [0] * 10**10
-        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "range":
-            for arg in node.args:
-                if _is_const_expr(arg):  # range(n) / range(len(x)) is non-constant; left to the child
-                    v = _fold_number(arg)
-                    if v is None or (isinstance(v, int) and v > MAX_LITERAL_COUNT):
-                        reasons.append(_RANGE_RULE)  # range(10**12)
+            # A sequence literal repeated by constant factors, directly ([0] * 10**10) or through a
+            # chain ([0] * 1000 * 1000 * 1000): fold the product of the factors and ban it if the
+            # whole product is oversized. A factor the source does not fix ([0] * len(me.around))
+            # leaves the product unknown and is left to the child's caps.
+            factors = _mult_factors(node)
+            seqs = [f for f in factors if _is_seq_literal(f)]
+            others = [f for f in factors if not _is_seq_literal(f)]
+            if len(seqs) == 1 and others and all(_is_const_expr(f) for f in others):
+                product: int | None = 1
+                for f in others:
+                    v = _fold_number(f)
+                    if v is None or not isinstance(v, int):
+                        product = None  # unfoldable or non-integer factor: treat as oversized
                         break
+                    product *= v
+                    if product > MAX_LITERAL_COUNT:
+                        break
+                if product is None or product > MAX_LITERAL_COUNT:
+                    reasons.append(_REPEAT_RULE)  # [0] * 10**10, [0] * 1000 * 1000 * 1000
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "range":
+            # range(n) / range(len(x)) is non-constant and left to the child. When every bound is a
+            # constant integer the exact length is known, so compute it and ban a huge one — which
+            # catches a negative-step form (range(0, -10**12, -1)) that comparing bounds in
+            # isolation would miss. A bound past the fold cap is oversized however the rest read.
+            folded = [_fold_number(a) if _is_const_expr(a) else None for a in node.args]
+            oversized = any(v is None for a, v in zip(node.args, folded) if _is_const_expr(a))
+            all_const_ints = bool(node.args) and not node.keywords and all(isinstance(v, int) for v in folded)
+            if oversized:
+                reasons.append(_RANGE_RULE)  # range(10**19): a bound past the fold cap
+            elif all_const_ints:
+                try:
+                    length = len(range(*folded))
+                except (TypeError, ValueError):
+                    length = 0  # range(x, y, 0): a runtime error the smoke test surfaces, not a bomb
+                if length > MAX_LITERAL_COUNT:
+                    reasons.append(_RANGE_RULE)  # range(10**12), range(0, -10**12, -1)
     # dedupe, keep order
     seen = set()
     reasons = [r for r in reasons if not (r in seen or seen.add(r))]

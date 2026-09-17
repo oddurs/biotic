@@ -44,9 +44,9 @@ returns without parsing, because parsing megabytes of model output is itself a c
 | `global`, `nonlocal` | `global/nonlocal not allowed` |
 | `async def`, `await`, `yield`, `yield from` | `async/generators not allowed` |
 | `class` | `classes not allowed` |
-| `**` with a non-constant exponent (`2 ** me.age`) or a constant one over 1024 (`2 ** 10**9`); a base of any size, and a float or small integer exponent (`x ** 0.5`, `energy ** 2`), are fine | `** with a non-constant or oversized exponent (a resource bomb the budget cannot interrupt)` |
-| a list, tuple, string or bytes literal repeated by a constant over 1,000,000 (`[0] * 10**10`, `'-' * 10**10`); a small constant (`[0] * 8`) or a count only the dish knows (`[0] * len(me.around)`) is fine | `sequence repeated by a large constant (a resource bomb the budget cannot interrupt)` |
-| `range()` over a constant literal above 1,000,000 (`range(10**12)`, `range(0, 10**12)`); a small one (`range(8)`) or a runtime count (`range(n)`) is fine | `range() over a huge constant (a resource bomb the budget cannot interrupt)` |
+| `**` with a non-constant exponent (`2 ** me.age`) or a constant one over 1024, whether it folds to a plain number (`2 ** 10**9`) or is too large to carry (`2 ** 10**19`, `2 ** (2 ** 100)`); a base of any size, and a float or small integer exponent (`x ** 0.5`, `energy ** 2`, `energy ** (1 / 2)`), are fine | `** with a non-constant or oversized exponent (a resource bomb the budget cannot interrupt)` |
+| a list, tuple, string or bytes literal repeated so that the product of its constant factors is over 1,000,000, in one multiply (`[0] * 10**10`, `'-' * 10**10`) or a chain of them (`[0] * 1000 * 1000 * 1000`, `([0] * 10**6) * 10**6`); a small product (`[0] * 8`) or a factor only the dish knows (`[0] * len(me.around)`) is fine | `sequence repeated by a large constant (a resource bomb the budget cannot interrupt)` |
+| `range()` whose bounds are all constant and whose length is above 1,000,000 (`range(10**12)`, `range(0, 10**12)`, `range(0, -10**12, -1)`), or a bound too large to carry (`range(10**19)`); a short one (`range(8)`, `range(10**7, 10**7 + 5)`) or a runtime count (`range(n)`) is fine | `range() over a huge constant (a resource bomb the budget cannot interrupt)` |
 
 Why those three attributes: `str.format` and `str.format_map` read attributes named
 inside their replacement fields, so `"{0.__class__}".format(me)` would reach a dunder
@@ -115,13 +115,18 @@ bytecodes, so a single C-level operation — `2 ** 10**9`, `[0] * 10**10`,
 can hold the whole dish. The static gate refuses their literal and constant forms here,
 where it sees the code whatever tick would run it, so a bomb behind `if me.tick > 40:` is
 refused at admission rather than stalling a running dish. It reads only what the source
-fixes — an exponent, a repeat count or a `range` bound that is a literal or constant
-arithmetic on literals — folded by a small hand-written evaluator that runs no genome code
-and stops at `10**18`. A value the dish computes at runtime is left to the isolated child's
+fixes — an exponent, the factors of a repeat, or a `range`'s bounds when they are literals or
+constant arithmetic on literals — folded by a small hand-written evaluator that runs no genome
+code. The evaluator carries the everyday numeric operators (`+ - * / // % **`) and treats a
+value that folds past `10**18` as too large to carry, so a fold to nothing means "oversized",
+not "benign but not a plain literal": `2 ** 10**9` and the larger `2 ** 10**19` are both refused,
+a chain like `[0] * 1000 * 1000 * 1000` is refused on the product of its factors, and a `range`
+is refused on its actual length, so a negative-step form (`range(0, -10**12, -1)`) is caught the
+same as `range(10**12)`. A value the dish computes at runtime is left to the isolated child's
 caps and the wall-clock timeout (below): `2 ** me.age` is refused as non-constant, but
-`[0] * len(me.around)` and `range(n)` pass. A float or small integer exponent is not a
-bomb, so `x ** 0.5` and `energy ** 2` stay legal — which matters because a thawed dish is
-inspected again (below) and a benign power must survive the reload.
+`[0] * len(me.around)` and `range(n)` pass. A float or small integer exponent is not a bomb, so
+`x ** 0.5`, `energy ** 2` and `energy ** (1 / 2)` stay legal — which matters because a thawed
+dish is inspected again (below) and a benign power must survive the reload.
 
 What a genome has: `math`, `random` (see below), and these builtins — `abs` `all` `any`
 `bool` `dict` `divmod` `enumerate` `filter` `float` `int` `isinstance` `len` `list`
@@ -303,12 +308,15 @@ laundering genomes, and six spellings of a rebound `except` name (a local, a mod
 constant, a parameter, an `as` name, an unbound local, and one whose outer handler loops
 forever, admitted through the child interpreter so that a regression is a timeout and
 not a hung suite), all refused before anything runs. The resource-bomb rules add one
-genome per form to the escape-class set — an oversized and a computed exponent, a list and
-a string repeated by a huge constant, and a huge `range` — and a genome that hides
-`sum(range(10**12))` behind `if me.tick > 40:` proves the static gate refuses it at
-admission with the smoke test replaced, so nothing runs; four positive controls (a float
-and a small-integer exponent, a runtime-sized repeat and a runtime-sized `range`) pin that
-the ordinary forms stay admitted, since the thaw screen re-inspects them. `admit_isolated`
+genome per form to the escape-class set — an oversized, an unrepresentable and a computed
+exponent, a list and a string repeated by a huge constant and by a chain of constants, and
+a huge `range` in its plain and negative-step forms — and a genome that hides each constant
+form (`sum(range(10**12))`, `2 ** 10**19`, `[0] * 1000 * 1000 * 1000`) behind
+`if me.tick > 40:` proves the static gate refuses it at admission with the smoke test
+replaced, so nothing runs; positive controls (a float, a small-integer and a division
+exponent, a runtime-sized and a chained runtime-sized repeat, a runtime-sized `range` and a
+short high-numbered window) pin that the ordinary forms stay admitted, since the thaw screen
+re-inspects them. `admit_isolated`
 is exercised with a Python-level loop, which the child's own budget answers, a C-level one
 whose count is computed at runtime, which the wall-clock timeout ends, and (on Linux) a
 runtime-sized memory bomb, which the child's `RLIMIT_AS` turns into a `MemoryError`, each
