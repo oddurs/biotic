@@ -363,7 +363,18 @@ def test_a_curve_that_cannot_be_widened_is_left_intact_and_said_once(make_cultur
 def test_unknown_columns_are_kept(make_culture):
     header = list(curve.COLUMNS) + ["mystery"]
     row = ["10", "5", "1", "0.7000", "lag", "0", "0", "0", "0", "0", "0.0000", "1.0000", "0.00", "1", "0"]
-    row += ["0.0000", "0", "0", "0", "0", "0", "0", "0", "0", "x"]  # …pheromone…branch, attempted, viable, predated, arisen_llm, arisen_random, mystery
+    row += [
+        "0.0000",
+        "0",
+        "0",
+        "0",
+        "0",
+        "0",
+        "0",
+        "0",
+        "0",
+        "x",
+    ]  # …pheromone…branch, attempted, viable, predated, arisen_llm, arisen_random, mystery
     config.CURVE.write_text(",".join(header) + "\n" + ",".join(row) + "\n")
     c = make_culture()
     for _ in range(10):
