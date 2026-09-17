@@ -47,7 +47,7 @@ Tierra's own history says where novelty comes from: not the physical
 
 ## substrates — The agar becomes chemistry
 
-`··········` 0% · 0 of 6 done · due 2026-10-31
+`··········` 0% · 0 of 7 done · due 2026-10-31
 
 The answer to "is it software?" Real agar is not "nutrient"; it is glucose and
 
@@ -59,6 +59,7 @@ The answer to "is it software?" Real agar is not "nutrient"; it is glucose and
 - [ ] `0021` `biotic drop substrate` — the citrate experiment <sup>feature · p1</sup>
 - [ ] `0022` `biotic library` — the strain library, measured <sup>feature · p0</sup>
 - [ ] `0023` Show chemistry in the eyepiece <sup>feature · p1</sup>
+- [ ] `0049` Let replicate flasks opt into spending on the mind <sup>feature · p1</sup>
 
 ## secretions — The dish is the program
 
