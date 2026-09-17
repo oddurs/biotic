@@ -10,7 +10,9 @@ runs once per tick and decides whether the cell eats, moves, divides, signals, o
 rests. Agar depletes. Cells starve, age, and burst. Cells that gather energy
 divide; their daughters inherit the genome. A language model acts as a
 **mutagen**: on a small fraction of divisions, the daughter's genome comes back
-slightly rewritten. Selection does the rest.
+slightly rewritten. Selection does the rest. An offline **control arm** — random
+edits to the genome's syntax, no model — runs alongside it or in its place, so the
+model's mutations have something to be measured against (`docs/mutagen.md`).
 
 You place a **seed** — a word, a phrase, a question — and the mutagen writes the
 founding cell from it. After that you mostly watch. Every strain that ever arises
@@ -107,11 +109,14 @@ costs and how to compare flasks.
 
 A dish is deterministic under its seed, in any process, and `vessel/dish.json`
 restores an exact twin: a run that is stopped and resumed follows the trajectory it
-would have followed anyway, tick for tick, until the mind hands it a daughter. The
-model is the one source of novelty a seed does not fix; `docs/membrane.md` has the
-fine print.
+would have followed anyway, tick for tick, until the mind hands it a daughter. On the
+LLM arm the model is the one source of novelty a seed does not fix; the random control
+arm is seeded, so a `--mutagen random` dish reproduces in full. `docs/membrane.md` has
+the fine print.
 `BIOTIC_REPLENISH=0` gives a truly closed dish: bloom, crash, done.
-`BIOTIC_MUTATION_RATE`, `BIOTIC_MUTAGEN_INTERVAL`, `BIOTIC_MUTAGEN_CLOCK`,
+`BIOTIC_MUTATION_RATE`, `BIOTIC_MUTAGEN` (`llm`/`random`/`mixed`, default `mixed`),
+`BIOTIC_RANDOM_SHARE` (the fraction of rolls the `mixed` arm sends to the random
+mutagen, default 0.25), `BIOTIC_MUTAGEN_INTERVAL`, `BIOTIC_MUTAGEN_CLOCK`,
 `BIOTIC_MUTAGEN_EVERY_TICKS`, `BIOTIC_BUDGET_USD`, `BIOTIC_NOTES_EVERY`, `BIOTIC_TICK`,
 `BIOTIC_WIDTH`, `BIOTIC_HEIGHT` are the other knobs. The rest of the physics is in
 `bio/config.py`.
@@ -147,9 +152,11 @@ Every flask shares the seed, so the **agar is identical**; a per-flask salt in t
 makes the **trajectories diverge**, as replicate cultures of one clone do. Flasks live in
 `flasks/<name>/{01..NN}/` (or `--dir`, or `$BIOTIC_FLASKS`), each a complete vessel; `--vessel DIR`
 (or `BIOTIC_VESSEL`) points any command at one of them — `biotic live --vessel flasks/tide/03`.
-`flasks run` is dormant and spends nothing (the mutagen is off); awake replicate runs are a later
-addition. `docs/flasks.md` has the rest, including why flasks are separate processes and never
-threads.
+`flasks run` is dormant and spends nothing (the *semantic* mutagen is off); on the default arm the
+offline random mutagen still varies each flask, so a replicate set is a real control — `--mutagen
+llm` keeps them faithful, `--mutagen random` evolves them offline. Awake *semantic* replicate runs
+are a later addition. `docs/flasks.md` has the rest, including why flasks are separate processes and
+never threads.
 
 ## the mind
 
@@ -212,6 +219,7 @@ with its reason string, and what the membrane cannot do.
       dish.py       agar, cells, physics
       membrane.py   what code is allowed to become a cell
       mutagen.py    what asks the mind for variants: a thread on the wall clock, the dish itself on the tick clock
+      mutagen_random.py  the control arm: offline AST mutations, no mind, seeded and deterministic
       naturalist.py the observer thread that keeps the field notes
       culture.py    dish + strains + mutagen + your interventions; owns vessel/
       curve.py      the growth curve: its columns, its reader, widening older files

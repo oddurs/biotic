@@ -130,6 +130,13 @@ PHEROMONE_DIFFUSION = 0.10
 
 # --- mutation ------------------------------------------------------------
 MUTATION_RATE = float(env("BIOTIC_MUTATION_RATE", "0.06"))  # per division
+# Which mutagen a division rolls: the semantic one (the mind), the offline random control arm
+# (bio/mutagen_random.py), or a mix. In `mixed`, RANDOM_SHARE of rolls go to the random mutagen.
+# A bad BIOTIC_MUTAGEN is not raised at import (mirrors MUTAGEN_CLOCK); Culture.use_mutagen names
+# it at settle time, before the dish runs. docs/mutagen.md
+MUTAGEN_KINDS = ("llm", "random", "mixed")
+MUTAGEN_KIND = (env("BIOTIC_MUTAGEN", "mixed") or "mixed").strip().lower()  # the default arm
+RANDOM_SHARE = min(1.0, max(0.0, float(env("BIOTIC_RANDOM_SHARE", "0.25"))))  # mixed: fraction to the random arm
 CELL_TIME_BUDGET = 0.004  # seconds a single live() may take before lysis
 GENOME_MAX_CHARS = 2400
 MEMORY_MAX_CHARS = 2048  # a cell's memory as plain JSON, after every tick; more bursts the cell

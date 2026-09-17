@@ -19,6 +19,19 @@ turns the `Unreleased` section into a dated release.
   `biotic drop feature lyse` mid-run (logged and marked on the curve like any drop). `dish.json` now
   records `dish.features`, and `vessel/curve.csv` gains a cumulative `predated` column after
   `mutations_viable`. `LYSE_K` (2.0) is a physics constant in `bio/config.py`. See `docs/predation.md`.
+- A random mutagen — the control arm. `bio/mutagen_random.py` rewrites a genome at the syntax-tree
+  level with no mind, no thread and no network: perturb a numeric constant by ±10–50%, flip a
+  comparison (`<`↔`>`) or a boolean operator (`and`↔`or`), swap two subscript indices, drop one
+  branch of an `if`, duplicate a statement, or swap two return actions — one change per division, at
+  one random eligible site. The daughter passes the membrane like any other genome; one that does
+  not (a bomb, a throw, or a genome identical to its parent) is refused and the division is faithful.
+  `BIOTIC_MUTAGEN=llm|random|mixed` (default `mixed`) and `--mutagen` on `biotic live`, `biotic run`
+  and `biotic flasks new` choose the arm, remembered in `dish.json` like `--clock`; in `mixed`,
+  `BIOTIC_RANDOM_SHARE` (default 0.25) of rolls go to the random arm. A `--mutagen random` dish
+  evolves entirely offline and reproduces on any machine from its seed. Every strain records its
+  origin (`llm`, `random`, `hgt`, or null for the founder) in `strains.json` and in the fossil
+  header (`arose … by the random mutagen`); the census counts it, `biotic status` shows the arm the
+  last run used, and `curve.csv` gains `arisen_llm` and `arisen_random`. See `docs/mutagen.md`.
 - Incubation gaps: a dish resumed after more than ten minutes away logs one `gap` event (`incubation resumed after 12h04m`), which `biotic curve` draws as `⋯` at the resume tick; the naturalist's first note after the gap is told the measured off-time, and `biotic status` shows `last active`. `dish.json` now records `saved_at`. Tune with `BIOTIC_INCUBATION_GAP` (seconds). See `docs/curve.md`.
 - Replicate flasks: `biotic flasks new <name> --seed "…" [--n 12]` founds one ancestor and pours it
   into `flasks/<name>/{01..NN}/`, each a self-contained vessel of the same seed (so the agar is
@@ -118,6 +131,13 @@ turns the `Unreleased` section into a dated release.
 
 ### Changed
 
+- The default mutagen arm is `mixed`: unless `BIOTIC_MUTAGEN=llm` or `--mutagen llm` is set, a dish
+  now sends a fraction (`BIOTIC_RANDOM_SHARE`, default 0.25) of its mutation rolls to the offline
+  random mutagen. An existing dish therefore changes trajectory on its next run, and replicate flasks
+  (which run dormant) now vary where before they could not. Set `--mutagen llm` to keep the pure-LLM
+  behaviour. `strains.json` and strain samples carry a `mutagen` field (older records load with it
+  null; a hand-written sample with an unknown origin is refused). `curve.csv` gains two appended
+  columns, `arisen_llm` and `arisen_random`; an older curve is widened in place on the next run.
 - The fossil record now lives at `vessel/soma/` instead of a top-level `soma/`, so a flask is one
   self-contained directory. `biotic sterilize` and the `vessel/` layout are otherwise unchanged;
   publish a fossil record with `git add -f vessel/soma/`.

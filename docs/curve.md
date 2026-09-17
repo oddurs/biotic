@@ -35,6 +35,8 @@ previous row.
 | `mutations_attempted` | int, cumulative | calls the mutagen made that got an answer or an error, on either clock; not the calls a dormant or exhausted mind refused before any request |
 | `mutations_viable` | int, cumulative | daughters that passed the membrane: into the pool on the wall clock, born at once on the tick clock. At most `mutations_attempted`; `docs/experiments.md` |
 | `predated` | int, cumulative | cells burst by a lysing neighbour of another strain; 0 unless the `lyse` feature is on (`docs/predation.md`). Appended after `mutations_viable` |
+| `arisen_llm` | int, cumulative | strains that arose by the semantic (LLM) mutagen; `docs/mutagen.md` |
+| `arisen_random` | int, cumulative | strains that arose by the offline random mutagen (the control arm); `docs/mutagen.md` |
 
 Floats are written to four decimals, `mean_gen` to two. Four decimals resolve
 sustained signalling in `pheromone`: one cell emitting 0.2 every tick holds the
@@ -66,6 +68,22 @@ mind is called at most once every `BIOTIC_MUTAGEN_INTERVAL` seconds, so a run at
 `--tick 0` sees far fewer variants per tick than one at half a second, and two
 machines differ. Either way the slope is not a rate of adaptive novelty; a
 variant that is taken up and starves on the next tick still counts.
+
+`arisen_llm` and `arisen_random` split `arisen` by which mutagen produced each
+strain (`docs/mutagen.md`): `arisen_llm + arisen_random + 1` equals `arisen`, the
+`+ 1` being the origin-less founder. The identity closes exactly only for a dish
+founded under this apparatus, and only while `hgt` is unused. A strain carried
+over from before this feature — one an old `strains.json` or an old sample holds
+with no `mutagen` key — loads with a null origin and is counted in neither column,
+so after such a dish is resumed `arisen_llm + arisen_random + 1 < arisen`; the
+curve stays internally consistent (each column is a true count), the documented
+sum simply no longer closes. The schema already admits a third origin, `hgt`
+(item 0014): once strains arrive by horizontal transfer they too will count in
+`arisen` but in neither split column, until an `arisen_hgt` column joins these
+two. On a pure `--mutagen llm` dish `arisen_random` stays 0; on `--mutagen random`
+`arisen_llm` stays 0; on `mixed` both climb, and the ratio tracks
+`BIOTIC_RANDOM_SHARE`. Overlay them (`biotic curve --cols
+arisen_llm,arisen_random`) to watch the two arms side by side.
 
 `mutations_taken` counts strains that have a parent. The founder is the only
 strain without one, so today it equals `arisen − 1` in every row; the column is

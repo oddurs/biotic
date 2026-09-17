@@ -22,6 +22,7 @@ from .dish import Cell, Dish, decode_memory, encode_memory
 from .membrane import admit, admit_isolated, inspect, memory_fault
 from .mind import Dormant, Exhausted, Mind, MindError, fmt_usd, parse_budget
 from .mutagen import Mutagen, exhausted_msg, fmt_wait
+from .mutagen_random import RandomMutagen
 from .naturalist import EVENTS_KEPT, NOTE_EVENTS, Naturalist, sketch
 from .prompts import _n  # the pluralisation helper lives with the prompts that also use it
 from .strains import Registry, check_record
@@ -68,6 +69,16 @@ class Culture:
         self.flask = getattr(dish, "flask", "")
         base = f"{seed}::{self.flask}" if self.flask else seed
         self.rng = random.Random(f"{base}::culture")
+        # The random mutagen (the control arm) draws from its own flask-salted RNG, kept apart from
+        # the dish RNG so a later dish change never shifts the content of a random mutation. The
+        # mutation *roll* stays on self.rng, so a pure-LLM run's stream is byte-identical to before.
+        self.rng_mut = random.Random(f"{base}::mutagen_random")
+        self.random_mutagen = RandomMutagen(self.rng_mut)
+        self.mutagen_choice: str | None = None  # a --mutagen the dish remembers (dish.json); None: by env/default
+        self.mutagen_used: str | None = None  # what the last run ran under, for `biotic status`
+        # A tolerant default here (a bad BIOTIC_MUTAGEN must not crash construction, as with the
+        # clock); use_mutagen names a bad value at settle time, before the dish runs.
+        self.mutagen_kind = config.MUTAGEN_KIND if config.MUTAGEN_KIND in config.MUTAGEN_KINDS else "mixed"
         self.started = time.time()
         self.last_phase = None
         self._candidate = None
@@ -112,6 +123,7 @@ class Culture:
         founder: tuple[str, str, str] | None = None,
         size: tuple[int, int] | None = None,
         features: list[str] | None = None,
+        mutagen: str | None = None,
     ) -> Culture:
         """Found a culture: autoclave the vessel (the freezer is kept), pour a dish, inoculate `n`
         cells (default config.INOCULUM) of the founder, save, and freeze tick 0 as `genesis`. The
@@ -162,6 +174,9 @@ class Culture:
         # enable_feature writes a tick-0 drop marker (the vessel exists), so no separate seed log.
         for f in features or []:
             cult.enable_feature(f)
+        if mutagen is not None:  # remembered in dish.json; flasks share one arm across a set (docs/mutagen.md)
+            cult.mutagen_kind = cult._valid_kind(mutagen)
+            cult.mutagen_choice = mutagen
         if sample is None and founder is not None:
             # a replicate flask: one ancestor for every flask of the set, poured in without the
             # mind (no network, no spend), so the flasks differ only by their RNG salt.
@@ -353,6 +368,7 @@ class Culture:
             self.last_call_tick, self.retry_at_tick = m.last_call, m.retry_at
         return {
             "rng": list(self.rng.getstate()),
+            "rng_mut": list(self.rng_mut.getstate()),  # the random mutagen's stream, isolated from the dish RNG
             "last_phase": self.last_phase,
             "candidate": self._candidate,
             "candidate_for": self._candidate_for,
@@ -366,6 +382,9 @@ class Culture:
             "clock": self.clock_choice,
             "clock_used": self.clock_used,
             "every_ticks_used": self.every_ticks_used,
+            # the mutagen's arm: the --mutagen the dish remembers, and what the last run used
+            "mutagen": self.mutagen_choice,
+            "mutagen_used": self.mutagen_used,
             # the supply counters, coordinates of the timeline like `branch`; the tick schedule
             "attempted": m.attempted,
             "viable": m.viable,
@@ -383,6 +402,11 @@ class Culture:
             self.rng.setstate((st[0], tuple(st[1]), st[2]))
         except Exception:  # noqa: BLE001
             pass
+        try:  # a bad or missing rng_mut is left as constructed, exactly as rng above
+            st = d["rng_mut"]
+            self.rng_mut.setstate((st[0], tuple(st[1]), st[2]))
+        except Exception:  # noqa: BLE001
+            pass
         self.last_phase = d.get("last_phase")
         self._candidate = d.get("candidate")
         self._candidate_for = int(d.get("candidate_for") or 0)
@@ -395,6 +419,8 @@ class Culture:
         self.naturalist.restore(d.get("naturalist"))
         self.clock_choice = d.get("clock") if d.get("clock") in CLOCKS else None
         self.clock_used = d.get("clock_used") if d.get("clock_used") in CLOCKS else None
+        self.mutagen_choice = d.get("mutagen") if d.get("mutagen") in config.MUTAGEN_KINDS else None
+        self.mutagen_used = d.get("mutagen_used") if d.get("mutagen_used") in config.MUTAGEN_KINDS else None
         every = d.get("every_ticks_used")
         self.every_ticks_used = int(every) if isinstance(every, int | float) and every >= 1 else None
         m.attempted = int(d.get("attempted") or 0)
@@ -436,6 +462,23 @@ class Culture:
             return clock_words("tick", self.mutagen.every_ticks)
         return f"wall, at least {config.MUTAGEN_INTERVAL:g} s between calls"
 
+    # --- the mutagen's arm ---------------------------------------------------
+    def _valid_kind(self, choice: str) -> str:
+        if choice not in config.MUTAGEN_KINDS:
+            raise ValueError(f"the mutagen is llm, random or mixed, not {choice!r}")
+        return choice
+
+    def use_mutagen(self, choice: str | None) -> str:
+        """Choose the mutagen arm for this process, parallel to use_clock: --mutagen, else the
+        --mutagen the dish remembers, else BIOTIC_MUTAGEN (config.MUTAGEN_KIND). A flag is
+        remembered in dish.json and sticks, like --clock and --budget. Raises ValueError on a
+        value that is not llm, random or mixed. Call once, before run()."""
+        kind = self._valid_kind(choice or self.mutagen_choice or config.MUTAGEN_KIND)
+        self.mutagen_kind = kind
+        if choice:
+            self.mutagen_choice = choice
+        return kind
+
     # --- events -------------------------------------------------------------
     def log(self, kind: str, msg: str, **data) -> None:
         ev = {"t": time.time(), "tick": self.dish.tick, "kind": kind, "msg": msg, **data}
@@ -465,8 +508,35 @@ class Culture:
     # --- mutation hook ------------------------------------------------------
     def _on_divide(self, cell: Cell):
         rate = self.mutation_rate * (self.mutagen.boost if self.dish.tick < self.mutagen.boost_until else 1.0)
-        if self.rng.random() >= rate:
+        if self.rng.random() >= rate:  # the roll stays on self.rng, first: a pure-LLM stream is unchanged
             return None
+        origin, got = self._draw_mutation(cell)
+        if not got:
+            return None
+        name, note, src = got
+        s = self.registry.new(src, cell.strain, self.dish.tick, name, note, mutagen=origin)
+        self.mutagen.know(s.id, s.name, s.source)  # both arms: a later mixed roll may go to the LLM
+        parent = self.registry.strains.get(cell.strain)
+        pname = parent.name if parent else cell.strain
+        self.log(
+            "arose",
+            f"{s.name} arose from {pname} — “{note}”" if note else f"{s.name} arose from {pname}",
+            strain=s.id,
+            parent=cell.strain,
+        )
+        return s.id, src
+
+    def _draw_mutation(self, cell: Cell) -> tuple[str, tuple | None]:
+        """Route this division's mutation to an arm and return (origin, daughter-or-None). In
+        `random`, and in `mixed` when the mutation RNG lands under RANDOM_SHARE, the offline
+        random mutagen makes the change from the parent's genome — no mind, no network, and no
+        fallback to the LLM on a refused roll (the division is simply faithful). Otherwise the
+        LLM mutagen supplies it, on whichever clock is set."""
+        kind = self.mutagen_kind
+        if kind == "random" or (kind == "mixed" and self.rng_mut.random() < config.RANDOM_SHARE):
+            parent = self.registry.strains.get(cell.strain)
+            got = self.random_mutagen.mutate(parent.source) if parent else None
+            return "random", got
         if self.clock == "tick":
             try:
                 got = self.mutagen.mutate_now(cell.strain)
@@ -477,20 +547,7 @@ class Culture:
             got = self.mutagen.take(cell.strain)
             if not got:
                 self.mutagen.request(cell.strain)
-        if not got:
-            return None
-        name, note, src = got
-        s = self.registry.new(src, cell.strain, self.dish.tick, name, note)
-        self.mutagen.know(s.id, s.name, s.source)
-        parent = self.registry.strains.get(cell.strain)
-        pname = parent.name if parent else cell.strain
-        self.log(
-            "arose",
-            f"{s.name} arose from {pname} — “{note}”" if note else f"{s.name} arose from {pname}",
-            strain=s.id,
-            parent=cell.strain,
-        )
-        return s.id, src
+        return "llm", got
 
     # --- interventions ------------------------------------------------------
     def whisper(self, text: str) -> None:
@@ -739,6 +796,8 @@ class Culture:
             self.clock_used,
             self.every_ticks_used,
         )
+        # the mutagen's arm is the vessel's too, not the sample's; rng_mut comes with the sample
+        state["mutagen"], state["mutagen_used"] = self.mutagen_choice, self.mutagen_used
         self.seed = self.mutagen.seed = self.naturalist.seed = doc["seed"]
         self._swap(dish, reg, state)
         config.VESSEL.mkdir(parents=True, exist_ok=True)
@@ -914,6 +973,8 @@ class Culture:
         generations = sum(k * strains[s].generation for s, k in census.items() if s in strains)
         row["mean_gen"] = generations / n if n else 0.0
         row["arisen"] = len(strains)
+        row["arisen_llm"] = sum(1 for s in strains.values() if s.mutagen == "llm")
+        row["arisen_random"] = sum(1 for s in strains.values() if s.mutagen == "random")
         row["extinct"] = sum(1 for s in strains.values() if s.extinct_at is not None)
         row["mutations_ready"] = self.mutagen.ready()
         row["mutations_taken"] = sum(1 for s in strains.values() if s.parent is not None)
@@ -991,7 +1052,9 @@ class Culture:
         self._screen()
         self.tick_seconds = tick_seconds
         self.clock_used, self.every_ticks_used = self.clock, self.mutagen.every_ticks
+        self.mutagen_used = self.mutagen_kind
         self.log("mind", f"mutagen clock: {self.clock_line()}", clock=self.clock, every_ticks=self.every_ticks_used)
+        self.log("mind", f"mutagen arm: {self.mutagen_kind}", arm=self.mutagen_kind)
         if self.clock == "tick":
             # a blocking call can come in the first tick after a resume: prompt it with the real census and
             # phase. Not on the wall clock, where a primed context lets the thread's spontaneous path fire
@@ -999,7 +1062,11 @@ class Culture:
             d = self.dish
             self._context(d.census(), self.last_phase or d.phase())
         self._interrupted = False
-        self.mutagen.start()
+        if self.mutagen_kind != "random":
+            # On the random arm the LLM mutagen is never asked, so its thread must not start, or the
+            # spontaneous path in Mutagen._pick would call the mind on the wall clock. `mutagen.close()`
+            # in the finally is safe on an unstarted thread; the tick/mixed and wall/mixed paths start it.
+            self.mutagen.start()
         if config.NOTES_EVERY and self.mind.awake:  # a dormant mind writes no notes; the mutagen's event says so
             self.naturalist.start()
         n = 0
@@ -1045,6 +1112,7 @@ class Culture:
             "metrics": metrics,
             "mutagen": {
                 "state": self.mutagen.state,
+                "kind": self.mutagen_kind,  # the live run's arm; `biotic status` reads mutagen_used, not this
                 "clock": self.clock,
                 "every_ticks": self.mutagen.every_ticks,
                 "ready": self.mutagen.ready(),

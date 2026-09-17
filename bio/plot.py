@@ -41,6 +41,8 @@ LABELS: dict[str, str] = {
     "mutations_attempted": "mutagen calls (cumulative)",
     "mutations_viable": "variants viable (cumulative)",
     "predated": "predated (cumulative)",
+    "arisen_llm": "strains arisen · LLM (cumulative)",
+    "arisen_random": "strains arisen · random (cumulative)",
 }
 STYLES = {"population": "cyan", "strains": "yellow"}
 TRACE_STYLE = "green4"  # every other column

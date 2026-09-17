@@ -44,6 +44,7 @@ def cmd_live(a):
     _not_running()
     c = _culture(a.budget)
     _use_clock(c, a.clock, "live")
+    _use_mutagen(c, getattr(a, "mutagen", None))
     try:
         observe(c, tick_seconds=a.tick if a.tick else config.TICK_SECONDS)
     except RuntimeError as e:
@@ -54,6 +55,7 @@ def cmd_run(a):
     _not_running()
     c = _culture(a.budget)
     _use_clock(c, a.clock, "run")
+    _use_mutagen(c, getattr(a, "mutagen", None))
     t0 = time.time()
 
     def progress():
@@ -71,6 +73,7 @@ def cmd_run(a):
     if not a.quiet:
         print(f"budget {fmt_budget(c.mind.spent_usd, c.mind.budget_usd)}", file=sys.stderr)
         print(f"mutagen clock: {c.clock_line()}", file=sys.stderr)
+        print(f"mutagen arm: {c.mutagen_kind}", file=sys.stderr)
 
         def rep():
             while not stop.wait(5):
@@ -112,6 +115,12 @@ def cmd_status(a):
         clock = "not yet run (live: wall, run: tick)"
     remembered = f"  · --clock {c.clock_choice} remembered" if c.clock_choice else ""
     print(f"mutagen     clock: {clock}{remembered}")
+    if c.mutagen_used:
+        arm = f"{c.mutagen_used}  (last run)"
+    else:
+        arm = f"not yet run (default: {config.MUTAGEN_KIND})"
+    arm_remembered = f"  · --mutagen {c.mutagen_choice} remembered" if c.mutagen_choice else ""
+    print(f"              arm: {arm}{arm_remembered}")
     ticks = freezer.dish_ticks()
     n = len(freezer.stems())
     if n:
@@ -467,7 +476,7 @@ def cmd_flasks_new(a):
     from . import flasks
 
     try:
-        man = flasks.new(a.name, a.seed, n=a.n, root=a.dir)
+        man = flasks.new(a.name, a.seed, n=a.n, root=a.dir, mutagen=a.mutagen)
     except (FileExistsError, ValueError, RuntimeError) as e:
         sys.exit(str(e))
     except OSError as e:
@@ -568,6 +577,15 @@ def _use_clock(c: Culture, flag: str | None, command: str) -> None:
         sys.exit(str(e))
 
 
+def _use_mutagen(c: Culture, flag: str | None) -> None:
+    """Settle the mutagen's arm before the dish runs; a bad BIOTIC_MUTAGEN ends the command here,
+    not the dish mid-run."""
+    try:
+        c.use_mutagen(flag)
+    except ValueError as e:
+        sys.exit(str(e))
+
+
 def _cells(v: str) -> int:
     n = int(v)
     if n < 1:
@@ -600,6 +618,11 @@ def main(argv=None):
         "(the dish calls the mind itself, at most every BIOTIC_MUTAGEN_EVERY_TICKS ticks, and waits for the reply; "
         "run's default). Sticks to the dish like --budget; BIOTIC_MUTAGEN_CLOCK sets it per process. docs/experiments.md"
     )
+    mutagen_help = (
+        "mutagen arm: llm (the semantic mind), random (the offline control arm — AST mutations, no "
+        "network, no spend) or mixed (BIOTIC_RANDOM_SHARE of rolls go to random; the default). Sticks "
+        "to the dish like --clock; BIOTIC_MUTAGEN sets it per process. docs/mutagen.md"
+    )
 
     s = sub.add_parser("seed", help="inoculate a fresh dish from a word, phrase, or question", parents=[common])
     s.add_argument("seed")
@@ -614,6 +637,7 @@ def main(argv=None):
     s.add_argument("--tick", type=float, help="seconds per tick")
     s.add_argument("--budget", type=float, help=budget_help)
     s.add_argument("--clock", choices=CLOCKS, help=clock_help)
+    s.add_argument("--mutagen", choices=config.MUTAGEN_KINDS, help=mutagen_help)
     s.set_defaults(f=cmd_live)
 
     s = sub.add_parser("run", help="run headless, e.g. for an experiment", parents=[common])
@@ -624,6 +648,7 @@ def main(argv=None):
     )
     s.add_argument("--budget", type=float, help=budget_help)
     s.add_argument("--clock", choices=CLOCKS, help=clock_help)
+    s.add_argument("--mutagen", choices=config.MUTAGEN_KINDS, help=mutagen_help)
     s.set_defaults(f=cmd_run)
 
     sub.add_parser("status", parents=[common]).set_defaults(f=cmd_status)
@@ -708,6 +733,7 @@ def main(argv=None):
     fn.add_argument("--seed", required=True, help="the seed every flask shares (same seed, same agar)")
     fn.add_argument("--n", type=int, default=12, help="how many flasks (default 12, as Lenski has)")
     fn.add_argument("--dir", metavar="DIR", help=dir_help)
+    fn.add_argument("--mutagen", choices=config.MUTAGEN_KINDS, help=mutagen_help)
     fn.set_defaults(f=cmd_flasks_new)
     fr = flsub.add_parser("run", help="run every flask headless, one process each")
     fr.add_argument("name")

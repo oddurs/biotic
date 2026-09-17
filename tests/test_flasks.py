@@ -186,6 +186,28 @@ def test_new_records_the_flask_id_in_each_vessel(tmp_path):
         assert (base / fid / "flask.txt").read_text().strip() == fid
 
 
+def test_new_records_the_resolved_arm_not_a_bad_env(tmp_path, monkeypatch):
+    """A malformed BIOTIC_MUTAGEN with no --mutagen flag: the flasks fall back to `mixed` at
+    construction (as Culture.__init__ does, mirroring the clock), so the manifest must record the
+    arm they actually run — the resolved `mixed`, not the raw invalid string. flasks new does not
+    go through use_mutagen, so without this the bad env would be written verbatim into the
+    manifest while the flasks ran `mixed`."""
+    monkeypatch.setattr(config, "MUTAGEN_KIND", "cosmic")  # a typo'd BIOTIC_MUTAGEN
+    root = _root(tmp_path)
+    man = flasks.new("tide", SEED, n=2, root=root, size=SIZE)
+    assert man["mutagen"] == "mixed", "the manifest kept the raw invalid env, not the resolved arm"
+    on_disk = json.loads((flasks.flask_root(root) / "tide" / "flasks.json").read_text())
+    assert on_disk["mutagen"] == "mixed"
+
+
+def test_new_records_an_explicit_mutagen_arm(tmp_path):
+    """A --mutagen arm passed to flasks new is remembered in the manifest as the arm every flask of
+    the set runs under."""
+    root = _root(tmp_path)
+    man = flasks.new("tide", SEED, n=2, root=root, size=SIZE, mutagen="random")
+    assert man["mutagen"] == "random"
+
+
 def test_new_refuses_an_existing_populated_set(tmp_path):
     root = _root(tmp_path)
     flasks.new("tide", SEED, n=2, root=root, size=SIZE)
