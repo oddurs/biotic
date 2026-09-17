@@ -38,6 +38,8 @@ LABELS: dict[str, str] = {
     "pheromone": "pheromone (mean)",
     "mutations_ready": "variants ready (pool)",
     "mutations_taken": "variants taken (cumulative)",
+    "mutations_attempted": "mutagen calls (cumulative)",
+    "mutations_viable": "variants viable (cumulative)",
 }
 STYLES = {"population": "cyan", "strains": "yellow"}
 TRACE_STYLE = "green4"  # every other column
