@@ -254,6 +254,8 @@ def vitals(c: Culture, snap: dict) -> Table:
         + (f" · {dd['killed']} killed" if dd.get("killed") else "")
         + (f" · {dd['predated']} predated" if dd.get("predated") else ""),
     )
+    if snap.get("given"):  # only once a gift has been made; sharing is off on most dishes (docs/sharing.md)
+        t.add_row("sharing", f"{snap['given']:.2f} given · {snap['received']:.2f} received")
     m, mind = snap["mutagen"], snap["mind"]
     state = MUTAGEN_STYLE.get(m["state"], (m["state"], ""))
     mut = Text(state[0], style=state[1])

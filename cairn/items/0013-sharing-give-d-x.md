@@ -2,12 +2,13 @@
 id: 13
 title: 'Sharing: `("give", d, x)`'
 type: feature
-status: planned
+status: done
 milestone: biotic-env
+assignee: Oddur Sigurdsson
 depends_on:
 - 12
 created: 2026-09-08
-updated: 2026-09-08
+updated: 2026-09-16
 priority: p1
 effort: s
 area: bio/dish.py
@@ -33,6 +34,34 @@ only transfer that exists, and it is not voluntary in the relevant sense.
 
 ## Acceptance criteria
 
-- [ ] Energy is conserved minus the documented loss
-- [ ] A "give to kin below 0.3" genome keeps a starving cluster alive longer than a control (test with fixed seeds)
-- [ ] `given`/`received` appear in curve columns
+- [x] Energy is conserved minus the documented loss
+- [x] A "give to kin below 0.3" genome keeps a starving cluster alive longer than a control (test with fixed seeds)
+- [x] `given`/`received` appear in curve columns
+
+## 2026-09-16
+
+Adding a NEW perception me.neighbor_energy (energy of every occupied neighbour, KIN INCLUDED, 0.0 for empty/glass) rather than renaming me.threat as the item's proposal suggested. Me.__init__ zeroes threat on kin, so threat cannot serve criterion 2's give-to-kin; renaming would also break shipped lyse and the byte-pinned genesis/mutagen prompts.
+
+## 2026-09-16
+
+given/received tracked as dish-wide cumulative floats (Dish.given, Dish.received) and surfaced as two curve columns after 'predated', not per-strain. curve.csv is a fixed scalar schema; this matches births/predated. 'given' is gross energy leaving givers, 'received' is net arriving at recipients, so given-received is the heat lost.
+
+## 2026-09-16
+
+parse_action: give is the only 3-element action, so the tuple/list guard widens to 1<=len<=3 with its own try-branch before the shared one; a required amount (a bare ('give', d) is None), coerced+clamped to 0..MAX_ENERGY; any other 3-element form returns None so ('move',1,2) stays rejected. Added 'share' alias.
+
+## 2026-09-16
+
+_FakeMe._neighbor_energy multiplies each around value by MAX_ENERGY and the crowd bool (no rng draw), unlike _threat which rolls per tile. Zero draws keeps membrane admission byte-for-byte, so shipped genomes still admit identically.
+
+## 2026-09-16
+
+crit2 test pinned K=15 empirically: control's poor cells (0.12 on basal 0.01) starve by tick 13; the poorest giver cell holds ~0.33 at K=15, far above reserve. Both dishes share one seed and gifts touch no rng, so shuffle order stays in lockstep; assert control starved>=1, giver starved==0, giver live>control. A feature-off guard test proves survival is the gift, not the layout.
+
+## 2026-09-16
+
+Review parity fix: added given/received to naturalist METRIC_KEYS and a float-aware since-diff, and a 'shared X given · Y received' prompt line (omitted when nothing was shared, like the eyepiece row), so the LLM observer narrates the altruism/cheating dynamic, matching predation's 'predated' wiring rather than only seeing the drop-feature event.
+
+## 2026-09-16
+
+docs/sharing.md conservation aside corrected: dropped the false 'there is no other sink' whole-dish claim. The per-transfer heat (given-received) is the only sink sharing ADDS; the MAX_ENERGY clamp (received over-counts energy trimmed on the recipient's own tick) and energy-carrying deaths remain the sinks they always were.

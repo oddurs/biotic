@@ -52,6 +52,8 @@ METRIC_KEYS = (
     "predated",
     "arisen",
     "extinct",
+    "given",
+    "received",
 )
 LETTERS = "abcdefghijklmnopqrstuvwxyz"
 HEADING = re.compile(r"^## tick (\d+) · (.+)$")
@@ -231,6 +233,8 @@ def compose(packet: dict, previous: dict | None) -> dict:
             }
             for k in ("births", "starved", "lysed", "senescent", "killed", "predated", "arisen", "extinct"):
                 since[k] = max(0, m.get(k, 0) - pm.get(k, 0))
+            for k in ("given", "received"):  # dish-wide cumulative floats: the energy shared since the last note
+                since[k] = max(0.0, m.get(k, 0.0) - pm.get(k, 0.0))
             resume = packet.get("resume")  # the first note after a resume gets the measured off-time, once
             if resume and previous["tick"] <= resume["tick"] <= packet["tick"]:
                 since["gap"] = {"seconds": resume["gap"], "wall": fmt_wait(resume["gap"])}

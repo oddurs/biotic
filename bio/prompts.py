@@ -97,6 +97,20 @@ This dish has predation switched on. One more perception and one more action are
                    On success the target dies (cause "predated") and you gain {_c.LYSE_YIELD:g} × its
                    energy; on failure you lose a further {_c.LYSE_RECOIL:g}.
 """
+    if features and features.get("give"):
+        out += f"""
+This dish has sharing switched on. One more perception and one more action are available:
+
+    me.neighbor_energy   8 floats: the energy of each neighbouring cell, clockwise from north,
+                   KIN INCLUDED; 0.0 where the tile is empty or the glass wall. me.kin marks which
+                   of these are your own strain, so you can tell a hungry sister from a stranger.
+
+    ("give", d, x) give energy to the neighbour in direction d. You lose min(x, my energy −
+                   {_c.GIVE_RESERVE:g}) and never drop below {_c.GIVE_RESERVE:g}; the neighbour gains
+                   {_c.GIVE_EFFICIENCY:g} × what you lose, and the rest is lost as heat. Against an empty tile
+                   or the glass wall it does nothing and costs nothing. Any strain can receive —
+                   giving to non-kin is possible, and cheaper for the taker than earning it.
+"""
     return out
 
 
@@ -303,6 +317,8 @@ def naturalist_user(p: dict) -> str:
             deaths += f", {since['predated']} predated"
         lines.append(f"  births {since['births']} · deaths {deaths}")
         lines.append(f"  strains arisen {since['arisen']} · gone extinct {since['extinct']}")
+        if since.get("given"):  # only when energy was shared; a non-sharing dish shows no line
+            lines.append(f"  shared {since['given']:.2f} given · {since['received']:.2f} received")
     if p.get("remarks"):
         lines += ["", "Changes worth noting:"] + [f"  - {r}" for r in p["remarks"]]
     compare = since is not None and not since.get("seam")

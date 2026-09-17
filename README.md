@@ -81,12 +81,19 @@ You can lean over the bench while it runs:
     biotic drop antibiotic [--at 30,12] [--r 6]        # a disc that clears a region
     biotic drop mutagen                                # ×6 mutation rate for 300 ticks
     biotic drop feature lyse                           # switch on predation mid-run; docs/predation.md
+    biotic drop feature give                           # switch on sharing mid-run; docs/sharing.md
 
-Predation (`lyse`) is a **feature**: an opt-in rule, off by default so no existing dish is
-altered. `biotic seed "wolves and sheep" --with lyse` turns it on from the founding cell, or
-`biotic drop feature lyse` mid-run. A cell can then burst a neighbour of another strain and take
-some of its energy — the first rule that makes one cell's code matter to another's. Kin are
-immune. `docs/predation.md` has the action, the odds, and `me.threat`.
+Predation (`lyse`) and sharing (`give`) are **features**: opt-in rules, off by default so no
+existing dish is altered. `biotic seed "wolves and sheep" --with lyse` turns predation on from the
+founding cell, or `biotic drop feature lyse` mid-run; a cell can then burst a neighbour of another
+strain and take some of its energy — the first rule that makes one cell's code matter to another's.
+Kin are immune. `docs/predation.md` has the action, the odds, and `me.threat`.
+
+Sharing is the mirror: `biotic seed "a commons" --with give` (or `--with lyse,give` for both).
+`("give", d, x)` hands energy to a neighbour, at 90% efficiency and never below a small reserve —
+with `me.kin` the seed of cooperation, and because a stranger receives as readily as a sister, the
+seed of cheating too. `vessel/curve.csv` gains cumulative `given` / `received` columns so altruism
+is measurable. `docs/sharing.md` has the action and `me.neighbor_energy`.
 
 And look at what has grown:
 
