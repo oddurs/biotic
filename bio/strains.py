@@ -1,4 +1,4 @@
-"""Strains: lineage, color, and the fossil record in soma/."""
+"""Strains: lineage, color, and the fossil record in vessel/soma/."""
 
 from __future__ import annotations
 
@@ -201,7 +201,7 @@ def check_record(sd: dict) -> None:
     """A strain record — from a sample, or from strains.json — must carry every field a Strain
     has no default for, and every field it carries must be what a Strain holds there: adopt()
     and from_dict() take the values as they are, the culture sums generations and subtracts
-    birth ticks, and the id names a fossil under soma/. Samples are edited by hand; a missing
+    birth ticks, and the id names a fossil under vessel/soma/. Samples are edited by hand; a missing
     or malformed field is a refusal that names it, before anything is frozen or written, not
     a traceback ticks later."""
     if not isinstance(sd, dict):

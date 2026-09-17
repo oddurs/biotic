@@ -111,6 +111,8 @@ turns the `Unreleased` section into a dated release.
 - The fossil record now lives at `vessel/soma/` instead of a top-level `soma/`, so a flask is one
   self-contained directory. `biotic sterilize` and the `vessel/` layout are otherwise unchanged;
   publish a fossil record with `git add -f vessel/soma/`.
+- The generated CLI reference now descends into subcommand groups, so `flasks new`, `flasks run` and
+  `flasks curve` list their own flags rather than only the top-level `flasks` entry.
 - `phase` events in `events.jsonl` carry the phase entered as a `phase` field beside the message.
 - `biotic run` defaults to the tick clock and waits for the mind's reply on every attempt: a headless run
   at `--tick 0` is now as long as its calls to the model, minutes to tens of minutes for 5,000 ticks with

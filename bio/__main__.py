@@ -282,7 +282,9 @@ def cmd_sterilize(a):
     _not_running()
     if not a.yes:
         what = "the freezer too" if a.freezer else "the freezer is kept; --freezer empties it"
-        ans = input(f"autoclave the dish? this destroys the culture and the fossil record in soma/ ({what}) [y/N] ")
+        ans = input(
+            f"autoclave the dish? this destroys the culture and the fossil record in vessel/soma/ ({what}) [y/N] "
+        )
         if ans.strip().lower() != "y":
             return
     try:

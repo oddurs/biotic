@@ -183,6 +183,39 @@ What is in the freezer.
 
 Replicate flasks: many dishes from one install.
 
+### flasks new
+
+Found N flasks of one seed and one ancestor.
+
 | Argument | Meaning |
 | --- | --- |
-| `fcmd` | One of `new`, `run`, `curve` |
+| `name` | — |
+| `--seed SEED` | the seed every flask shares (same seed, same agar) |
+| `--n N` | how many flasks (default 12, as Lenski has) (default `12`) |
+| `--dir DIR` | where the flasks live (default: BIOTIC_FLASKS, else ./flasks) |
+
+### flasks run
+
+Run every flask headless, one process each.
+
+| Argument | Meaning |
+| --- | --- |
+| `name` | — |
+| `--ticks TICKS` | ticks to run each flask (required: a bounded run) |
+| `--tick TICK` | seconds per tick (0 = as fast as possible) |
+| `--parallel PARALLEL` | how many flasks to run at once (default 1) (default `1`) |
+| `--dir DIR` | where the flasks live (default: BIOTIC_FLASKS, else ./flasks) |
+
+### flasks curve
+
+Overlay the growth curves of every flask.
+
+| Argument | Meaning |
+| --- | --- |
+| `name` | — |
+| `--cols COLS` | comma-separated columns of curve.csv, one panel each (default `population`) |
+| `--since TICK` | rows from this tick on |
+| `--png OUT` | write a PNG with matplotlib instead of printing (the plot extra) |
+| `--width WIDTH` | columns (default: the terminal's) |
+| `--height HEIGHT` | rows of the main panel; the others get half (default `12`) |
+| `--dir DIR` | where the flasks live (default: BIOTIC_FLASKS, else ./flasks) |

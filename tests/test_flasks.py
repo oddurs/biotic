@@ -1,8 +1,10 @@
 """Replicate flasks: one install, many dishes. Every test here is offline (a dormant mind, the
-conftest network trap armed), deterministic (a fixed seed, a fixed dish size), on the main thread,
-and uses the injectable in-process runner rather than spawning subprocesses. It covers the four
-acceptance criteria of item 0006 one by one, plus the founder-identity and determinism invariants
-the divergence rests on."""
+conftest network trap armed), deterministic (a fixed seed, a fixed dish size) and on the main
+thread. Most use the injectable in-process runner; the one exception,
+`test_default_runner_spawns_real_isolated_subprocesses`, drives the default `subprocess.Popen`
+runner with real child processes to guard the concurrent and entrypoint paths (the children stay
+dormant, so it is still offline). It covers the four acceptance criteria of item 0006 one by one,
+plus the founder-identity and determinism invariants the divergence rests on."""
 
 from __future__ import annotations
 
@@ -191,6 +193,17 @@ def test_new_refuses_an_existing_populated_set(tmp_path):
         flasks.new("tide", SEED, n=2, root=root, size=SIZE)
 
 
+@pytest.mark.parametrize("n", [0, -3])
+def test_new_refuses_a_nonpositive_flask_count(tmp_path, n):
+    """A set has at least one flask. The count is validated before any directory is made, so a bad
+    --n is a clean ValueError (surfaced by cmd_flasks_new), not an IndexError traceback, and it
+    leaves no empty flasks/<name>/ behind."""
+    root = _root(tmp_path)
+    with pytest.raises(ValueError, match="at least 1 flask"):
+        flasks.new("zero", SEED, n=n, root=root, size=SIZE)
+    assert not (flasks.flask_root(root) / "zero").exists(), "a refused set must leave no directory behind"
+
+
 # --- determinism pins ----------------------------------------------------------
 
 
@@ -238,11 +251,51 @@ def test_run_without_ticks_is_refused(tmp_path):
         main(["flasks", "run", "tide", "--dir", str(root)])
 
 
+def test_a_missing_set_is_named_not_an_errno_path(tmp_path):
+    """load_manifest names the missing set and points at `flasks new`, rather than leaking the
+    internal flasks.json path with a raw errno. Both `flasks run` and `flasks curve` inherit it,
+    and the CLI surfaces that message on exit (not `[Errno 2] .../flasks.json`)."""
+    root = _root(tmp_path)
+    for call in (lambda: flasks.run("nope", 5, root=root), lambda: flasks.curve_figure("nope", root=root)):
+        with pytest.raises(FileNotFoundError, match="no flask set named “nope”"):
+            call()
+
+    for argv in (["flasks", "run", "nope", "--ticks", "5"], ["flasks", "curve", "nope"]):
+        with pytest.raises(SystemExit) as e:
+            main([*argv, "--dir", str(root)])
+        msg = str(e.value.code)
+        assert "no flask set named “nope”" in msg
+        assert "Errno" not in msg and "flasks.json" not in msg, "the CLI must not leak the errno or the json path"
+
+
 def test_subprocess_runner_targets_the_flask_with_the_mind_off():
-    """The default runner spawns `biotic run --vessel <dir>` with the mind's keys emptied. It is
-    not exercised with real processes in the suite (that is a manual smoke test), so pin the argv
-    and the child environment here, where a packaging or budget regression would otherwise ship."""
+    """The default runner spawns `biotic run --vessel <dir>` with the mind's keys emptied. This pins
+    the argv and the child environment cheaply, where a packaging or budget regression would
+    otherwise ship; the real processes themselves run in
+    `test_default_runner_spawns_real_isolated_subprocesses` below."""
     argv = flasks._argv(Path("/flasks/x/03"), ticks=100, tick=0.0)
     assert argv[1:] == ["-m", "bio", "run", "--vessel", "/flasks/x/03", "--tick", "0.0", "--ticks", "100", "--quiet"]
     env = flasks._child_env()
     assert env["OPENROUTER_API_KEY"] == "" and env["BIOTIC_API_KEY"] == "" and env["BIOTIC_BASE_URL"] == ""
+
+
+def test_default_runner_spawns_real_isolated_subprocesses(tmp_path):
+    """AC#1, exercised end to end: the default runner (no injected runner) launches one real
+    `biotic run --vessel <dir>` process per flask, `--parallel 2` at once, and both advance their
+    own curve without touching each other's directory. This is the one test that spawns real
+    children, so it guards the Popen pool and the `-m bio` entrypoint that the in-process runner
+    never reaches. The children run dormant (keys blanked in `_child_env`), so it is still offline;
+    it is bounded (30 ticks on a small dish) so it stays fast."""
+    root = _root(tmp_path)
+    flasks.new("tide", SEED, n=2, root=root, size=SIZE)
+
+    results = flasks.run("tide", 30, parallel=2, root=root)  # default runner: real subprocesses
+    assert results == [("01", 0), ("02", 0)], "both real subprocesses must exit cleanly"
+
+    d01, d02 = flasks.flask_dirs("tide", root)
+    for d in (d01, d02):
+        rows = curve.read(d / "curve.csv")
+        assert rows and max(r["tick"] for r in rows) >= 30, f"{d.name} did not run its own curve forward"
+        assert (d / "incubator.lock").exists(), f"{d.name} did not hold its own lock"
+    # each child wrote its own distinct dish: a shared-file race would have left them identical
+    assert (d01 / "dish.json").read_text() != (d02 / "dish.json").read_text(), "the flasks must stay isolated"

@@ -77,5 +77,9 @@ flask's markers, plot it alone with `biotic curve --vessel flasks/<name>/<id>`.
 A flask is as reproducible as any dish. An empty flask id keys the RNGs exactly the way a lone
 dish always has, so nothing about a single-vessel run changes. A named flask keys a different but
 fully seeded stream, so the divergence between flasks is itself deterministic: `flasks new` twice
-with the same seed and the same ids gives the same flasks. The mind is the one source of novelty a
-seed does not fix, and `flasks run` keeps it off.
+with the same seed and the same ids gives the same flasks — **at the same dish geometry**. The
+geometry is fixed once per set (fitted to the terminal, unless a size is passed) and recorded in
+the manifest, so every flask in a set shares it; but the agar is poured over that grid and its
+features scale with the width and height, so two `flasks new` runs on terminals of different sizes
+pour different agar from one seed. The mind is the one source of novelty a seed does not fix, and
+`flasks run` keeps it off.

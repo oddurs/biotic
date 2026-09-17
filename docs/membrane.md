@@ -291,7 +291,7 @@ done today.
 
 ## The fixture set
 
-`tests/fixtures/genomes/` holds ten fossils copied verbatim from `soma/` of the first
+`tests/fixtures/genomes/` holds ten fossils copied verbatim from `vessel/soma/` of the first
 "tide" run (seed "tide", model `qwen/qwen3-coder`, 2026-09-08): the founder,
 `tide_drifter`, and nine of its descendants. They are the membrane's positive control.
 Every one must be admitted, and the suite names the one that stops being when a rule

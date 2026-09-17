@@ -67,3 +67,11 @@ cli_reference.py was NOT changed; it renders only top-level subcommands, so the 
 ## 2026-09-16
 
 Env quirk (pre-existing, not introduced): the worktree lives under .worktrees/, a hidden dir ruff skips during traversal, so 'scripts/task check' ruff format/lint print 'No Python files found' and pass trivially in the worktree. Verified format+lint clean by running ruff on copies outside the dot-path (34 files). CI runs in a normal path and will lint for real.
+
+## 2026-09-16
+
+Review fixes: flasks.new now validates n>=1 (ValueError raised before any mkdir, so a bad --n leaves no empty flasks/<name>/ behind) — it was an uncaught IndexError on flask_ids(0)==[]. load_manifest now names a missing set and points at 'flasks new' instead of leaking the errno + flasks.json path; flasks run and flasks curve both inherit it (run catches FileNotFoundError, curve catches curve.ERRORS which includes OSError).
+
+## 2026-09-16
+
+cli_reference.py now descends into nested subparser groups (earlier known limitation resolved): the generated cli.mdx lists flasks new/run/curve with their own flags, one '### flasks <sub>' section each. scripts/task lint runs cli_reference --check, so it stays in sync. Added test_default_runner_spawns_real_isolated_subprocesses: drives the real default Popen runner (--parallel 2, no injected runner) to guard the concurrent + '-m bio' entrypoint paths the in-process runner never reaches; children stay dormant (keys blanked) so still offline, 30 ticks so fast (~0.05s). Also: docs/flasks.md determinism now caveats reproducibility to fixed dish geometry (default fits the terminal, so two 'flasks new' on different-size terminals pour different agar); stale 'soma/' prose swept to vessel/soma/ in strains.py, docs/freezer.md, docs/membrane.md and the sterilize prompt.

@@ -43,7 +43,12 @@ def manifest_path(name: str, root: str | Path | None = None) -> Path:
 
 
 def load_manifest(name: str, root: str | Path | None = None) -> dict:
-    return json.loads(manifest_path(name, root).read_text())
+    p = manifest_path(name, root)
+    if not p.exists():
+        raise FileNotFoundError(
+            f"no flask set named “{name}” under {flask_root(root)} — `biotic flasks new {name} …` first"
+        )
+    return json.loads(p.read_text())
 
 
 def flask_dirs(name: str, root: str | Path | None = None) -> list[Path]:
@@ -78,6 +83,8 @@ def new(
     `germinate(founder=...)`. One founding, ever. The dish geometry is fixed once (`size`, else
     fitted to the terminal) so every replicate shares its agar geometry. Writes flasks.json and
     returns the manifest."""
+    if n < 1:
+        raise ValueError(f"a set has at least 1 flask, not {n}")
     base = flask_root(root) / name
     ids = flask_ids(n)
     if base.exists() and any(base.iterdir()):
