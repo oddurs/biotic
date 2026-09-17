@@ -1,10 +1,9 @@
 # secrets
 .env
 
-# the running culture and what it grows. to publish a fossil record: git add -f soma/
+# the running culture and what it grows. to publish a fossil record: git add -f vessel/soma/
 vessel/
-soma/*
-!soma/__init__.py
+flasks/
 
 # python
 __pycache__/

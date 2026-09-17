@@ -48,8 +48,46 @@ def _flag(a: argparse.Action) -> str:
     return a.dest
 
 
+def _subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersAction | None:
+    return next((a for a in parser._actions if isinstance(a, argparse._SubParsersAction)), None)
+
+
+def _rows(parser: argparse.ArgumentParser) -> list[str]:
+    """The argument table for one parser's own options — never its nested subcommands."""
+    args = [a for a in parser._actions if not isinstance(a, (argparse._HelpAction, argparse._SubParsersAction))]
+    if not args:
+        return []
+    rows = ["| Argument | Meaning |", "| --- | --- |"]
+    for a in args:
+        meaning = (a.help or "").rstrip(".")
+        if a.choices:
+            meaning += (" " if meaning else "") + "One of " + ", ".join(f"`{c}`" for c in a.choices)
+        if a.default not in (None, False, argparse.SUPPRESS) and a.option_strings:
+            meaning += f" (default `{a.default}`)"
+        rows.append(f"| `{_flag(a)}` | {meaning or '—'} |")
+    rows.append("")
+    return rows
+
+
+def _section(name: str, parser: argparse.ArgumentParser, help_text: str, level: int) -> list[str]:
+    """A command's heading, one-line help, argument table, then each of its subcommands one level
+    deeper — so a group like `flasks` lists `flasks new`/`flasks run`/`flasks curve` with their
+    flags, not just the bare group entry."""
+    lines = [f"{'#' * level} {name}", ""]
+    if help_text:
+        lines += [help_text[0].upper() + help_text[1:].rstrip(".") + ".", ""]
+    lines += _rows(parser)
+    subs = _subparsers(parser)
+    if subs is not None:
+        for child, sub in subs.choices.items():
+            child_help = next((c.help for c in subs._choices_actions if c.dest == child), None) or ""
+            lines += _section(f"{name} {child}", sub, child_help, level + 1)
+    return lines
+
+
 def render(parser: argparse.ArgumentParser) -> str:
-    subs = next(a for a in parser._actions if isinstance(a, argparse._SubParsersAction))
+    subs = _subparsers(parser)
+    assert subs is not None, "the top-level parser has subcommands"
     lines = [
         "---",
         "title: CLI reference",
@@ -65,20 +103,7 @@ def render(parser: argparse.ArgumentParser) -> str:
     ]
     for name, sub in subs.choices.items():
         help_text = next((c.help for c in subs._choices_actions if c.dest == name), None) or ""
-        lines += [f"## {name}", ""]
-        if help_text:
-            lines += [help_text[0].upper() + help_text[1:].rstrip(".") + ".", ""]
-        args = [a for a in sub._actions if not isinstance(a, argparse._HelpAction)]
-        if args:
-            lines += ["| Argument | Meaning |", "| --- | --- |"]
-            for a in args:
-                meaning = (a.help or "").rstrip(".")
-                if a.choices:
-                    meaning += (" " if meaning else "") + "One of " + ", ".join(f"`{c}`" for c in a.choices)
-                if a.default not in (None, False, argparse.SUPPRESS) and not a.option_strings == []:
-                    meaning += f" (default `{a.default}`)"
-                lines.append(f"| `{_flag(a)}` | {meaning or '—'} |")
-            lines.append("")
+        lines += _section(name, sub, help_text, 2)
     return "\n".join(lines).rstrip() + "\n"
 
 

@@ -282,7 +282,9 @@ def cmd_sterilize(a):
     _not_running()
     if not a.yes:
         what = "the freezer too" if a.freezer else "the freezer is kept; --freezer empties it"
-        ans = input(f"autoclave the dish? this destroys the culture and the fossil record in soma/ ({what}) [y/N] ")
+        ans = input(
+            f"autoclave the dish? this destroys the culture and the fossil record in vessel/soma/ ({what}) [y/N] "
+        )
         if ans.strip().lower() != "y":
             return
     try:
@@ -448,6 +450,67 @@ def cmd_freezer(a):
             )
 
 
+# --- replicate flasks -------------------------------------------------------
+def cmd_flasks_new(a):
+    from . import flasks
+
+    try:
+        man = flasks.new(a.name, a.seed, n=a.n, root=a.dir)
+    except (FileExistsError, ValueError, RuntimeError) as e:
+        sys.exit(str(e))
+    except OSError as e:
+        sys.exit(f"could not found the flasks: {e}")
+    base = flasks.flask_root(a.dir) / a.name
+    f = man["founder"]
+    print(f"founded {man['n']} flasks of “{man['seed']}” — {man['w']}×{man['h']}, one ancestor")
+    print(f"  ancestor {f['id']} {f['name']}" + (f": {f['note']}" if f["note"] else ""))
+    print(f"  {base}/{{{man['flasks'][0]}..{man['flasks'][-1]}}}")
+    print(f"  `biotic flasks run {a.name} --ticks N` to run them, `biotic flasks curve {a.name}` to compare")
+
+
+def cmd_flasks_run(a):
+    from . import flasks
+
+    try:
+        results = flasks.run(a.name, a.ticks, tick=a.tick, parallel=a.parallel, root=a.dir)
+    except (FileNotFoundError, ValueError) as e:
+        sys.exit(str(e))
+    for fid, rc in results:
+        print(f"  {fid}  {'ok' if rc == 0 else f'exit {rc}'}")
+    ok = sum(1 for _, rc in results if rc == 0)
+    print(f"{ok}/{len(results)} flasks ran {a.ticks} ticks")
+    if ok != len(results):
+        sys.exit(1)
+
+
+def cmd_flasks_curve(a):
+    import shutil
+    from pathlib import Path
+
+    from rich.console import Console
+
+    from . import curve, flasks, plot
+
+    try:
+        cols = plot.parse_cols(a.cols)
+    except ValueError as e:
+        sys.exit(str(e))
+    try:
+        fig = flasks.curve_figure(a.name, cols=tuple(cols), root=a.dir, since=a.since)
+    except curve.ERRORS as e:  # a missing set, a bad manifest, or no rows yet
+        sys.exit(str(e))
+    if a.png:
+        try:
+            print(f"wrote {plot.png(fig, Path(a.png))}")
+        except plot.PlotUnavailable as e:
+            sys.exit(str(e))
+        except OSError as e:
+            sys.exit(f"could not write {a.png}: {e}")
+        return
+    width = max(40, a.width or shutil.get_terminal_size((100, 30)).columns)
+    Console(width=width).print(plot.render(fig, width, a.height), highlight=False, soft_wrap=False)
+
+
 def _confirm(question: str) -> bool:
     return input(question + " [y/N] ").strip().lower() == "y"
 
@@ -510,6 +573,12 @@ def _intervene(req: dict) -> None:
 def main(argv=None):
     p = argparse.ArgumentParser(prog="biotic", description=__doc__)
     sub = p.add_subparsers(dest="cmd")
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument(
+        "--vessel",
+        metavar="DIR",
+        help="the flask directory to act on (default: BIOTIC_VESSEL, else vessel/)",
+    )
     budget_help = (
         "dollars this dish may spend on the mind "
         "(default: what the dish remembers, else BIOTIC_BUDGET_USD, else 2.00; inf for no cap)"
@@ -520,19 +589,19 @@ def main(argv=None):
         "run's default). Sticks to the dish like --budget; BIOTIC_MUTAGEN_CLOCK sets it per process. docs/experiments.md"
     )
 
-    s = sub.add_parser("seed", help="inoculate a fresh dish from a word, phrase, or question")
+    s = sub.add_parser("seed", help="inoculate a fresh dish from a word, phrase, or question", parents=[common])
     s.add_argument("seed")
     s.add_argument("--fresh", action="store_true", help="autoclave first if a culture exists")
     s.add_argument("--budget", type=float, help=budget_help)
     s.set_defaults(f=cmd_seed)
 
-    s = sub.add_parser("live", help="watch the dish (default)")
+    s = sub.add_parser("live", help="watch the dish (default)", parents=[common])
     s.add_argument("--tick", type=float, help="seconds per tick")
     s.add_argument("--budget", type=float, help=budget_help)
     s.add_argument("--clock", choices=CLOCKS, help=clock_help)
     s.set_defaults(f=cmd_live)
 
-    s = sub.add_parser("run", help="run headless, e.g. for an experiment")
+    s = sub.add_parser("run", help="run headless, e.g. for an experiment", parents=[common])
     s.add_argument("--ticks", type=int)
     s.add_argument("--tick", type=float, help="seconds per tick (0 = as fast as possible)")
     s.add_argument(
@@ -542,18 +611,20 @@ def main(argv=None):
     s.add_argument("--clock", choices=CLOCKS, help=clock_help)
     s.set_defaults(f=cmd_run)
 
-    sub.add_parser("status").set_defaults(f=cmd_status)
-    s = sub.add_parser("strains", help="census of living strains")
+    sub.add_parser("status", parents=[common]).set_defaults(f=cmd_status)
+    s = sub.add_parser("strains", help="census of living strains", parents=[common])
     s.add_argument("--all", action="store_true", help="include extinct")
     s.set_defaults(f=cmd_strains)
-    s = sub.add_parser("genome", help="print a strain's code (`top` for the dominant one)")
+    s = sub.add_parser("genome", help="print a strain's code (`top` for the dominant one)", parents=[common])
     s.add_argument("id")
     s.set_defaults(f=cmd_genome)
-    s = sub.add_parser("log")
+    s = sub.add_parser("log", parents=[common])
     s.add_argument("-n", type=int, default=30)
     s.set_defaults(f=cmd_log)
     s = sub.add_parser(
-        "curve", help="plot the growth curve: population and strains by tick, with phase and drop markers"
+        "curve",
+        help="plot the growth curve: population and strains by tick, with phase and drop markers",
+        parents=[common],
     )
     s.add_argument(
         "--cols",
@@ -567,31 +638,35 @@ def main(argv=None):
     s.add_argument("--width", type=int, help="columns (default: the terminal's)")
     s.add_argument("--height", type=int, default=12, help="rows of the main panel; the others get half")
     s.set_defaults(f=cmd_curve)
-    s = sub.add_parser("notes", help="the naturalist's field notes")
+    s = sub.add_parser("notes", help="the naturalist's field notes", parents=[common])
     s.add_argument("-n", type=int, default=5, help="the last N entries (0 for the whole notebook)")
     s.set_defaults(f=cmd_notes)
-    s = sub.add_parser("whisper", help="pin a note the mutagen will see")
+    s = sub.add_parser("whisper", help="pin a note the mutagen will see", parents=[common])
     s.add_argument("text", nargs="+")
     s.set_defaults(f=cmd_whisper)
-    s = sub.add_parser("drop", help="intervene in the dish")
+    s = sub.add_parser("drop", help="intervene in the dish", parents=[common])
     s.add_argument("what", choices=["nutrient", "antibiotic", "mutagen"])
     s.add_argument("--at", help="x,y")
     s.add_argument("--r", type=float, help="radius")
     s.set_defaults(f=cmd_drop)
-    s = sub.add_parser("minds", help="list models available to the mind")
+    s = sub.add_parser("minds", help="list models available to the mind", parents=[common])
     s.add_argument("query", nargs="?")
     s.set_defaults(f=cmd_minds)
-    sub.add_parser("probe", help="check the mind answers").set_defaults(f=cmd_probe)
-    s = sub.add_parser("sterilize", help="autoclave everything (the freezer is kept unless --freezer)")
+    sub.add_parser("probe", help="check the mind answers", parents=[common]).set_defaults(f=cmd_probe)
+    s = sub.add_parser(
+        "sterilize", help="autoclave everything (the freezer is kept unless --freezer)", parents=[common]
+    )
     s.add_argument("--yes", "-y", action="store_true")
     s.add_argument("--freezer", action="store_true", help="empty the freezer too")
     s.set_defaults(f=cmd_sterilize)
 
-    s = sub.add_parser("freeze", help="put the dish, or one strain, in the freezer")
+    s = sub.add_parser("freeze", help="put the dish, or one strain, in the freezer", parents=[common])
     s.add_argument("--label", help="a-z, 0-9, _ and -; default `manual`")
     s.add_argument("--strain", metavar="ID", help="freeze one strain's genome and a cell's memory instead")
     s.set_defaults(f=cmd_freeze)
-    s = sub.add_parser("revive", help="replace the dish with a frozen sample, or inoculate a frozen strain")
+    s = sub.add_parser(
+        "revive", help="replace the dish with a frozen sample, or inoculate a frozen strain", parents=[common]
+    )
     s.add_argument("key", nargs="?", metavar="TICK|SAMPLE", help="a tick, or a sample name from `biotic freezer`")
     s.add_argument("--label", help="with a tick: which of the samples at that tick")
     s.add_argument("--strain", metavar="ID|SAMPLE", help="a strain sample instead of a dish sample")
@@ -604,11 +679,42 @@ def main(argv=None):
     s.add_argument("--at", help="x,y — where in the current dish (default: the centre); --into current only")
     s.add_argument("--yes", "-y", action="store_true", help="do not ask before replacing the dish")
     s.set_defaults(f=cmd_revive)
-    s = sub.add_parser("freezer", help="what is in the freezer")
+    s = sub.add_parser("freezer", help="what is in the freezer", parents=[common])
     s.add_argument("--json", action="store_true")
     s.set_defaults(f=cmd_freezer)
 
+    dir_help = "where the flasks live (default: BIOTIC_FLASKS, else ./flasks)"
+    fl = sub.add_parser("flasks", help="replicate flasks: many dishes from one install")
+    fl.set_defaults(f=lambda _a: fl.print_help())
+    flsub = fl.add_subparsers(dest="fcmd")
+    fn = flsub.add_parser("new", help="found N flasks of one seed and one ancestor")
+    fn.add_argument("name")
+    fn.add_argument("--seed", required=True, help="the seed every flask shares (same seed, same agar)")
+    fn.add_argument("--n", type=int, default=12, help="how many flasks (default 12, as Lenski has)")
+    fn.add_argument("--dir", metavar="DIR", help=dir_help)
+    fn.set_defaults(f=cmd_flasks_new)
+    fr = flsub.add_parser("run", help="run every flask headless, one process each")
+    fr.add_argument("name")
+    fr.add_argument("--ticks", type=int, required=True, help="ticks to run each flask (required: a bounded run)")
+    fr.add_argument("--tick", type=float, default=0.0, help="seconds per tick (0 = as fast as possible)")
+    fr.add_argument("--parallel", type=int, default=1, help="how many flasks to run at once (default 1)")
+    fr.add_argument("--dir", metavar="DIR", help=dir_help)
+    fr.set_defaults(f=cmd_flasks_run)
+    fc = flsub.add_parser("curve", help="overlay the growth curves of every flask")
+    fc.add_argument("name")
+    fc.add_argument(
+        "--cols", default="population", metavar="COLS", help="comma-separated columns of curve.csv, one panel each"
+    )
+    fc.add_argument("--since", type=int, metavar="TICK", help="rows from this tick on")
+    fc.add_argument("--png", metavar="OUT", help="write a PNG with matplotlib instead of printing (the plot extra)")
+    fc.add_argument("--width", type=int, help="columns (default: the terminal's)")
+    fc.add_argument("--height", type=int, default=12, help="rows of the main panel; the others get half")
+    fc.add_argument("--dir", metavar="DIR", help=dir_help)
+    fc.set_defaults(f=cmd_flasks_curve)
+
     a = p.parse_args(argv)
+    if getattr(a, "vessel", None):
+        config.use_vessel(a.vessel)  # act on one flask directory instead of the default vessel/
     if not a.cmd:
         if config.DISH_FILE.exists():
             return cmd_live(argparse.Namespace(tick=None, budget=None, clock=None))

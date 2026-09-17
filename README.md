@@ -14,8 +14,8 @@ slightly rewritten. Selection does the rest.
 
 You place a **seed** — a word, a phrase, a question — and the mutagen writes the
 founding cell from it. After that you mostly watch. Every strain that ever arises
-is written to `soma/` as a fossil record, so the codebase is, literally, whatever
-survived.
+is written to `vessel/soma/` as a fossil record, so the codebase is, literally,
+whatever survived.
 
 ## install
 
@@ -86,7 +86,7 @@ And look at what has grown:
     biotic log                 # the incubator log
     biotic notes [-n 5]        # the naturalist's field notes: what changed since the last look, hedged
     biotic status              # vitals, spend, the freezer, and when the dish was last active
-    cat soma/*.py              # the fossil record
+    cat vessel/soma/*.py       # the fossil record
 
 ## experiments
 
@@ -126,6 +126,23 @@ the curve's `branch` column steps up; a revived strain is watched for 300 ticks 
 whether it took. With no mind the replay is exact, tick for tick. While `biotic live` runs the
 commands go through the inbox, except a fresh dish, which needs the incubator stopped.
 `biotic sterilize` keeps the freezer. `docs/freezer.md` has the details.
+
+### replicates
+
+Lenski runs twelve flasks because a result means something only when the other flasks did not do
+it. One install holds many dishes:
+
+    biotic flasks new tide --seed "tide" --n 12    # 12 vessels, one seed, one ancestor
+    biotic flasks run tide --ticks 5000 --tick 0 --parallel 4    # each in its own process
+    biotic flasks curve tide --png tide.png        # overlay every flask's growth curve
+
+Every flask shares the seed, so the **agar is identical**; a per-flask salt in the dynamics RNG
+makes the **trajectories diverge**, as replicate cultures of one clone do. Flasks live in
+`flasks/<name>/{01..NN}/` (or `--dir`, or `$BIOTIC_FLASKS`), each a complete vessel; `--vessel DIR`
+(or `BIOTIC_VESSEL`) points any command at one of them — `biotic live --vessel flasks/tide/03`.
+`flasks run` is dormant and spends nothing (the mutagen is off); awake replicate runs are a later
+addition. `docs/flasks.md` has the rest, including why flasks are separate processes and never
+threads.
 
 ## the mind
 
@@ -195,18 +212,21 @@ with its reason string, and what the membrane cannot do.
       freezer.py    the sample files: names, format, listing
       strains.py    lineage, colour, the fossil record
       prompts.py    what the mutagen and the naturalist are told
+      flasks.py     replicate flasks: many dishes from one install
       tui.py        the eyepiece
-    soma/         every strain that ever arose. written by the culture. do not edit.
     vessel/       the running state: seed, dish, strains, events, growth curve, whispers, prices,
                   and fieldnotes.md, the naturalist's notebook
+      soma/         every strain that ever arose. written by the culture. do not edit.
       freezer/      frozen samples of the dish and of strains; survives `biotic sterilize`
+    flasks/       replicate sets (`biotic flasks new`); each holds NN vessels of one seed
     docs/         longer notes: docs/curve.md on reading the growth curve,
                   docs/experiments.md on the mutagen's two clocks and comparing flasks,
                   docs/membrane.md on what a genome may contain and why,
                   docs/budget.md on what the mind costs,
                   docs/freezer.md on the freezer,
                   docs/eyepiece.md on what the eyepiece shows and how it fits the window,
-                  docs/naturalist.md on the field notes: what the observer is shown and what it costs
+                  docs/naturalist.md on the field notes: what the observer is shown and what it costs,
+                  docs/flasks.md on replicate flasks: many dishes from one install
     tests/        the suite; tests/fixtures/genomes/ holds ten fossils from a real run
 
 ## development

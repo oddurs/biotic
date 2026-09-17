@@ -34,9 +34,10 @@ only-include = ["bio", "tests", "CHANGELOG.md"]
 [tool.ruff]
 line-length = 120
 target-version = "py311"
-# soma/, vessel/, and library specimens hold code the organism wrote for itself; the apparatus is what gets linted.
+# vessel/ (which now holds soma/), flasks/, and library specimens hold code the organism wrote for
+# itself; the apparatus is what gets linted.
 # tests/fixtures holds fossils copied verbatim from a run; formatting them would falsify the fixture.
-extend-exclude = ["soma", "vessel", "web/apps/site/src/content/specimens", "tests/fixtures"]
+extend-exclude = ["vessel", "flasks", "web/apps/site/src/content/specimens", "tests/fixtures"]
 force-exclude = true
 
 [tool.ruff.lint]

@@ -223,7 +223,7 @@ says which branch it was taken on.
   field before it is adopted: a hand edit that leaves a field of the wrong shape (a tick that
   is text, a hue outside 0 to 1, an id that is not four hex characters) is refused by name,
   before the pre-revive freeze, and the listing skips a sample it cannot read.
-- `soma/` keeps the fossils of every strain that ever arose, including strains of a timeline
+- `vessel/soma/` keeps the fossils of every strain that ever arose, including strains of a timeline
   you have since revived away from; the registry in `vessel/strains.json` says which strains
   the current dish knows.
 - A 72×34 dish is about 25 KB per sample; at the default cadence a week-long run at two ticks

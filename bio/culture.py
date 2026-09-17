@@ -60,7 +60,11 @@ class Culture:
         self._unsaid: list[tuple[str, str, dict]] = []  # what load() found out; run() logs it
         self.saved_at: float | None = None  # wall time of the last dish.json write; None until saved/loaded
         self._resume: dict | None = None  # {"gap": seconds, "tick": resume_tick}; measured in load(), read by _packet()
-        self.rng = random.Random(f"{seed}::culture")
+        # The culture RNG carries the dish's flask salt too, so replicates roll their mutations at
+        # different divisions; an empty flask keeps the exact key a lone culture has always used.
+        self.flask = getattr(dish, "flask", "")
+        base = f"{seed}::{self.flask}" if self.flask else seed
+        self.rng = random.Random(f"{base}::culture")
         self.started = time.time()
         self.last_phase = None
         self._candidate = None
@@ -101,6 +105,9 @@ class Culture:
         budget: float | None = None,
         thaw: Path | None = None,
         n: int | None = None,
+        flask: str = "",
+        founder: tuple[str, str, str] | None = None,
+        size: tuple[int, int] | None = None,
     ) -> Culture:
         """Found a culture: autoclave the vessel (the freezer is kept), pour a dish, inoculate `n`
         cells (default config.INOCULUM) of the founder, save, and freeze tick 0 as `genesis`. The
@@ -109,7 +116,13 @@ class Culture:
         size — the same agar it was frozen from — and the strain is watched for
         config.REVIVE_WATCH ticks so the log can say whether it took. A thaw is a revive, so the
         dish that is there is frozen first as `pre-revive`; a sample that is refused — by the
-        membrane, or for what it is missing — is refused before that, and nothing changes."""
+        membrane, or for what it is missing — is refused before that, and nothing changes.
+
+        For a replicate flask (docs/flasks.md), `flask` is the flask id, salted into the dish and
+        culture RNGs so this replicate diverges from its siblings while sharing their agar; `size`
+        fixes the dish geometry (so every replicate matches) rather than fitting it to the
+        terminal; and `founder` is a `(name, note, source)` genome poured in directly, without the
+        mind — the one ancestor every flask of a set is founded from."""
         if config.DISH_FILE.exists() and not fresh:
             raise FileExistsError("a culture already exists in vessel/ — `biotic sterilize` first, or use --fresh")
         pid = incubating()
@@ -132,11 +145,19 @@ class Culture:
         sterilize()
         config.VESSEL.mkdir(exist_ok=True)
         config.SEED_FILE.write_text(seed.strip() + "\n")
-        w, h = (int(sample["w"]), int(sample["h"])) if sample else _fit_dish()
-        dish = Dish(seed, w, h)
+        if flask:
+            config.FLASK_FILE.write_text(flask + "\n")  # for the record; a lone dish never writes it
+        w, h = (int(sample["w"]), int(sample["h"])) if sample else (size or _fit_dish())
+        dish = Dish(seed, w, h, flask=flask)
         reg = Registry(seed)
         cult = cls(seed, dish, reg, mind)
-        if sample is None:
+        if sample is None and founder is not None:
+            # a replicate flask: one ancestor for every flask of the set, poured in without the
+            # mind (no network, no spend), so the flasks differ only by their RNG salt.
+            name, note, src = founder
+            s = reg.new(src, None, 0, name, note)
+            memory = None
+        elif sample is None:
             name, note, src = cult._genesis()
             s = reg.new(src, None, 0, name, note)
             memory = None
@@ -1163,8 +1184,9 @@ def incubating() -> int | None:
 
 
 def sterilize(freezer: bool = False) -> None:
-    """Autoclave: wipe the vessel and the soma. The freezer is not in the flask: vessel/freezer/
-    is kept unless `freezer` is true."""
+    """Autoclave: wipe the vessel. The soma (the fossil record) lives inside the vessel now, so
+    the loop below removes it too; the freezer is not in the flask, so vessel/freezer/ is kept
+    unless `freezer` is true."""
     pid = incubating()
     if pid is not None:
         raise RuntimeError(f"the incubator is running (pid {pid}) — stop it first")
@@ -1178,12 +1200,6 @@ def sterilize(freezer: bool = False) -> None:
                 p.unlink()
     config.VESSEL.mkdir(exist_ok=True)
     config.INBOX.mkdir(exist_ok=True)
-    if config.SOMA.exists():
-        for p in config.SOMA.glob("*.py"):
-            if p.name != "__init__.py":
-                p.unlink()
-    for p in config.SOMA.glob("__pycache__"):
-        shutil.rmtree(p, ignore_errors=True)
 
 
 def _fit_dish() -> tuple[int, int]:

@@ -154,23 +154,10 @@ def vessel(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """
     v = tmp_path / "vessel"
     v.mkdir()
-    paths = {
-        "VESSEL": v,
-        "INBOX": v / "inbox",
-        "SEED_FILE": v / "seed.txt",
-        "GENESIS": v / "genesis.py",
-        "DISH_FILE": v / "dish.json",
-        "STRAINS_FILE": v / "strains.json",
-        "EVENTS": v / "events.jsonl",
-        "CURVE": v / "curve.csv",
-        "WHISPERS": v / "whispers.md",
-        "PRICES_FILE": v / "prices.json",
-        "FIELDNOTES": v / "fieldnotes.md",
-        "FREEZER": v / "freezer",
-        "LOCK_FILE": v / "incubator.lock",
-        "SOMA": tmp_path / "soma",
-    }
-    for name, p in paths.items():
+    # The one source of truth for the path set (config._paths), so the fixture never drifts from
+    # it: this includes SOMA (now v/"soma", inside the vessel) and FLASK_FILE (else a flasks
+    # germination would write the repository's own ROOT/vessel/flask.txt).
+    for name, p in config._paths(v).items():
         monkeypatch.setattr(config, name, p)
     monkeypatch.setattr(config, "FREEZE_EVERY", 0)  # tests that want automatic samples set the cadence
     monkeypatch.setattr(config, "NOTES_EVERY", 0)  # and tests that want field notes set theirs

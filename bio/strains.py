@@ -1,4 +1,4 @@
-"""Strains: lineage, color, and the fossil record in soma/."""
+"""Strains: lineage, color, and the fossil record in vessel/soma/."""
 
 from __future__ import annotations
 
@@ -63,7 +63,7 @@ class Registry:
 
     # --- fossil record ------------------------------------------------------
     def fossilize(self, s: Strain) -> None:
-        config.SOMA.mkdir(exist_ok=True)
+        config.SOMA.mkdir(parents=True, exist_ok=True)  # soma is nested under the vessel now
         parent = self.strains.get(s.parent) if s.parent else None
         lineage = f"from {parent.name} ({parent.id})" if parent else "the founding cell"
         header = (
@@ -201,7 +201,7 @@ def check_record(sd: dict) -> None:
     """A strain record — from a sample, or from strains.json — must carry every field a Strain
     has no default for, and every field it carries must be what a Strain holds there: adopt()
     and from_dict() take the values as they are, the culture sums generations and subtracts
-    birth ticks, and the id names a fossil under soma/. Samples are edited by hand; a missing
+    birth ticks, and the id names a fossil under vessel/soma/. Samples are edited by hand; a missing
     or malformed field is a refusal that names it, before anything is frozen or written, not
     a traceback ticks later."""
     if not isinstance(sd, dict):
