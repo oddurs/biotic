@@ -35,8 +35,12 @@ HIDDEN = {"call", "prepared"}
 # dish calling the mind itself at most every MUTAGEN_EVERY_TICKS ticks. docs/experiments.md
 CLOCKS = ("wall", "tick")
 
-# How each opt-in feature reads in the log when it is enabled (docs/predation.md).
-FEATURE_LABELS = {"lyse": "predation (lyse)", "give": "sharing (give)"}
+# How each opt-in feature reads in the log when it is enabled (docs/predation.md, docs/sharing.md, docs/hgt.md).
+FEATURE_LABELS = {
+    "lyse": "predation (lyse)",
+    "give": "sharing (give)",
+    "hgt": "horizontal gene transfer (hgt)",
+}
 
 FALLBACK_GENESIS = """\
 def live(me):
@@ -506,48 +510,70 @@ class Culture:
         self.events.extend(reversed(recent))
 
     # --- mutation hook ------------------------------------------------------
+    def _pick_donor(self, cell: Cell) -> str | None:
+        """A random adjacent non-kin strain whose genome the mutagen knows, contact-weighted, or
+        None (an ordinary mutation follows). Filtering by `in self.mutagen.genomes` is what makes a
+        returned daughter with `donor` set a genuine splice; the membership read is unlocked, which
+        is safe — the test is atomic under the GIL, a stale positive is caught by the mutagen's
+        donor-missing fallback, and a stale negative just yields an ordinary mutation. docs/hgt.md."""
+        cand = [s for s in self.dish.non_kin_neighbours(cell) if s in self.mutagen.genomes]
+        return None if not cand else cand[int(self.rng.random() * len(cand))]
+
     def _on_divide(self, cell: Cell):
         rate = self.mutation_rate * (self.mutagen.boost if self.dish.tick < self.mutagen.boost_until else 1.0)
         if self.rng.random() >= rate:  # the roll stays on self.rng, first: a pure-LLM stream is unchanged
             return None
-        origin, got = self._draw_mutation(cell)
+        origin, got, donor = self._draw_mutation(cell)
         if not got:
             return None
         name, note, src = got
-        s = self.registry.new(src, cell.strain, self.dish.tick, name, note, mutagen=origin)
+        s = self.registry.new(src, cell.strain, self.dish.tick, name, note, mutagen=origin, donor=donor)
         self.mutagen.know(s.id, s.name, s.source)  # both arms: a later mixed roll may go to the LLM
         parent = self.registry.strains.get(cell.strain)
         pname = parent.name if parent else cell.strain
-        self.log(
-            "arose",
-            f"{s.name} arose from {pname} — “{note}”" if note else f"{s.name} arose from {pname}",
-            strain=s.id,
-            parent=cell.strain,
-        )
+        if donor:
+            dstrain = self.registry.strains.get(donor)
+            dname = dstrain.name if dstrain else donor
+            msg = f"{s.name} spliced from {pname} with a gene from {dname}"
+            self.log("spliced", f"{msg} — “{note}”" if note else msg, strain=s.id, parent=cell.strain, donor=donor)
+        else:
+            self.log(
+                "arose",
+                f"{s.name} arose from {pname} — “{note}”" if note else f"{s.name} arose from {pname}",
+                strain=s.id,
+                parent=cell.strain,
+            )
         return s.id, src
 
-    def _draw_mutation(self, cell: Cell) -> tuple[str, tuple | None]:
-        """Route this division's mutation to an arm and return (origin, daughter-or-None). In
+    def _draw_mutation(self, cell: Cell) -> tuple[str, tuple | None, str | None]:
+        """Route this division's mutation to an arm and return (origin, daughter-or-None, donor). In
         `random`, and in `mixed` when the mutation RNG lands under RANDOM_SHARE, the offline
         random mutagen makes the change from the parent's genome — no mind, no network, and no
         fallback to the LLM on a refused roll (the division is simply faithful). Otherwise the
-        LLM mutagen supplies it, on whichever clock is set."""
+        LLM mutagen supplies it, on whichever clock is set — and there, if the `hgt` feature is on,
+        the mutation may be a splice with a non-kin neighbour's genome as the donor (origin `hgt`;
+        the offline arm never splices, so a random-only dish stays offline). docs/hgt.md."""
         kind = self.mutagen_kind
         if kind == "random" or (kind == "mixed" and self.rng_mut.random() < config.RANDOM_SHARE):
             parent = self.registry.strains.get(cell.strain)
             got = self.random_mutagen.mutate(parent.source) if parent else None
-            return "random", got
+            return "random", got, None
+        # LLM arm. The HGT roll and donor pick sit behind the feature gate on self.rng, after the
+        # mutation-rate roll, so a dish without hgt draws exactly as it always did. docs/hgt.md.
+        donor = None
+        if self.dish.features.get("hgt") and self.rng.random() < config.HGT_RATE:
+            donor = self._pick_donor(cell)  # None → ordinary mutation (no non-kin neighbour known)
         if self.clock == "tick":
             try:
-                got = self.mutagen.mutate_now(cell.strain)
+                got = self.mutagen.mutate_now(cell.strain, donor=donor)
             except KeyboardInterrupt:
                 self._interrupted = True  # this tick finishes cleanly; run() raises it after step()
                 got = None
         else:
-            got = self.mutagen.take(cell.strain)
+            got = self.mutagen.take(cell.strain, donor=donor)
             if not got:
-                self.mutagen.request(cell.strain)
-        return "llm", got
+                self.mutagen.request(cell.strain, donor=donor)
+        return ("hgt" if donor else "llm"), got, donor
 
     # --- interventions ------------------------------------------------------
     def whisper(self, text: str) -> None:
@@ -981,6 +1007,9 @@ class Culture:
         row["branch"] = self.branch
         row["mutations_attempted"] = self.mutagen.attempted
         row["mutations_viable"] = self.mutagen.viable
+        # splices carry a donor as well as a parent, so they count in mutations_taken too (a splice
+        # is a kind of mutation); registry-derived, so this survives persistence and revives (docs/hgt.md)
+        row["spliced"] = sum(1 for s in strains.values() if s.donor is not None)
         return row
 
     def _packet(self, census: dict[str, int], phase: str) -> dict:

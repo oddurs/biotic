@@ -146,7 +146,7 @@ INOCULUM = 5  # cells placed at seeding
 # --- features (opt-in dish rules; docs/predation.md) ---------------------
 # Rules a dish keeps off unless it is seeded `--with <name>` or `drop feature <name>` turns it
 # on mid-run. Off by default, so no dish that predates this alters.
-FEATURES = ("lyse", "give")
+FEATURES = ("lyse", "give", "hgt")
 
 # --- predation (bio/dish.py; the `lyse` feature) -------------------------
 LYSE_COST = 0.05  # what an attack costs the attacker, win or lose
@@ -157,6 +157,14 @@ LYSE_K = 2.0  # sigmoid steepness; energies are 0..MAX_ENERGY (2.0), so the arg 
 # --- sharing (bio/dish.py; the `give` feature; docs/sharing.md) ----------
 GIVE_EFFICIENCY = 0.9  # fraction of the given energy the neighbour receives; the rest is lost as heat
 GIVE_RESERVE = 0.05  # energy a giver always keeps; it never gives itself below this
+
+# --- horizontal gene transfer (bio/mutagen.py; the `hgt` feature) --------
+# Not dish physics (hgt is off by default; these tune the mutagen, not every culture). On a
+# division that rolls a mutation, HGT_RATE is the chance it becomes a splice with a non-kin
+# neighbour's genome as the donor. On the wall clock a prepared splice keyed by (recipient,
+# donor) lapses after HGT_EXPIRY_TICKS if the pair never touches again. docs/hgt.md
+HGT_RATE = 0.3  # of mutations that also draw a splice; needs a non-kin neighbour known to the mutagen
+HGT_EXPIRY_TICKS = 500  # wall clock only: ticks a prepared splice waits for its pair before it lapses
 
 # --- the freezer (bookkeeping, not physics) ------------------------------
 FREEZE_EVERY = int(env("BIOTIC_FREEZE_EVERY", "2000"))  # ticks between automatic samples; 0 disables

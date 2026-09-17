@@ -38,7 +38,9 @@ EVENTS_KEPT = 60  # visible events the packet copies; compose() keeps those afte
 SKETCH_W = 48  # the sketch is at most this wide: k×k tiles per glyph for the smallest k that fits
 MAX_TOKENS = 400  # eight sentences and room to spare
 TEMPERATURE = 0.7
-NOTE_EVENTS = frozenset({"genesis", "arose", "nonviable", "extinct", "phase", "drop", "whisper", "frozen", "revived"})
+NOTE_EVENTS = frozenset(
+    {"genesis", "arose", "spliced", "nonviable", "extinct", "phase", "drop", "whisper", "frozen", "revived"}
+)
 METRIC_KEYS = (
     "population",
     "strains",

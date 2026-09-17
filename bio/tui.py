@@ -27,6 +27,7 @@ SPARK = "▁▂▃▄▅▆▇█"
 ICONS = {
     "genesis": ("◉", "bold green"),
     "arose": ("✚", "bold cyan"),
+    "spliced": ("⇄", "bold cyan"),
     "prepared": ("◌", "dim cyan"),
     "nonviable": ("✖", "dim red"),
     "extinct": ("†", "yellow"),
@@ -354,7 +355,9 @@ def events(c: Culture, n: int) -> Text:
         t.append(f"{icon} ", style=style)
         t.append(
             ev["msg"] + "\n",
-            style="" if ev["kind"] in ("arose", "extinct", "drop", "phase", "genesis", "revived", "note") else "dim",
+            style=""
+            if ev["kind"] in ("arose", "spliced", "extinct", "drop", "phase", "genesis", "revived", "note")
+            else "dim",
         )
     return t
 

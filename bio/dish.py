@@ -305,6 +305,17 @@ class Dish:
             out[c.strain] = out.get(c.strain, 0) + 1
         return out
 
+    def non_kin_neighbours(self, cell: Cell) -> list[str]:
+        """The strains of the cells orthogonally and diagonally adjacent to `cell` that are not its
+        own — the donors a splice could draw from (docs/hgt.md). A strain appears once per adjacent
+        cell of it, so picking uniformly from this list weights a donor by contact. Reads only."""
+        out = []
+        for dx, dy in DIRS:
+            other = self.cells.get((cell.x + dx, cell.y + dy))
+            if other is not None and other.strain != cell.strain:
+                out.append(other.strain)
+        return out
+
     def metrics(self, census: dict[str, int] | None = None) -> dict:
         """What the dish can say about its own population: size, diversity, the death ledger.
 

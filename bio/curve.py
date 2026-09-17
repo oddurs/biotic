@@ -54,6 +54,8 @@ COLUMNS: tuple[str, ...] = (
     # and dish-wide. The gap is heat. 0.0 unless the `give` feature is on. docs/sharing.md
     "given",
     "received",
+    # horizontal gene transfer: strains carrying a donor, cumulative. docs/hgt.md
+    "spliced",
 )
 DECIMALS = {"nutrient": 4, "shannon": 4, "dominance": 4, "mean_gen": 2, "pheromone": 4, "given": 4, "received": 4}
 _INT = frozenset(COLUMNS) - frozenset(DECIMALS) - {"phase"}

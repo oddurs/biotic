@@ -45,6 +45,7 @@ LABELS: dict[str, str] = {
     "arisen_random": "strains arisen · random (cumulative)",
     "given": "energy given (cumulative)",
     "received": "energy received (cumulative)",
+    "spliced": "splices (cumulative)",
 }
 STYLES = {"population": "cyan", "strains": "yellow"}
 TRACE_STYLE = "green4"  # every other column

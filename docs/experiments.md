@@ -146,6 +146,10 @@ wall-clock floor on the tick backoff is a one-line change; it is not there yet.
   On the tick clock it equals `viable`; on the wall clock it is at most `viable`,
   since a pooled daughter can expire with its strain. `mutations_ready` is 0 on the
   tick clock.
+- `spliced`, cumulative, derived from the registry: strains with a donor — daughters
+  spliced from a non-kin neighbour, 0 unless the `hgt` feature is on (`docs/hgt.md`).
+  A splice has a parent too, so it also counts in `mutations_taken`: the two columns
+  overlap and must not be summed.
 - `mind.calls` in `dish.json` and `biotic status` is the money ledger: every
   answered call including genesis, caught up from the log after a hard kill. It is
   not `attempted`.
