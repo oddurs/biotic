@@ -214,6 +214,23 @@ and in leaving a higher, more even diversity (Shannon 1.9–2.2 vs the random ar
 1.3). The prior looks less like a canaliser of *what changes* than a ratchet on
 *how much code there is* — worth watching as substrates make the genomes longer.
 
+Item 0016 asked the canalisation question where it bites hardest: does a
+*parasite* arise — a strain that stops eating and lives only by lysing or
+begging, as Tierra's did? Across six flasks (three with predation, sharing and
+HGT on, three controls) the answer was **no**. Predation evolved readily and
+became near-universal, but always *facultative*: nearly every living hunter also
+kept its `"eat"` fallback, and not one strain in any flask dropped its foraging
+path. Sharing never evolved at all, so the beggar route never opened. This is the
+canaliser showing its hand from the other side: the prior reaches "hunt, and
+still eat if hunting fails" — a sensible variation on a sensible forager — but not
+"abandon eating entirely," which is exactly the un-sensible, Tierra-like move.
+There was a second, unbidden finding: predation did not raise diversity into an
+arms race, it *collapsed* it — the eat-and-lyse strain swept each treatment dish
+to near-monoculture (Shannon 0.22 vs the control's 1.87), while the feature-off
+controls stayed diverse. So far the biotic rules make competition sharper, not
+richer; whether the countermeasures above can coax the prior over the line into
+obligate parasitism is still open. `docs/experiments.md` and cairn item 0016.
+
 ## Next, concretely
 
 1. **Substrates** (stage 2). One substrate type first — a numeric stream to
