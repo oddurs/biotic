@@ -39,8 +39,10 @@ list below is the reference.
 - **vitals**: population and its share of the agar, the growth curve as a
   sparkline, the phase (read from the curve the way a microbiologist would),
   strains living, arisen and extinct, diversity, mean agar richness, births
-  and deaths by cause, what the mutagen is doing, the mind's call count, and
-  what it has spent against the dish's budget.
+  and deaths by cause, what the mutagen is doing (with its clock, `wall` or
+  `tick`, as the label of the row that counts viable and nonviable variants;
+  `docs/experiments.md`), the mind's call count, and what it has spent against
+  the dish's budget.
 - **census**: living strains by population, largest first, with each strain's
   colour, id, count and a bar against the largest; nine at most, then
   `… n more`. In a small window it lists as many as fit in the rows the vitals

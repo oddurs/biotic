@@ -130,10 +130,21 @@ Each failure is one event:
 
     mutagen call failed: HTTP 503: upstream unavailable — next attempt in 2m00s
 
-with `status`, `retry_in`, `failures` and `latency` on the event. A dead
+with `status`, `retry_in`, `unit`, `failures` and `latency` on the event. A dead
 endpoint produces eleven such events in its first hour, then one every ten
 minutes. HTTP 402 — out of credits at the provider — is backed off like any
 other error; the retries cost nothing.
+
+That is the wall clock, `biotic live`'s. On the tick clock, `biotic run`'s
+default (`docs/experiments.md`), the schedule is in ticks: 2 intervals after
+the first failure, then 4, 8, … up to 50 intervals (80, 160, … 2,000 ticks at
+the default `BIOTIC_MUTAGEN_EVERY_TICKS` of 40), so a dead endpoint does not
+stall a fast run; `retry_in` is then in ticks and `unit` says `"ticks"`, and the
+message reads `next attempt in 80 ticks`. A `Retry-After` is honoured there as
+a floor on the wall clock, up to the same hour, during which no attempt is made:
+`next attempt in 80 ticks (Retry-After 1m30s)`. A dead endpoint at `--tick 0`
+is retried every 2,000 ticks once the schedule is capped, which is every few
+seconds.
 
 ## what is logged, and where
 
@@ -159,7 +170,8 @@ other error; the retries cost nothing.
 - `biotic status`: `spent  $0.043 / $2.00  (12 calls)`, with `— exhausted`
   when it is. `biotic run` ends its progress line with the spend.
 - The vitals panel: a `spent` row beneath `mind` reads `$0.043 / $2.00`; the
-  mutagen row shows `· exhausted`, or `! error  retry in 45s`.
+  mutagen row shows `· exhausted`, or `! error  retry in 45s` (`retry in 80
+  ticks` on the tick clock).
 
 A process killed between saves — a power cut, a `kill -9` — leaves its last
 calls in `events.jsonl` but not in `dish.json`. The next load takes the

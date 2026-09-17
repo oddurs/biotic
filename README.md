@@ -94,15 +94,20 @@ And look at what has grown:
     biotic curve [--cols population,shannon] [--png out.png]   # the growth curve, in the terminal or as a figure
     open vessel/curve.csv                # population, diversity, turnover by tick; docs/curve.md
 
+In `biotic run` the mutagen is clocked in ticks, so two flasks get the same supply of
+variants whatever machine or `--tick` they ran at; `docs/experiments.md` says what that
+costs and how to compare flasks.
+
 A dish is deterministic under its seed, in any process, and `vessel/dish.json`
 restores an exact twin: a run that is stopped and resumed follows the trajectory it
 would have followed anyway, tick for tick, until the mind hands it a daughter. The
 model is the one source of novelty a seed does not fix; `docs/membrane.md` has the
 fine print.
 `BIOTIC_REPLENISH=0` gives a truly closed dish: bloom, crash, done.
-`BIOTIC_MUTATION_RATE`, `BIOTIC_MUTAGEN_INTERVAL`, `BIOTIC_BUDGET_USD`, `BIOTIC_NOTES_EVERY`,
-`BIOTIC_TICK`, `BIOTIC_WIDTH`, `BIOTIC_HEIGHT` are the other knobs. The rest of the physics
-is in `bio/config.py`.
+`BIOTIC_MUTATION_RATE`, `BIOTIC_MUTAGEN_INTERVAL`, `BIOTIC_MUTAGEN_CLOCK`,
+`BIOTIC_MUTAGEN_EVERY_TICKS`, `BIOTIC_BUDGET_USD`, `BIOTIC_NOTES_EVERY`, `BIOTIC_TICK`,
+`BIOTIC_WIDTH`, `BIOTIC_HEIGHT` are the other knobs. The rest of the physics is in
+`bio/config.py`.
 
 ### the freezer
 
@@ -134,11 +139,14 @@ Fully local later, with no code change:
     BIOTIC_BASE_URL=http://localhost:11434/v1
     BIOTIC_MODEL=qwen2.5-coder:7b
 
-The dish never waits on the mind. The mutagen runs in a background thread with a
-minimum interval between calls; divisions that roll a mutation take a prepared
-daughter if one is ready, otherwise queue a request and divide faithfully. So the
-rate of novelty is bounded by how fast the mind thinks, and the dish keeps its
-own time.
+In `biotic live` the dish never waits on the mind. The mutagen runs in a background
+thread with a minimum interval between calls; divisions that roll a mutation take a
+prepared daughter if one is ready, otherwise queue a request and divide faithfully.
+So the rate of novelty is bounded by how fast the mind thinks, and the dish keeps
+its own time. In `biotic run` the mutagen is clocked in ticks and the dish makes the
+call itself, at most every `BIOTIC_MUTAGEN_EVERY_TICKS` ticks, and waits for the
+reply, so the supply of variants is a function of ticks and budget rather than of
+the machine; `--clock` picks either on either command. `docs/experiments.md`.
 
 Every call is priced — the endpoint's own figure when it reports one, else its
 price list, cached in `vessel/prices.json` — and counted against a per-dish
@@ -179,7 +187,7 @@ with its reason string, and what the membrane cannot do.
     bio/          the apparatus — nothing in here evolves
       dish.py       agar, cells, physics
       membrane.py   what code is allowed to become a cell
-      mutagen.py    the background thread that asks the mind for variants
+      mutagen.py    what asks the mind for variants: a thread on the wall clock, the dish itself on the tick clock
       naturalist.py the observer thread that keeps the field notes
       culture.py    dish + strains + mutagen + your interventions; owns vessel/
       curve.py      the growth curve: its columns, its reader, widening older files
@@ -193,6 +201,7 @@ with its reason string, and what the membrane cannot do.
                   and fieldnotes.md, the naturalist's notebook
       freezer/      frozen samples of the dish and of strains; survives `biotic sterilize`
     docs/         longer notes: docs/curve.md on reading the growth curve,
+                  docs/experiments.md on the mutagen's two clocks and comparing flasks,
                   docs/membrane.md on what a genome may contain and why,
                   docs/budget.md on what the mind costs,
                   docs/freezer.md on the freezer,

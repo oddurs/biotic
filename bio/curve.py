@@ -42,6 +42,9 @@ COLUMNS: tuple[str, ...] = (
     "mutations_taken",
     # the timeline: 0 until the first dish revive, one more at each; empty in rows older than the column
     "branch",
+    # the mutagen's supply, cumulative: calls made; daughters that passed the membrane. docs/experiments.md
+    "mutations_attempted",
+    "mutations_viable",
 )
 DECIMALS = {"nutrient": 4, "shannon": 4, "dominance": 4, "mean_gen": 2, "pheromone": 4}
 _INT = frozenset(COLUMNS) - frozenset(DECIMALS) - {"phase"}

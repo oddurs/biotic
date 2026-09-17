@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import fcntl
 import json
+import math
 import os
 import random
 import shutil
@@ -28,6 +29,10 @@ from .strains import Registry, check_record
 # Bookkeeping events: every one is in events.jsonl, but none is kept among the recent events
 # the eyepiece shows, where one per call would crowd out what happened in the dish.
 HIDDEN = {"call", "prepared"}
+
+# The mutagen's clocks: `wall` is the background thread the dish never waits on, `tick` is the
+# dish calling the mind itself at most every MUTAGEN_EVERY_TICKS ticks. docs/experiments.md
+CLOCKS = ("wall", "tick")
 
 FALLBACK_GENESIS = """\
 def live(me):
@@ -59,6 +64,13 @@ class Culture:
         self._candidate = None
         self._candidate_for = 0
         self.mutation_rate = config.MUTATION_RATE
+        self.clock = "wall"  # this process's mutagen clock; use_clock() sets it before run()
+        self.clock_choice: str | None = None  # a --clock the dish remembers (dish.json); None: by command
+        self.clock_used: str | None = None  # what the last run ran under, for `biotic status`
+        self.every_ticks_used: int | None = None
+        self.last_call_tick = -math.inf  # the tick schedule a resumed dish remembers; applied by use_clock("tick")
+        self.retry_at_tick = 0.0
+        self._interrupted = False  # ctrl-c arrived inside a blocking call; run() ends after this tick
         self.revivals: list[dict] = []  # how this dish came to be: one entry per revive, oldest first
         self.branch = 0  # the vessel's timeline: 0 until its first dish revive, one more at each; a curve coordinate
         self.watching: list[dict] = []  # revived strains still under observation
@@ -274,25 +286,39 @@ class Culture:
     def state_dict(self) -> dict:
         """The culture's own state — everything outside the dish and the registry that decides
         the next tick: the mutation-roll RNG, the phase detector, the mutagen boost — plus the
-        revival chain, the branch, the watch list and the naturalist's baseline (the last note
-        and what it measured; nothing the dish depends on). Rides in dish.json and in every
-        dish sample."""
+        revival chain, the branch, the watch list, the naturalist's baseline (the last note and
+        what it measured), and the mutagen's clock, counters and tick schedule; nothing the dish
+        depends on. Rides in dish.json and in every dish sample."""
+        m = self.mutagen
+        if m.ticked:  # the schedule as it stands; on the wall clock, what was loaded, carried forward unchanged
+            self.last_call_tick, self.retry_at_tick = m.last_call, m.retry_at
         return {
             "rng": list(self.rng.getstate()),
             "last_phase": self.last_phase,
             "candidate": self._candidate,
             "candidate_for": self._candidate_for,
-            "boost": self.mutagen.boost,
-            "boost_until": self.mutagen.boost_until,
+            "boost": m.boost,
+            "boost_until": m.boost_until,
             "revivals": [dict(r) for r in self.revivals],
             "branch": self.branch,
             "watching": [dict(w) for w in self.watching],
             "naturalist": self.naturalist.baseline(),
+            # the mutagen's clock: the --clock the dish remembers, and a record of the last run
+            "clock": self.clock_choice,
+            "clock_used": self.clock_used,
+            "every_ticks_used": self.every_ticks_used,
+            # the supply counters, coordinates of the timeline like `branch`; the tick schedule
+            "attempted": m.attempted,
+            "viable": m.viable,
+            "nonviable": m.nonviable,
+            "last_call_tick": self.last_call_tick if math.isfinite(self.last_call_tick) else None,
+            "retry_at_tick": self.retry_at_tick,
         }
 
     def restore_state(self, d: dict) -> None:
         """The inverse of state_dict. Missing keys mean a fresh culture; a bad RNG state is
-        ignored, as in Dish.from_dict."""
+        ignored, as in Dish.from_dict. The tick schedule goes to the mutagen when the culture is
+        already on the tick clock (a revive after use_clock); before that use_clock() applies it."""
         try:
             st = d["rng"]
             self.rng.setstate((st[0], tuple(st[1]), st[2]))
@@ -301,12 +327,55 @@ class Culture:
         self.last_phase = d.get("last_phase")
         self._candidate = d.get("candidate")
         self._candidate_for = int(d.get("candidate_for") or 0)
-        self.mutagen.boost = float(d.get("boost") or 1.0)
-        self.mutagen.boost_until = int(d.get("boost_until") or 0)
+        m = self.mutagen
+        m.boost = float(d.get("boost") or 1.0)
+        m.boost_until = int(d.get("boost_until") or 0)
         self.revivals = [dict(r) for r in d.get("revivals") or []]
         self.branch = int(d.get("branch") or 0)
         self.watching = [dict(w) for w in d.get("watching") or []]
         self.naturalist.restore(d.get("naturalist"))
+        self.clock_choice = d.get("clock") if d.get("clock") in CLOCKS else None
+        self.clock_used = d.get("clock_used") if d.get("clock_used") in CLOCKS else None
+        every = d.get("every_ticks_used")
+        self.every_ticks_used = int(every) if isinstance(every, int | float) and every >= 1 else None
+        m.attempted = int(d.get("attempted") or 0)
+        m.viable = int(d.get("viable") or 0)
+        m.nonviable = int(d.get("nonviable") or 0)
+        last = d.get("last_call_tick")
+        self.last_call_tick = float(last) if isinstance(last, int | float) else -math.inf
+        self.retry_at_tick = float(d.get("retry_at_tick") or 0.0)
+        if m.ticked:
+            m.last_call, m.retry_at = self.last_call_tick, self.retry_at_tick
+
+    # --- the mutagen's clock -------------------------------------------------
+    def use_clock(self, flag: str | None, command: str) -> str:
+        """Choose the mutagen clock for this process: --clock, else BIOTIC_MUTAGEN_CLOCK, else the
+        --clock the dish remembers, else by command (`live` on the wall clock, so the observer never
+        waits on the network; anything else on the tick clock, so the supply of variants is a
+        function of ticks and budget). A flag is remembered in dish.json and sticks, like --budget;
+        the environment variable is per process and is not written into the dish. Raises ValueError
+        on a value that is not wall or tick. Call once, before run()."""
+        choice = flag or config.MUTAGEN_CLOCK or self.clock_choice
+        if choice is not None and choice not in CLOCKS:
+            raise ValueError(f"the mutagen clock is wall or tick, not {choice!r}")
+        self.clock = choice or ("wall" if command == "live" else "tick")
+        if flag:
+            self.clock_choice = flag
+        if self.clock == "tick":
+            self.mutagen.clock_ticks(
+                config.MUTAGEN_EVERY_TICKS,
+                lambda: float(self.dish.tick),  # reads self.dish at call time: a revive swaps it
+                last_call=self.last_call_tick,
+                retry_at=self.retry_at_tick,
+            )
+        return self.clock
+
+    def clock_line(self) -> str:
+        """`tick, every 40 ticks` / `wall, at least 12 s between calls`: the words `biotic run`
+        prints and the run-start event carries."""
+        if self.clock == "tick":
+            return clock_words("tick", self.mutagen.every_ticks)
+        return f"wall, at least {config.MUTAGEN_INTERVAL:g} s between calls"
 
     # --- events -------------------------------------------------------------
     def log(self, kind: str, msg: str, **data) -> None:
@@ -339,9 +408,17 @@ class Culture:
         rate = self.mutation_rate * (self.mutagen.boost if self.dish.tick < self.mutagen.boost_until else 1.0)
         if self.rng.random() >= rate:
             return None
-        got = self.mutagen.take(cell.strain)
+        if self.clock == "tick":
+            try:
+                got = self.mutagen.mutate_now(cell.strain)
+            except KeyboardInterrupt:
+                self._interrupted = True  # this tick finishes cleanly; run() raises it after step()
+                got = None
+        else:
+            got = self.mutagen.take(cell.strain)
+            if not got:
+                self.mutagen.request(cell.strain)
         if not got:
-            self.mutagen.request(cell.strain)
             return None
         name, note, src = got
         s = self.registry.new(src, cell.strain, self.dish.tick, name, note)
@@ -575,6 +652,12 @@ class Culture:
         ]
         state["branch"] = self.branch + 1  # the vessel's count, not the sample's: monotone over curve.csv
         state["naturalist"] = self.naturalist.baseline()  # the notebook is the vessel's too, not the sample's
+        # the mutagen's clock belongs to the vessel too: the flag it remembers and what the last run used
+        state["clock"], state["clock_used"], state["every_ticks_used"] = (
+            self.clock_choice,
+            self.clock_used,
+            self.every_ticks_used,
+        )
         self.seed = self.mutagen.seed = self.naturalist.seed = doc["seed"]
         self._swap(dish, reg, state)
         config.VESSEL.mkdir(parents=True, exist_ok=True)
@@ -690,6 +773,8 @@ class Culture:
         d = self.dish
         with self.lock:
             d.step()
+        if self.mutagen.boost != 1.0 and d.tick >= self.mutagen.boost_until:
+            self.mutagen.boost = 1.0  # the drop wore off: the call interval goes back with the rate
         census = d.census()
         for s in self.registry.update(census, d.tick):
             self.mutagen.forget(s.id)
@@ -708,13 +793,7 @@ class Culture:
             self.last_phase = raw
         phase = self.last_phase or raw
         if d.tick % 3 == 0:
-            self.mutagen.context = {
-                "tick": d.tick,
-                "phase": phase,
-                "census": census,
-                "nutrient": d.nutrient_mean(),
-                "whispers": self.whispers(),
-            }
+            self._context(census, phase)
             if self._inbox():
                 return  # the dish was replaced: the rest of this step would describe the old one
         if d.tick % curve.CADENCE == 0:
@@ -725,6 +804,18 @@ class Culture:
             self.save()
         if config.FREEZE_EVERY and d.tick % config.FREEZE_EVERY == 0:
             self._freeze_or_log("auto")
+
+    def _context(self, census: dict, phase: str) -> None:
+        """What the mutagen tells the mind about the dish: refreshed every third tick, and on the
+        tick clock once before the first tick of a run."""
+        d = self.dish
+        self.mutagen.context = {
+            "tick": d.tick,
+            "phase": phase,
+            "census": census,
+            "nutrient": d.nutrient_mean(),
+            "whispers": self.whispers(),
+        }
 
     def metrics(self, census: dict[str, int] | None = None, phase: str | None = None) -> dict:
         """One row of the growth curve: what the dish knows about itself, plus lineage and
@@ -743,6 +834,8 @@ class Culture:
         row["mutations_ready"] = self.mutagen.ready()
         row["mutations_taken"] = sum(1 for s in strains.values() if s.parent is not None)
         row["branch"] = self.branch
+        row["mutations_attempted"] = self.mutagen.attempted
+        row["mutations_viable"] = self.mutagen.viable
         return row
 
     def _packet(self, census: dict[str, int], phase: str) -> dict:
@@ -812,6 +905,15 @@ class Culture:
         self._unsaid.clear()
         self._screen()
         self.tick_seconds = tick_seconds
+        self.clock_used, self.every_ticks_used = self.clock, self.mutagen.every_ticks
+        self.log("mind", f"mutagen clock: {self.clock_line()}", clock=self.clock, every_ticks=self.every_ticks_used)
+        if self.clock == "tick":
+            # a blocking call can come in the first tick after a resume: prompt it with the real census and
+            # phase. Not on the wall clock, where a primed context lets the thread's spontaneous path fire
+            # at its first turn, and the calls a `live` sitting makes are meant to be what they were.
+            d = self.dish
+            self._context(d.census(), self.last_phase or d.phase())
+        self._interrupted = False
         self.mutagen.start()
         if config.NOTES_EVERY and self.mind.awake:  # a dormant mind writes no notes; the mutagen's event says so
             self.naturalist.start()
@@ -820,6 +922,8 @@ class Culture:
             while not (stop and stop.is_set()):
                 t0 = time.time()
                 self.step()
+                if self._interrupted:
+                    raise KeyboardInterrupt  # ctrl-c inside a blocking call: the tick finished; the dish is whole
                 n += 1
                 if ticks is not None and n >= ticks:
                     break
@@ -856,13 +960,16 @@ class Culture:
             "metrics": metrics,
             "mutagen": {
                 "state": self.mutagen.state,
+                "clock": self.clock,
+                "every_ticks": self.mutagen.every_ticks,
                 "ready": self.mutagen.ready(),
                 "pending": self.mutagen.pending(),
-                "produced": self.mutagen.produced,
+                "attempted": self.mutagen.attempted,
+                "viable": self.mutagen.viable,
                 "nonviable": self.mutagen.nonviable,
                 "boosted": d.tick < self.mutagen.boost_until,
                 "failures": self.mutagen.failures,
-                "retry_in": max(0.0, self.mutagen.retry_at - self.mutagen.clock()),
+                "retry_in": max(0.0, self.mutagen.retry_at - self.mutagen.clock()),  # in the clock's unit
             },
             "mind": {
                 "model": self.mind.model,
@@ -929,6 +1036,13 @@ def _last_note(path) -> dict | None:
     last 150 ticks, which is always in the tail; a dish with no notes at all is never made to
     read its whole log for them."""
     return _last_event(path, "note")
+
+
+def clock_words(clock: str, every_ticks: int | None) -> str:
+    """`tick, every 40 ticks` or `wall`: the clock as `biotic status` and the vitals name it."""
+    if clock == "tick" and every_ticks:
+        return f"tick, every {_n(int(every_ticks), 'tick')}"
+    return clock
 
 
 def _strain_sample(path: Path) -> dict:

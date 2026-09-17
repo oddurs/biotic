@@ -14,8 +14,8 @@ Two more rules hold for every test in this directory:
    tests/fixtures/genomes/, copied verbatim from the first "tide" run (qwen/qwen3-coder,
    2026-09-08); `fixture_genomes()` below lists them.
 
-A scripted mind (FakeMind), a real HTTPError, and a clock the mutagen can be turned by
-live here too.
+A scripted mind (FakeMind), a deterministic one that always has a new variant (Variator),
+a real HTTPError, and a clock the mutagen can be turned by live here too.
 """
 
 from __future__ import annotations
@@ -23,6 +23,7 @@ from __future__ import annotations
 import copy
 import email.message
 import io
+import time
 import urllib.error
 from collections.abc import Callable
 from pathlib import Path
@@ -331,6 +332,32 @@ class FakeMind(Mind):
         raise AssertionError(f"unexpected request: {path}")
 
 
+class Variator(FakeMind):
+    """A mind whose n-th reply is the founder one threshold higher: always a new genome the
+    membrane admits, so every attempt is viable and a culture's trajectory is a function of the
+    seed and the attempt ticks. `sleep` seconds pass inside each chat request (the mind's
+    latency); `on_call` runs before each one; `start` is the n the count continues from, for a
+    mind handed to a resumed culture."""
+
+    def __init__(self, *, sleep: float = 0.0, start: int = 0, on_call: Callable[[], None] | None = None, **kw):
+        super().__init__(**kw)
+        self.sleep = sleep
+        self.n = start
+        self.on_call = on_call
+
+    def _request(self, path: str, body: dict | None = None, timeout: float = 120) -> dict:
+        if path == "/chat/completions":
+            if self.on_call:
+                self.on_call()
+            if self.sleep:
+                time.sleep(self.sleep)
+            self.n += 1
+            t = f"{1.0 + 0.001 * self.n:.3f}"
+            genome = FALLBACK_GENESIS.replace("me.energy > 1.0", f"me.energy > {t}")
+            self.replies = [f"NAME: v{self.n}\nNOTE: threshold {t}\n---\n" + genome]
+        return super()._request(path, body, timeout)
+
+
 def http_error(code: int, retry_after: str | None = None, body: bytes = b'{"error":"x"}') -> urllib.error.HTTPError:
     """A real HTTPError, with headers and a body, as urlopen would raise it."""
     hdrs = email.message.Message()
@@ -367,6 +394,18 @@ def mutagen(clock: Clock) -> Callable[[Mind], Mutagen]:
         return m
 
     return make
+
+
+@pytest.fixture
+def ticked(monkeypatch: pytest.MonkeyPatch) -> Callable[..., Culture]:
+    """Put a culture on the tick clock as `biotic run` would, with `every` ticks between calls."""
+
+    def _tick(c: Culture, every: int = 40) -> Culture:
+        monkeypatch.setattr(config, "MUTAGEN_EVERY_TICKS", every)
+        assert c.use_clock("tick", "run") == "tick"
+        return c
+
+    return _tick
 
 
 @pytest.fixture
