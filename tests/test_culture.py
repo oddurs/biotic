@@ -13,7 +13,7 @@ from bio.culture import FALLBACK_GENESIS, Culture
 from bio.membrane import inspect
 from bio.mind import Mind
 
-from .conftest import dish_state
+from .conftest import FakeMind, dish_state
 
 # admitted under 0.1.0, refused now: the construct this release closes
 RELIC = "def live(me):\n    try:\n        return 'eat'\n    except:\n        return 'rest'\n"
@@ -212,6 +212,85 @@ def test_a_brief_absence_and_a_never_run_dish_log_no_gap(make_culture):
     never.run(ticks=1, tick_seconds=0)
     never.mutagen.join(timeout=5)
     assert _events("gap") == []
+
+
+def _drain(c: Culture) -> None:
+    """What run() does before it starts the threads: say what load() found out. Here without a
+    save afterwards, so it stands in for a process hard-killed between the drain and its first save."""
+    for kind, msg, data in c._unsaid:
+        c.log(kind, msg, **data)
+    c._unsaid.clear()
+
+
+def test_the_gap_is_logged_once_even_when_a_kill_precedes_the_first_save(make_culture):
+    """The resume marker is logged once per absence. A process killed between the resume drain and
+    its first save leaves dish.json's saved_at unchanged, so the next load measures the same gap
+    again — but that gap already stands in the log against this saved_at, so load queues no second
+    one, as notes and the ledger reconcile on reload. A save that advances saved_at makes a later
+    absence a fresh gap."""
+    c = make_culture()
+    for _ in range(40):
+        c.step()
+    resume_tick = c.dish.tick
+    c.save()
+    _set_saved_at(time.time() - 43440)  # 12h04m ago
+
+    again = Culture.load(Mind())
+    assert again._resume == {"gap": pytest.approx(43440, abs=5), "tick": resume_tick}
+    _drain(again)  # resumed, then killed before the first periodic save
+    assert len(_events("gap")) == 1
+
+    # dish.json still carries the same saved_at; the next load must not log the gap a second time
+    third = Culture.load(Mind())
+    assert third._resume is None
+    assert [u for u in third._unsaid if u[0] == "gap"] == []
+    _drain(third)
+    assert len(_events("gap")) == 1
+
+    # a save advances saved_at, so a genuinely new absence is a new gap
+    third.save()
+    _set_saved_at(time.time() - 90000)  # 25h ago, a value distinct from the first gap's saved_at
+    fourth = Culture.load(Mind())
+    assert fourth._resume is not None and fourth._resume["tick"] == resume_tick
+    _drain(fourth)
+    assert len(_events("gap")) == 2
+
+
+class _PromptRecorder(FakeMind):
+    """A FakeMind that keeps the user prompt of every chat request it is sent."""
+
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self.prompts: list[str] = []
+
+    def _request(self, path, body=None, timeout=120):
+        if path == "/chat/completions":
+            self.prompts.append(body["messages"][1]["content"])
+        return super()._request(path, body, timeout)
+
+
+def test_the_first_note_after_a_resume_tells_the_mind_the_off_time(make_culture):
+    """End to end on one culture: a dish resumed past the threshold carries the measured gap into
+    the naturalist's packet, and the first field note's prompt says the incubator was off — the
+    join from Culture._packet through compose() and prompts.naturalist_user() to the mind's call."""
+    c = make_culture(mind=_PromptRecorder(replies=["The dish held steady across the interval."]))
+    for _ in range(40):
+        c.step()
+    resume_tick = c.dish.tick
+    assert c.naturalist._write(c._packet(c.dish.census(), c.last_phase or c.dish.phase()))  # a baseline note
+    c.save()
+    _set_saved_at(time.time() - 43440)  # 12h04m ago
+
+    again = Culture.load(_PromptRecorder(replies=["The colony took up where it left off."]))
+    assert again._resume == {"gap": pytest.approx(43440, abs=5), "tick": resume_tick}
+    for _ in range(10):
+        again.step()  # carry the packet's tick past the resume tick, so the gap window is open
+    assert again.dish.tick > resume_tick
+    assert again.naturalist._write(again._packet(again.dish.census(), again.last_phase or again.dish.phase()))
+
+    (prompt,) = again.mind.prompts
+    assert "the incubator was off for" in prompt and "12h04m" in prompt
+    assert config.FIELDNOTES.read_text().count("## tick") == 2  # the baseline and the note that spans the gap
 
 
 def test_status_shows_last_active(make_culture, capsys):

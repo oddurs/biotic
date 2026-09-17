@@ -67,3 +67,7 @@ Accepted limitation: a resume on a dish with no prior naturalist baseline (never
 ## 2026-09-16
 
 The display half (⋯ glyph, plot.MARKERS/markers/figure/render, curve.events branch join, the naturalist off-time principle in NATURALIST_SYSTEM) already shipped with #32/#33. This item added: emit the gap event on resume (both criteria), the measured gap in the naturalist packet/prompt per the 2026-09-16 note, biotic status last-active, and tui.ICONS[gap] so the resume banner shows a real glyph in the incubator log. No new curve.csv column: the marker is drawn from the event via curve.events()+plot.markers(), per bio/curve.py's rule.
+
+## 2026-09-16
+
+Gap dedup on reload: a process hard-killed between the resume drain and its first periodic save leaves dish.json's saved_at unchanged, so the next load re-satisfies the threshold. load() now reads _last_gap and skips queuing when the last gap event's saved_at equals the current one, mirroring the note/ledger reconcile pattern. Curve glyph was already deduped by (branch, resume_tick); this stops a second incubator-log line. A save that advances saved_at still makes a genuinely new absence a fresh gap.

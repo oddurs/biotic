@@ -251,7 +251,13 @@ class Culture:
         cult.saved_at = saved_at
         if saved_at and dish.tick > 0:  # a germinated-but-never-run dish saves at tick 0; that is no resume
             gap = time.time() - saved_at
-            if gap >= config.INCUBATION_GAP:  # also excludes a negative gap from clock skew
+            logged = _last_gap(config.EVENTS)  # a gap already logged against this exact save
+            already = logged is not None and logged.get("saved_at") == saved_at
+            if gap >= config.INCUBATION_GAP and not already:  # threshold; also excludes clock-skew negatives
+                # A process hard-killed between the resume drain and its first save leaves dish.json's
+                # saved_at unchanged, so this gap would re-satisfy the threshold on the next load. The gap
+                # is already in the log against this same saved_at, though, so — as with notes and the
+                # ledger, which reconcile on reload — one absence is announced once.
                 cult._resume = {"gap": gap, "tick": dish.tick}
                 cult._unsaid.append(
                     (
@@ -1064,6 +1070,15 @@ def clock_words(clock: str, every_ticks: int | None) -> str:
     if clock == "tick" and every_ticks:
         return f"tick, every {_n(int(every_ticks), 'tick')}"
     return clock
+
+
+def _last_gap(path) -> dict | None:
+    """The most recent `gap` event, or None. It carries the `saved_at` it resumed from; when a
+    process was killed before its first post-resume save, dish.json still holds that same
+    saved_at, and load() reads this to keep one absence from being logged twice. A gap logged
+    against the current saved_at was written at that resume, before any save, so it is in the
+    tail; a dish that never resumed reads no more of its log for one."""
+    return _last_event(path, "gap")
 
 
 def _strain_sample(path: Path) -> dict:
