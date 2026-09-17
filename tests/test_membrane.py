@@ -743,7 +743,9 @@ MEMORY_FAULTS = [
     ("alias", {"rows": [[0] * 8] * 8}, "me.memory['rows'] = [[0] * 8] * 8", ALIAS_RULE),
     ("cycle", {"c": _cyclic()}, "c = []\n    c.append(c)\n    me.memory['c'] = c", ALIAS_RULE),
     ("string", {"s": "x" * 3000}, "me.memory['s'] = 'x' * 3000", TOO_LARGE),
-    ("int", {"i": 10**5000}, "me.memory['i'] = 10 ** 5000", TOO_LARGE),
+    # Built by multiplying powers under POW_MAX_EXP, not one huge exponent: 10 ** 5000 is now a
+    # resource bomb the static gate refuses, so the memory path is reached through a form it admits.
+    ("int", {"i": 10**3000}, "me.memory['i'] = 10 ** 1000 * 10 ** 1000 * 10 ** 1000", TOO_LARGE),
 ]
 
 

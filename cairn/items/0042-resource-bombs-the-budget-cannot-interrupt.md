@@ -65,3 +65,7 @@ Review fix: Pow branch banned only when _fold_number(exp) was an int > POW_MAX_E
 ## 2026-09-16
 
 Review fix: chained repeat ([0]*1000*1000*1000) escaped because the outer Mult saw a BinOp on both sides; _mult_factors now flattens the Mult chain and the rule bans on the product of all constant factors against MAX_LITERAL_COUNT. Range now folds all bounds and bans on the actual len(range(*args)), so a negative-step form (range(0,-10**12,-1)) is caught like range(10**12); a bound past _FOLD_CAP is oversized. Added reject rows + tick-guard params (pow/repeat/range) and positive controls (division exponent, chained runtime multiplier, high-numbered short range window).
+
+## 2026-09-16
+
+Rebase onto main (0043's me.memory bound) collided with this branch's Pow rule: the int case of MEMORY_FAULTS built its oversized memory with 10 ** 5000, which the new static gate now refuses as a resource bomb (exp > POW_MAX_EXP=1024). Rewrote that genome to 10 ** 1000 * 10 ** 1000 * 10 ** 1000 (each exponent under the cap, product 10**3000) so the memory_fault path is still exercised through a form the gate admits. Merged docs/README/prompts to carry both the me.memory bound and the resource-bomb rules.
