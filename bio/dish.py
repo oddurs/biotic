@@ -123,10 +123,15 @@ class Me:
 
 
 class Dish:
-    def __init__(self, seed: str, width: int = config.WIDTH, height: int = config.HEIGHT):
+    def __init__(self, seed: str, width: int = config.WIDTH, height: int = config.HEIGHT, flask: str = ""):
         self.seed = seed
+        self.flask = flask  # "" for a lone dish; a flask id (e.g. "03") for one replicate of many
         self.w, self.h = width, height
-        self.rng = random.Random(f"{seed}::dish")
+        # The agar is a function of the seed alone (_make_agar), so replicates of one seed share
+        # it exactly; a per-flask salt on the dynamics RNG is the only source of divergence, and
+        # an empty flask keeps the exact bytes a lone dish has always used (docs/flasks.md).
+        tag = f"{seed}::{flask}" if flask else seed
+        self.rng = random.Random(f"{tag}::dish")
         self.tick = 0
         self.cells: dict[tuple[int, int], Cell] = {}
         self.genomes: dict[str, str] = {}
@@ -439,6 +444,7 @@ class Dish:
     def to_dict(self) -> dict:
         return {
             "seed": self.seed,
+            "flask": self.flask,
             "w": self.w,
             "h": self.h,
             "tick": self.tick,
@@ -457,7 +463,10 @@ class Dish:
 
     @classmethod
     def from_dict(cls, d: dict) -> Dish:
-        dish = cls(d["seed"], d["w"], d["h"])
+        # flask governs only the fresh RNG key; setstate below restores the running state, so it
+        # is load-bearing only for a dish built and never stepped. Persisting it keeps a freeze
+        # sample and dish.json self-describing about which replicate they came from.
+        dish = cls(d["seed"], d["w"], d["h"], flask=d.get("flask", ""))
         dish.tick = d["tick"]
         try:
             st = d["rng"]

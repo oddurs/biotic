@@ -10,6 +10,15 @@ turns the `Unreleased` section into a dated release.
 ### Added
 
 - Incubation gaps: a dish resumed after more than ten minutes away logs one `gap` event (`incubation resumed after 12h04m`), which `biotic curve` draws as `⋯` at the resume tick; the naturalist's first note after the gap is told the measured off-time, and `biotic status` shows `last active`. `dish.json` now records `saved_at`. Tune with `BIOTIC_INCUBATION_GAP` (seconds). See `docs/curve.md`.
+- Replicate flasks: `biotic flasks new <name> --seed "…" [--n 12]` founds one ancestor and pours it
+  into `flasks/<name>/{01..NN}/`, each a self-contained vessel of the same seed (so the agar is
+  identical) with a per-flask salt in the dynamics RNG (so the trajectories diverge) — Lenski's
+  twelve flasks. `biotic flasks run <name> --ticks N [--tick 0] [--parallel P]` runs every flask
+  headless, one subprocess each, dormant and spending nothing. `biotic flasks curve <name>` overlays
+  their growth curves in the terminal or as a PNG. Flasks live under `flasks/` (or `--dir`, or
+  `$BIOTIC_FLASKS`). See `docs/flasks.md`.
+- `--vessel DIR` on every command, and `BIOTIC_VESSEL`, to act on one dish among many — e.g.
+  `biotic live --vessel flasks/tide/03`.
 - The project site at https://oddurs.github.io/biotic/: a StyleX design system, docs with search and a generated CLI reference, the specimen library, field notes with RSS, and Open Graph images. Lives in `web/` and is checked by the same `scripts/task check`.
 - Diversity and turnover in the growth curve: `vessel/curve.csv` gains `killed`, `shannon`, `dominance`,
   `mean_gen`, `arisen`, `extinct`, `pheromone`, `mutations_ready` and `mutations_taken`, sampled every
@@ -99,6 +108,9 @@ turns the `Unreleased` section into a dated release.
 
 ### Changed
 
+- The fossil record now lives at `vessel/soma/` instead of a top-level `soma/`, so a flask is one
+  self-contained directory. `biotic sterilize` and the `vessel/` layout are otherwise unchanged;
+  publish a fossil record with `git add -f vessel/soma/`.
 - `phase` events in `events.jsonl` carry the phase entered as a `phase` field beside the message.
 - `biotic run` defaults to the tick clock and waits for the mind's reply on every attempt: a headless run
   at `--tick 0` is now as long as its calls to the model, minutes to tens of minutes for 5,000 ticks with

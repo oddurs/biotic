@@ -43,6 +43,22 @@ LABELS: dict[str, str] = {
 }
 STYLES = {"population": "cyan", "strains": "yellow"}
 TRACE_STYLE = "green4"  # every other column
+# One style per flask in an overlay, cycled when there are more than twelve (Lenski had twelve).
+# rich colour names; every one is distinct in a 256-colour terminal and in matplotlib.
+FLASK_STYLES = [
+    "cyan",
+    "yellow",
+    "green3",
+    "magenta",
+    "red",
+    "blue",
+    "bright_cyan",
+    "dark_orange3",
+    "bright_magenta",
+    "spring_green3",
+    "bright_red",
+    "medium_purple",
+]
 # kind -> (glyph, style). phase, drop and revived are the eyepiece's icons (tui.ICONS; a test
 # pins them equal, plot does not import tui). Every glyph is one cell wide.
 MARKERS: dict[str, tuple[str, str]] = {
@@ -217,6 +233,45 @@ def figure(
     head = f"seed “{seed}” · " if seed else ""
     title = f"{head}branch {branch} · ticks {x0}–{x1} · {len(sel)} row{'s' if len(sel) != 1 else ''}"
     return Figure(title=title, panels=panels, markers=ms, x0=x0, x1=x1)
+
+
+def overlay(seed: str, series: list[tuple[str, list[dict]]], cols: list[str], *, since: int | None = None) -> Figure:
+    """Several flasks' curves on one figure: one Panel per column, one Trace per flask.
+
+    `series` is `(flask_id, rows)` for each flask, `rows` being `curve.read()` sorted by tick.
+    For each column a Panel holds one Trace per flask that has any value for it, styled from
+    FLASK_STYLES in flask order (cycled past twelve). `since` keeps rows from that tick on. x0/x1
+    span every flask, so the panels share one tick axis. No markers: an overlay is about the shape
+    of the replicates, not the events of any one of them. Raises ValueError when no flask has a
+    single plottable row (an empty column is drawn as an empty panel, as `figure` does)."""
+    x0: int | None = None
+    x1: int | None = None
+    panels = []
+    for col in cols:
+        traces: list[Trace] = []
+        for i, (fid, rows) in enumerate(series):
+            xs, ys = [], []
+            for r in rows:
+                tick = r.get("tick")
+                if tick is None or (since is not None and tick < since) or r.get(col) is None:
+                    continue
+                xs.append(tick)
+                ys.append(float(r[col]))
+            if not xs:
+                continue
+            traces.append(Trace(fid, xs, ys, FLASK_STYLES[i % len(FLASK_STYLES)]))
+            x0 = xs[0] if x0 is None else min(x0, xs[0])
+            x1 = xs[-1] if x1 is None else max(x1, xs[-1])
+        if traces:
+            panels.append(Panel(LABELS[col], traces, integer=col in INTEGER))
+        else:
+            panels.append(Panel(LABELS[col], [], empty=f"no values for {col} in any flask", integer=col in INTEGER))
+    if x0 is None or x1 is None:
+        raise ValueError("no rows in any flask yet")
+    n = len(series)
+    head = f"seed “{seed}” · " if seed else ""
+    title = f"{head}{n} flask{'s' if n != 1 else ''} · ticks {x0}–{x1}"
+    return Figure(title=title, panels=panels, markers=[], x0=x0, x1=x1)
 
 
 def downsample(xs: list[int], ys: list[float], x0: int, x1: int, buckets: int) -> tuple[list[int], list[float]]:
@@ -490,6 +545,8 @@ def png(fig: Figure, path: Path) -> Path:
     for i, (ax, panel) in enumerate(zip(axes, fig.panels)):
         for tr in panel.traces:
             ax.plot(tr.xs, tr.ys, lw=1.0, label=_safe(tr.label))
+        if len(panel.traces) > 1:  # a flask overlay: name each line; a single-trace panel stays legend-free
+            ax.legend(fontsize=8, ncols=min(4, len(panel.traces)), loc="best")
         ax.set_ylabel(_safe(panel.label))
         if panel.empty:
             ax.text(0.5, 0.5, _safe(panel.empty), transform=ax.transAxes, ha="center", va="center", fontsize=9)

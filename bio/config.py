@@ -3,24 +3,10 @@
 from __future__ import annotations
 
 import os
+from contextlib import contextmanager
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-SOMA = ROOT / "soma"
-VESSEL = ROOT / "vessel"
-INBOX = VESSEL / "inbox"
-
-SEED_FILE = VESSEL / "seed.txt"
-GENESIS = VESSEL / "genesis.py"
-DISH_FILE = VESSEL / "dish.json"
-STRAINS_FILE = VESSEL / "strains.json"
-EVENTS = VESSEL / "events.jsonl"
-CURVE = VESSEL / "curve.csv"
-WHISPERS = VESSEL / "whispers.md"
-PRICES_FILE = VESSEL / "prices.json"
-FIELDNOTES = VESSEL / "fieldnotes.md"  # the naturalist's notebook
-FREEZER = VESSEL / "freezer"  # frozen samples of the dish and of strains; sterilize keeps it
-LOCK_FILE = VESSEL / "incubator.lock"  # held (flock) while a culture runs
+ROOT = Path(__file__).resolve().parent.parent  # the checkout; the bio package lives under it
 
 
 def _load_dotenv() -> None:
@@ -40,6 +26,60 @@ _load_dotenv()
 
 def env(name: str, default: str | None = None) -> str | None:
     return os.environ.get(name, default)
+
+
+# --- the vessel ----------------------------------------------------------
+# One install can hold many dishes (replicate flasks; docs/flasks.md). Every path a culture
+# reads or writes hangs off one vessel directory, and `_paths` is the single source of truth
+# for the whole set. `use_vessel` repoints every vessel-derived global at another directory;
+# `vessel_scope` does it for the length of a `with` and restores the globals afterward. Modules
+# read `config.<NAME>` at call time, so reassigning these globals is enough. ROOT stays anchored
+# to the checkout (the membrane runs a subprocess with cwd=ROOT) — only vessel-derived names move.
+def _paths(vessel: Path) -> dict[str, Path]:
+    return {
+        "VESSEL": vessel,
+        "INBOX": vessel / "inbox",
+        "SEED_FILE": vessel / "seed.txt",
+        "GENESIS": vessel / "genesis.py",
+        "DISH_FILE": vessel / "dish.json",
+        "STRAINS_FILE": vessel / "strains.json",
+        "EVENTS": vessel / "events.jsonl",
+        "CURVE": vessel / "curve.csv",
+        "WHISPERS": vessel / "whispers.md",
+        "PRICES_FILE": vessel / "prices.json",
+        "FIELDNOTES": vessel / "fieldnotes.md",  # the naturalist's notebook
+        "FREEZER": vessel / "freezer",  # frozen samples of the dish and of strains; sterilize keeps it
+        "LOCK_FILE": vessel / "incubator.lock",  # held (flock) while a culture runs
+        "SOMA": vessel / "soma",  # the fossil record; one per flask, inside the vessel
+        "FLASK_FILE": vessel / "flask.txt",  # the flask id, when this vessel is one replicate of many
+    }
+
+
+def use_vessel(path) -> Path:
+    """Point every vessel-derived global at `path` and return it. The one way to change vessels."""
+    g = globals()
+    v = Path(path).expanduser()
+    for k, p in _paths(v).items():
+        g[k] = p
+    return v
+
+
+@contextmanager
+def vessel_scope(path):
+    """Act on another vessel for the length of the block, then restore the globals exactly.
+
+    Single-process only: the globals are process-wide, so two vessels must never be scoped at
+    once from different threads (docs/flasks.md). Replicates run as separate processes."""
+    saved = {k: globals()[k] for k in _paths(VESSEL)}
+    try:
+        use_vessel(path)
+        yield globals()["VESSEL"]
+    finally:
+        globals().update(saved)
+
+
+VESSEL = Path(env("BIOTIC_VESSEL") or (ROOT / "vessel"))
+use_vessel(VESSEL)  # sets VESSEL, INBOX, SEED_FILE, … from the one source of truth above
 
 
 # --- the mind (mutagen) -------------------------------------------------

@@ -63,7 +63,7 @@ class Registry:
 
     # --- fossil record ------------------------------------------------------
     def fossilize(self, s: Strain) -> None:
-        config.SOMA.mkdir(exist_ok=True)
+        config.SOMA.mkdir(parents=True, exist_ok=True)  # soma is nested under the vessel now
         parent = self.strains.get(s.parent) if s.parent else None
         lineage = f"from {parent.name} ({parent.id})" if parent else "the founding cell"
         header = (

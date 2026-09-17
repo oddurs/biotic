@@ -15,6 +15,7 @@ Inoculate a fresh dish from a word, phrase, or question.
 
 | Argument | Meaning |
 | --- | --- |
+| `--vessel DIR` | the flask directory to act on (default: BIOTIC_VESSEL, else vessel/) |
 | `seed` | — |
 | `--fresh` | autoclave first if a culture exists |
 | `--budget BUDGET` | dollars this dish may spend on the mind (default: what the dish remembers, else BIOTIC_BUDGET_USD, else 2.00; inf for no cap) |
@@ -25,6 +26,7 @@ Watch the dish (default).
 
 | Argument | Meaning |
 | --- | --- |
+| `--vessel DIR` | the flask directory to act on (default: BIOTIC_VESSEL, else vessel/) |
 | `--tick TICK` | seconds per tick |
 | `--budget BUDGET` | dollars this dish may spend on the mind (default: what the dish remembers, else BIOTIC_BUDGET_USD, else 2.00; inf for no cap) |
 | `--clock CLOCK` | mutagen clock: wall (a background thread; the dish never waits on the mind; live's default) or tick (the dish calls the mind itself, at most every BIOTIC_MUTAGEN_EVERY_TICKS ticks, and waits for the reply; run's default). Sticks to the dish like --budget; BIOTIC_MUTAGEN_CLOCK sets it per process. docs/experiments.md One of `wall`, `tick` |
@@ -35,6 +37,7 @@ Run headless, e.g. for an experiment.
 
 | Argument | Meaning |
 | --- | --- |
+| `--vessel DIR` | the flask directory to act on (default: BIOTIC_VESSEL, else vessel/) |
 | `--ticks TICKS` | — |
 | `--tick TICK` | seconds per tick (0 = as fast as possible) |
 | `--quiet` | no budget line or progress reports; the summary at the end still prints |
@@ -43,12 +46,17 @@ Run headless, e.g. for an experiment.
 
 ## status
 
+| Argument | Meaning |
+| --- | --- |
+| `--vessel DIR` | the flask directory to act on (default: BIOTIC_VESSEL, else vessel/) |
+
 ## strains
 
 Census of living strains.
 
 | Argument | Meaning |
 | --- | --- |
+| `--vessel DIR` | the flask directory to act on (default: BIOTIC_VESSEL, else vessel/) |
 | `--all` | include extinct |
 
 ## genome
@@ -57,12 +65,14 @@ Print a strain's code (`top` for the dominant one).
 
 | Argument | Meaning |
 | --- | --- |
+| `--vessel DIR` | the flask directory to act on (default: BIOTIC_VESSEL, else vessel/) |
 | `id` | — |
 
 ## log
 
 | Argument | Meaning |
 | --- | --- |
+| `--vessel DIR` | the flask directory to act on (default: BIOTIC_VESSEL, else vessel/) |
 | `-n N` |  (default `30`) |
 
 ## curve
@@ -71,6 +81,7 @@ Plot the growth curve: population and strains by tick, with phase and drop marke
 
 | Argument | Meaning |
 | --- | --- |
+| `--vessel DIR` | the flask directory to act on (default: BIOTIC_VESSEL, else vessel/) |
 | `--cols COLS` | comma-separated columns of curve.csv; the first is the main panel, the rest are drawn under it (default `population,strains`) |
 | `--since TICK` | rows from this tick on |
 | `--branch N` | which timeline after a revive (default: the last) |
@@ -84,6 +95,7 @@ The naturalist's field notes.
 
 | Argument | Meaning |
 | --- | --- |
+| `--vessel DIR` | the flask directory to act on (default: BIOTIC_VESSEL, else vessel/) |
 | `-n N` | the last N entries (0 for the whole notebook) (default `5`) |
 
 ## whisper
@@ -92,6 +104,7 @@ Pin a note the mutagen will see.
 
 | Argument | Meaning |
 | --- | --- |
+| `--vessel DIR` | the flask directory to act on (default: BIOTIC_VESSEL, else vessel/) |
 | `text...` | — |
 
 ## drop
@@ -100,6 +113,7 @@ Intervene in the dish.
 
 | Argument | Meaning |
 | --- | --- |
+| `--vessel DIR` | the flask directory to act on (default: BIOTIC_VESSEL, else vessel/) |
 | `what` | One of `nutrient`, `antibiotic`, `mutagen` |
 | `--at AT` | x,y |
 | `--r R` | radius |
@@ -110,11 +124,16 @@ List models available to the mind.
 
 | Argument | Meaning |
 | --- | --- |
+| `--vessel DIR` | the flask directory to act on (default: BIOTIC_VESSEL, else vessel/) |
 | `query` | — |
 
 ## probe
 
 Check the mind answers.
+
+| Argument | Meaning |
+| --- | --- |
+| `--vessel DIR` | the flask directory to act on (default: BIOTIC_VESSEL, else vessel/) |
 
 ## sterilize
 
@@ -122,6 +141,7 @@ Autoclave everything (the freezer is kept unless --freezer).
 
 | Argument | Meaning |
 | --- | --- |
+| `--vessel DIR` | the flask directory to act on (default: BIOTIC_VESSEL, else vessel/) |
 | `--yes, -y` | — |
 | `--freezer` | empty the freezer too |
 
@@ -131,6 +151,7 @@ Put the dish, or one strain, in the freezer.
 
 | Argument | Meaning |
 | --- | --- |
+| `--vessel DIR` | the flask directory to act on (default: BIOTIC_VESSEL, else vessel/) |
 | `--label LABEL` | a-z, 0-9, _ and -; default `manual` |
 | `--strain ID` | freeze one strain's genome and a cell's memory instead |
 
@@ -140,6 +161,7 @@ Replace the dish with a frozen sample, or inoculate a frozen strain.
 
 | Argument | Meaning |
 | --- | --- |
+| `--vessel DIR` | the flask directory to act on (default: BIOTIC_VESSEL, else vessel/) |
 | `key` | a tick, or a sample name from `biotic freezer` |
 | `--label LABEL` | with a tick: which of the samples at that tick |
 | `--strain ID|SAMPLE` | a strain sample instead of a dish sample |
@@ -154,4 +176,13 @@ What is in the freezer.
 
 | Argument | Meaning |
 | --- | --- |
+| `--vessel DIR` | the flask directory to act on (default: BIOTIC_VESSEL, else vessel/) |
 | `--json` | — |
+
+## flasks
+
+Replicate flasks: many dishes from one install.
+
+| Argument | Meaning |
+| --- | --- |
+| `fcmd` | One of `new`, `run`, `curve` |
