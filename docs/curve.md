@@ -71,9 +71,18 @@ variant that is taken up and starves on the next tick still counts.
 
 `arisen_llm` and `arisen_random` split `arisen` by which mutagen produced each
 strain (`docs/mutagen.md`): `arisen_llm + arisen_random + 1` equals `arisen`, the
-`+ 1` being the origin-less founder. On a pure `--mutagen llm` dish `arisen_random`
-stays 0; on `--mutagen random` `arisen_llm` stays 0; on `mixed` both climb, and
-the ratio tracks `BIOTIC_RANDOM_SHARE`. Overlay them (`biotic curve --cols
+`+ 1` being the origin-less founder. The identity closes exactly only for a dish
+founded under this apparatus, and only while `hgt` is unused. A strain carried
+over from before this feature — one an old `strains.json` or an old sample holds
+with no `mutagen` key — loads with a null origin and is counted in neither column,
+so after such a dish is resumed `arisen_llm + arisen_random + 1 < arisen`; the
+curve stays internally consistent (each column is a true count), the documented
+sum simply no longer closes. The schema already admits a third origin, `hgt`
+(item 0014): once strains arrive by horizontal transfer they too will count in
+`arisen` but in neither split column, until an `arisen_hgt` column joins these
+two. On a pure `--mutagen llm` dish `arisen_random` stays 0; on `--mutagen random`
+`arisen_llm` stays 0; on `mixed` both climb, and the ratio tracks
+`BIOTIC_RANDOM_SHARE`. Overlay them (`biotic curve --cols
 arisen_llm,arisen_random`) to watch the two arms side by side.
 
 `mutations_taken` counts strains that have a parent. The founder is the only

@@ -91,7 +91,8 @@ apparatus wrote reproduce the random stream cross-machine.)
 ## which mutagen made what
 
 Every strain records its origin — `llm`, `random`, or null for the founder — in
-`strains.json` and in its fossil header (`arose … by the random mutagen`). The census
+`strains.json` and in its fossil header (`arose … by the random mutagen`; a semantic
+strain reads `by the semantic mutagen`, the header's prose name for the `llm` arm). The census
 counts it, and the growth curve splits `arisen` into `arisen_llm` and `arisen_random`
 (`docs/curve.md`). `biotic status` shows the arm the last run used and any `--mutagen`
 the dish remembers.

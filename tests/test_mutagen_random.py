@@ -131,6 +131,20 @@ def test_a_fossil_names_the_mutagen_that_made_it(make_culture, monkeypatch):
     assert "mutagen" not in (config.SOMA / f"{founder.id}_{founder.name}.py").read_text()
 
 
+def test_a_semantic_fossil_reads_semantic_not_llm(make_culture, ticked, monkeypatch):
+    """The LLM arm's fossil header reads `by the semantic mutagen` — the prose name docs/mutagen.md
+    gives the semantic arm — not `by the llm mutagen`. The stored origin stays `llm`; only the
+    header prose is mapped, so soma/ reads the way the docs describe it."""
+    monkeypatch.setattr(config, "MUTAGEN_KIND", "llm")
+    c = make_culture(mind=Variator())  # awake: the tick-clock division supplies the semantic mutation
+    ticked(c, every=20)
+    c.run(ticks=3000, tick_seconds=0)
+    child = next(s for s in c.registry.strains.values() if s.mutagen == "llm")
+    fossil = (config.SOMA / f"{child.id}_{child.name}.py").read_text()
+    assert "by the semantic mutagen" in fossil
+    assert "by the llm mutagen" not in fossil
+
+
 # --- criterion: determinism and persistence -----------------------------------
 
 
@@ -192,6 +206,25 @@ def test_mixed_with_full_random_share_never_calls_the_mind(make_culture, ticked,
     assert mind.chat_requests == 0
     children = [s for s in c.registry.strains.values() if s.parent is not None]
     assert children and all(s.mutagen == "random" for s in children)
+
+
+def test_mixed_at_the_shipped_share_produces_both_arms(make_culture, ticked, monkeypatch):
+    """The shipped default — `mixed` at RANDOM_SHARE=0.25 — end to end: over a long run both arms
+    produce strains (arisen_llm > 0 and arisen_random > 0), so the proportional partition is a real
+    split, not a collapse to one arm. The extremes prove the routing is clean; this proves the
+    mid-range gate actually sends some rolls each way. An awake mind supplies the LLM arm."""
+    monkeypatch.setattr(config, "MUTAGEN_KIND", "mixed")
+    monkeypatch.setattr(config, "RANDOM_SHARE", 0.25)  # the shipped BIOTIC_RANDOM_SHARE
+    mind = Variator()
+    c = make_culture(mind=mind)
+    ticked(c, every=20)
+    c.run(ticks=6000, tick_seconds=0)
+    assert mind.chat_requests > 0, "the LLM arm made no calls at the shipped share"
+    row = c.metrics()
+    assert row["arisen_llm"] > 0, "no strain arose by the LLM arm at share 0.25"
+    assert row["arisen_random"] > 0, "no strain arose by the random arm at share 0.25"
+    children = [s for s in c.registry.strains.values() if s.parent is not None]
+    assert all(s.mutagen in ("llm", "random") for s in children), "a child with a foreign origin"
 
 
 def test_mixed_with_zero_random_share_is_all_llm(make_culture, ticked, monkeypatch):

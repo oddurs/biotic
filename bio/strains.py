@@ -69,7 +69,9 @@ class Registry:
         config.SOMA.mkdir(parents=True, exist_ok=True)  # soma is nested under the vessel now
         parent = self.strains.get(s.parent) if s.parent else None
         lineage = f"from {parent.name} ({parent.id})" if parent else "the founding cell"
-        origin = f" by the {s.mutagen} mutagen" if s.mutagen else ""
+        # the header's prose name for the arm; docs/mutagen.md calls the LLM arm "semantic"
+        arm = {"llm": "semantic"}.get(s.mutagen, s.mutagen)
+        origin = f" by the {arm} mutagen" if s.mutagen else ""
         header = (
             f'"""strain {s.id} — {s.name}\n\n'
             f"generation {s.generation}, arose at tick {s.born}, {lineage}{origin}.\n"

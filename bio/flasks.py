@@ -111,7 +111,7 @@ def new(
         "created": time.time(),
         "biotic": freezer.version(),
         "model": mind.model if mind.awake else None,  # null when the ancestor is the built-in fallback
-        "mutagen": mutagen or config.MUTAGEN_KIND,  # the arm every flask of the set runs under
+        "mutagen": c.mutagen_kind,  # the resolved arm every flask runs under — a bad BIOTIC_MUTAGEN falls back, never written raw
         "founder": ancestor,
     }
     manifest_path(name, root).write_text(json.dumps(man, indent=1))
