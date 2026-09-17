@@ -199,6 +199,21 @@ things that seem bad," a fraction of random-token mutations, different models
 as different mutagens — UV versus chemical), but whether they suffice is
 unknown. That uncertainty is not a flaw in the project. It is the experiment.
 
+Item 0041 gave the first direct look at what the models actually do with "make
+one small change." Across 20 sampled mutations (parent and child diffed), every
+model mostly obeyed: samples were small (diff under 4 lines) or medium (4–12),
+with a single genuine rewrite (18 lines) from `qwen/qwen3-coder`. None rewrote
+pervasively, so the acute fear — that the mind ignores "small" and hands back a
+fresh program each time — did not materialise for these models. But the softer
+canalising signal is there. Every arm drifted the genome *longer* (mean length
+grew +67 to +147 characters over 6,000 ticks; `gemini-2.5-flash-lite` most,
+matching its taste for slightly larger additive edits), never shorter — the mind
+adds, it does not prune. And the semantic arms did not differ from the offline
+random arm in edit *size*; they differed in whether the edit passed the membrane
+and in leaving a higher, more even diversity (Shannon 1.9–2.2 vs the random arm's
+1.3). The prior looks less like a canaliser of *what changes* than a ratchet on
+*how much code there is* — worth watching as substrates make the genomes longer.
+
 ## Next, concretely
 
 1. **Substrates** (stage 2). One substrate type first — a numeric stream to

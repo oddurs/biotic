@@ -191,3 +191,47 @@ mind — so it costs nothing and runs at whatever speed the box allows; the `llm
 spends from the budget and is bounded by the tick clock. Compare the shape of `arisen`,
 the ceiling of `shannon`, and how long `dominance` sits near 1: that is the plateau
 question, asked directly. The write-up of the comparison is items 0038 and 0041.
+
+## the model comparison (item 0041)
+
+The semantic mutagen was, until this experiment, one model — `qwen/qwen3-coder`,
+set by habit. Item 0041 compared four arms under the tick clock (`BIOTIC_MUTAGEN_CLOCK=tick`,
+`BIOTIC_MUTAGEN_EVERY_TICKS=40`), same seed `"tide"`, same built-in founder poured
+identically into every flask, so the only thing that differed was the mind:
+
+1. `qwen/qwen3-coder-30b-a3b-instruct` ($0.07/$0.28 per M)
+2. `qwen/qwen3-coder` ($0.30/$1.00 per M) — the previous default
+3. `google/gemini-2.5-flash-lite` ($0.10/$0.40 per M) — cheapest non-Qwen with a coding reputation
+4. `--mutagen random` — the offline control, zero calls
+
+Run as 2 flasks per condition × 6,000 ticks (scaled down from the item's 12 × 8,000
+for wall-clock; `qwen3-coder-30b` at ~5 s/call was the pacing item). Each LLM
+flask ran with `biotic run --vessel <dir> --clock tick --mutagen llm --budget 0.60`;
+`biotic flasks run` is *not* usable here because it blanks the API key in every
+child (item 0006), so it can never spend — the flasks were founded with
+`biotic flasks new` and then run one process each. Total spend $0.12 against a
+$4.00 cap; tick-clocked runs make few calls (~55 per flask), so no flask neared
+its budget. Metrics were computed by `scripts/exp0041.py`.
+
+| condition (model) | price /M | pass_rate | USD/viable | shannon_end | dominance_end | len_drift | lat_p95 s |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| qwen/qwen3-coder-30b-a3b-instruct | $0.07/$0.28 | 0.44 | 0.000439 | 0.86 | 0.73 | +67 | 10.95 |
+| qwen/qwen3-coder | $0.30/$1.00 | 0.95 | 0.000597 | 1.91 | 0.36 | +85 | 3.53 |
+| google/gemini-2.5-flash-lite | $0.10/$0.40 | 0.97 | 0.000257 | 2.20 | 0.27 | +147 | 1.38 |
+| random (offline) | — | — | — | 1.34 | 0.63 | +77 | — |
+
+Reading it: the 30b model rejects more than half of what it writes (pass_rate 0.44)
+and, in a separate probe, could not even author a viable founder (it fell back to
+the built-in default). The random arm makes the most raw novelty (`arisen` ≈148 vs
+~55) because it is free of the budget and the clock, but it leaves a less even, more
+dominated community (lower Shannon, higher dominance) than either viable LLM arm —
+the plateau question, asked directly: the semantic arms reach *higher, more even*
+diversity per strain, the random arm reaches *more strains, less even*.
+
+**Decision rule** (fixed before the data): the default is the cheapest condition by
+`USD/viable` with `pass_rate ≥ 0.7` and `shannon_end` within 20% of the best LLM
+arm's (2.20 → floor 1.76). The 30b arm is disqualified on pass_rate; both
+`qwen/qwen3-coder` and `gemini-2.5-flash-lite` qualify, and gemini is ~2.3× cheaper
+per viable variant while also winning pass rate, diversity, dominance, and latency.
+**The default is now `google/gemini-2.5-flash-lite`** (`.env.example`). The full
+table, the 20-sample rubric read, and the founder-genesis probe are in cairn item 0041.
