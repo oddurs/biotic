@@ -23,6 +23,23 @@ turns the `Unreleased` section into a dated release.
   field notes report the energy shared in each interval (the `given`/`received` deltas), as they
   already do for predation. `GIVE_EFFICIENCY` and `GIVE_RESERVE` are physics constants in
   `bio/config.py`. See `docs/sharing.md`.
+- Horizontal gene transfer, the third biotic rule and the first that recombines lineages: on a
+  division that rolls a mutation, with probability `HGT_RATE` (0.3) the daughter is a **splice** —
+  the mutagen is handed the recipient's genome and a random adjacent non-kin cell's (the donor) and
+  returns the recipient with one behaviour borrowed from the donor (a new `HGT_SYSTEM` prompt;
+  recombination by meaning, not bit-crossover). Strains that never touch never splice. A new strain
+  now records `Strain.donor` alongside `parent`: the fossil header reads `from X, with a gene from
+  Y`, lineage stays a tree (the donor is a separate DAG edge, printed by `biotic genome` and
+  `biotic strains`), and a splice's census colour is the shortest-arc midpoint of its parents'
+  hues. `vessel/curve.csv` gains a cumulative `spliced` column after `received`, a `spliced` event
+  (glyph `⇄`) is logged per splice, and `biotic status`/the eyepiece show splices like any strain.
+  A splice also counts in `mutations_taken` (a splice is a kind of mutation), so the two columns
+  overlap and must not be summed. HGT is an opt-in **feature**, off by default so no existing dish
+  is altered and its seeded trajectory is byte-identical; `biotic seed "…" --with hgt` turns it on
+  from the founding cell and `biotic drop feature hgt` mid-run (logged and marked on the curve like
+  any drop). It touches only the mutagen — no cell perception, no cell action — so an hgt-only dish's
+  cell API and mutation prompt are unchanged. `HGT_RATE` and `HGT_EXPIRY_TICKS` are tunables in
+  `bio/config.py` (not dish physics; hgt is off by default). See `docs/hgt.md`.
 - Predation, the first biotic rule: a cell can burst a neighbour of another strain with
   `("lyse", d)`. The attacker pays `LYSE_COST` (0.05) whatever happens; with probability
   `p = 1 / (1 + exp(-LYSE_K · (E_attacker − E_defender)))` the target bursts (death cause

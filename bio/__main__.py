@@ -150,6 +150,9 @@ def cmd_strains(a):
         print(f"{s.id:<5} {s.generation:>3} {n:>5} {n / total:>6.0%}  {s.name}")
         if s.note:
             print(f"{'':<23}{s.note}")
+        if s.donor:  # a splice: name the donor it borrowed a gene from (docs/hgt.md)
+            d = c.registry.strains.get(s.donor)
+            print(f"{'':<23}⇄ gene from {d.name} ({d.id})" if d else f"{'':<23}⇄ gene from {s.donor}")
     if a.all:
         dead = [s for s in c.registry.strains.values() if s.extinct_at is not None]
         if dead:
@@ -173,6 +176,9 @@ def cmd_genome(a):
     if s.note:
         print(f"# {s.note}")
     print("# lineage: " + " → ".join(x.name for x in c.registry.lineage_of(sid)))
+    if s.donor:  # lineage follows the parent; the donor is the separate splice edge (docs/hgt.md)
+        d = c.registry.strains.get(s.donor)
+        print(f"# donor: {d.name} ({d.id})" if d else f"# donor: {s.donor}")
     print()
     print(s.source)
 
@@ -629,7 +635,7 @@ def main(argv=None):
     s.add_argument("--fresh", action="store_true", help="autoclave first if a culture exists")
     s.add_argument("--budget", type=float, help=budget_help)
     s.add_argument(
-        "--with", dest="features", metavar="NAMES", help="comma-separated features to enable at seeding, e.g. lyse"
+        "--with", dest="features", metavar="NAMES", help="comma-separated features to enable at seeding, e.g. lyse, hgt"
     )
     s.set_defaults(f=cmd_seed)
 
@@ -686,7 +692,7 @@ def main(argv=None):
     s.set_defaults(f=cmd_whisper)
     s = sub.add_parser("drop", help="intervene in the dish", parents=[common])
     s.add_argument("what", choices=["nutrient", "antibiotic", "mutagen", "feature"])
-    s.add_argument("name", nargs="?", help="the feature to enable, for `drop feature` (e.g. lyse)")
+    s.add_argument("name", nargs="?", help="the feature to enable, for `drop feature` (e.g. lyse, hgt)")
     s.add_argument("--at", help="x,y")
     s.add_argument("--r", type=float, help="radius")
     s.set_defaults(f=cmd_drop)

@@ -162,6 +162,35 @@ NOTE: <one sentence, in a naturalist's voice, describing what changed>
 """
 
 
+_HGT_TEMPLATE = """\
+You are a mutagen acting on a bacterial culture in a simulated petri dish, but this is not an
+ordinary mutation. Two cells of different strains are touching, and a gene is crossing between
+them — horizontal gene transfer. You are handed the RECIPIENT's genome and a DONOR's genome
+from an unrelated neighbour. Return the recipient's daughter: the recipient with exactly ONE
+behaviour borrowed from the donor.
+
+{api}
+
+What a splice is: take one coherent behaviour the donor has and the recipient does not — a way
+of foraging, a use of me.scent or me.kin, a division rule, a threshold, a response to crowding —
+and graft it into the recipient. Keep the recipient's temperament: it stays the recipient with
+a new trick, not the donor with a coat of paint, and not a blend of the two. Borrow one thing,
+not several. What a splice is not: a rewrite of the recipient in the donor's image, a merge of
+both genomes line by line, a cleanup, or a design. You do not know what will work; selection
+decides, you only recombine.
+
+Keep the daughter's code roughly as long as the recipient's. Do not add comments about the
+change. Do not explain.
+
+Reply in exactly this form and nothing else:
+
+NAME: <a short snake_case name for the new strain, evocative of both parents, different from either>
+NOTE: <one sentence, in a naturalist's voice, naming the behaviour borrowed from the donor>
+---
+<the complete Python source of the daughter's genome>
+"""
+
+
 def genesis_system(features: dict[str, bool] | None = None) -> str:
     return _GENESIS_TEMPLATE.format(api=cell_api(features))
 
@@ -170,8 +199,15 @@ def mutagen_system(features: dict[str, bool] | None = None) -> str:
     return _MUTAGEN_TEMPLATE.format(api=cell_api(features))
 
 
+def hgt_system(features: dict[str, bool] | None = None) -> str:
+    """The splicing prompt (docs/hgt.md). Used instead of the mutation prompt when a division that
+    rolled a mutation also rolled a splice and found a donor. Same feature clauses as the mutagen's."""
+    return _HGT_TEMPLATE.format(api=cell_api(features))
+
+
 GENESIS_SYSTEM = genesis_system()  # the no-feature text; unchanged from before features existed
 MUTAGEN_SYSTEM = mutagen_system()  # likewise
+HGT_SYSTEM = hgt_system()  # the splicing prompt with no feature clauses
 
 
 def genesis_user(seed: str, failures: list[str] | None = None) -> str:
@@ -210,6 +246,42 @@ def mutagen_user(
         parts += ["", "Your last few mutations were nonviable, for these reasons:"]
         parts += [f"  - {r}" for r in rejections[-3:]]
     parts += ["", "Parent genome:", "", source.rstrip(), "", "Write the daughter."]
+    return "\n".join(parts)
+
+
+def hgt_user(
+    *,
+    seed: str,
+    recipient_source: str,
+    recipient_name: str,
+    donor_source: str,
+    donor_name: str,
+    tick: int,
+    phase: str,
+    population: int,
+    share: float,
+    nutrient: float,
+    strains: int,
+    whispers: list[str],
+    rejections: list[str],
+) -> str:
+    """The user turn for a splice: the same header, whispers and rejections as a mutation, then
+    the recipient's genome and the donor's, labelled, and a closing instruction. docs/hgt.md."""
+    parts = [
+        f"The dish was seeded with: {seed}",
+        "",
+        f"tick {tick} · phase: {phase} · population {population} · {strains} living strains",
+        f"the recipient ({recipient_name}) is {share:.0%} of the population · mean nutrient {nutrient:.2f}",
+    ]
+    if whispers:
+        parts += ["", "Notes pinned to the incubator by the observer (heed them or don't):"]
+        parts += [f"  - {w}" for w in whispers[-4:]]
+    if rejections:
+        parts += ["", "Your last few mutations were nonviable, for these reasons:"]
+        parts += [f"  - {r}" for r in rejections[-3:]]
+    parts += ["", f"Recipient genome ({recipient_name}):", "", recipient_source.rstrip()]
+    parts += ["", f"Donor genome ({donor_name}), an unrelated neighbour:", "", donor_source.rstrip()]
+    parts += ["", "Write the daughter: the recipient with one behaviour borrowed from the donor."]
     return "\n".join(parts)
 
 

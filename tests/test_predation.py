@@ -198,7 +198,7 @@ def test_lyse_with_the_feature_off_is_a_no_op_that_does_not_touch_the_rng():
     """A dish that never enabled predation runs a lyse action as an inert no-op, and its RNG stream
     is untouched — so a dish that predates this feature follows the exact trajectory it always did."""
     d = Dish("off", width=24, height=12)  # features off by default
-    assert d.features == {"lyse": False, "give": False}
+    assert d.features == {"lyse": False, "give": False, "hgt": False}
     d.register("a", FALLBACK_GENESIS)
     d.register("b", FALLBACK_GENESIS)
     cx, cy = d.center()
@@ -321,7 +321,7 @@ def test_features_round_trip_through_to_dict():
     d = Dish("rt", width=24, height=12)
     d.features["lyse"] = True
     clone = Dish.from_dict(d.to_dict())
-    assert clone.features == {"lyse": True, "give": False}
+    assert clone.features == {"lyse": True, "give": False, "hgt": False}
 
 
 def test_a_dish_without_a_features_key_thaws_to_all_off():
@@ -330,7 +330,7 @@ def test_a_dish_without_a_features_key_thaws_to_all_off():
     blob = d.to_dict()
     del blob["features"]
     clone = Dish.from_dict(blob)
-    assert clone.features == {"lyse": False, "give": False}
+    assert clone.features == {"lyse": False, "give": False, "hgt": False}
 
 
 def test_an_unknown_flag_from_a_newer_apparatus_survives_the_round_trip():

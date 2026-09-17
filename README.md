@@ -82,6 +82,7 @@ You can lean over the bench while it runs:
     biotic drop mutagen                                # ×6 mutation rate for 300 ticks
     biotic drop feature lyse                           # switch on predation mid-run; docs/predation.md
     biotic drop feature give                           # switch on sharing mid-run; docs/sharing.md
+    biotic drop feature hgt                            # switch on gene transfer mid-run; docs/hgt.md
 
 Predation (`lyse`) and sharing (`give`) are **features**: opt-in rules, off by default so no
 existing dish is altered. `biotic seed "wolves and sheep" --with lyse` turns predation on from the
@@ -94,6 +95,14 @@ Sharing is the mirror: `biotic seed "a commons" --with give` (or `--with lyse,gi
 with `me.kin` the seed of cooperation, and because a stranger receives as readily as a sister, the
 seed of cheating too. `vessel/curve.csv` gains cumulative `given` / `received` columns so altruism
 is measurable. `docs/sharing.md` has the action and `me.neighbor_energy`.
+
+Horizontal gene transfer (`hgt`) is the third feature. On a division that rolls a mutation, with
+probability `HGT_RATE` the daughter is a **splice**: the mutagen is handed the dividing cell's
+genome *and* a random adjacent non-kin cell's, and returns the recipient with one behaviour
+borrowed from the neighbour — recombination by meaning, not bit-crossover. The new strain records
+its donor as well as its parent, its census colour sits between the two, and `vessel/curve.csv`
+gains a cumulative `spliced` column. Strains that never touch never splice. `docs/hgt.md` has the
+details.
 
 And look at what has grown:
 

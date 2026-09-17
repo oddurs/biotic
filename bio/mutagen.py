@@ -36,6 +36,12 @@ from .membrane import admit_isolated
 from .mind import Dormant, Exhausted, Mind, MindError, backoff, fmt_budget
 
 
+def _split(key) -> tuple[str, str | None]:
+    """A pool/request key as (recipient, donor): a bare strain id is an ordinary mutation,
+    (recipient, donor) tuple is a splice (docs/hgt.md)."""
+    return key if isinstance(key, tuple) else (key, None)
+
+
 class Mutagen(threading.Thread):
     def __init__(self, mind: Mind, seed: str, log: Callable[..., None]):
         super().__init__(daemon=True, name="mutagen")
@@ -47,8 +53,10 @@ class Mutagen(threading.Thread):
         self.lock = threading.Lock()
         self.wake = threading.Event()
         self.stop = threading.Event()
-        self.requests: dict[str, float] = {}  # strain -> time requested
-        self.pool: dict[str, deque] = {}  # strain -> ready daughters
+        # keys are a bare strain (an ordinary mutation) or a (recipient, donor) tuple (a splice)
+        self.requests: dict[str | tuple[str, str], float] = {}  # key -> time requested
+        self.pool: dict[str | tuple[str, str], deque] = {}  # key -> ready daughters
+        self.splice_at: dict[tuple[str, str], int] = {}  # splice key -> the tick it was last requested/prepared
         self.rejections: deque[str] = deque(maxlen=6)
         self.context: dict = {}  # snapshot of the dish, set by the culture
         self.genomes: dict[str, tuple[str, str]] = {}  # strain -> (name, source)
@@ -97,14 +105,19 @@ class Mutagen(threading.Thread):
         return f"{int(wait)} ticks" if self.ticked else fmt_wait(wait)
 
     # --- called from the dish thread ---------------------------------------
-    def request(self, strain: str) -> None:
+    def request(self, strain: str, *, donor: str | None = None) -> None:
+        key = strain if donor is None else (strain, donor)
         with self.lock:
-            self.requests.setdefault(strain, self.clock())
+            self.requests.setdefault(key, self.clock())
+            if donor is not None:
+                self.splice_at.setdefault(key, self.context.get("tick", 0))
         self.wake.set()
 
-    def take(self, strain: str):
+    def take(self, strain: str, *, donor: str | None = None):
         with self.lock:
-            q = self.pool.get(strain)
+            self._expire()
+            key = strain if donor is None else (strain, donor)
+            q = self.pool.get(key)
             if q:
                 return q.popleft()
         return None
@@ -113,9 +126,10 @@ class Mutagen(threading.Thread):
         """Tick clock, dish thread. One synchronous call for `strain` if the slot is open — the mind
         awake and not exhausted, no backoff or Retry-After pending, at least interval() ticks since
         the last call. Returns the admitted daughter (name, note, source) to be born in this
-        division, or None: the division is faithful. `donor` is the seam for horizontal gene
-        transfer (a neighbour's genome to splice) and is unused until then. Main thread only,
-        outside a Budget block (Dish._apply calls on_divide after the block closes). Every fault
+        division, or None: the division is faithful. `donor`, when set, is a neighbour's strain to
+        splice a gene from — `_ask` builds the HGT prompt instead of the mutation prompt (docs/hgt.md).
+        Main thread only, outside a Budget block (Dish._apply calls on_divide after the block closes).
+        Every fault
         after the gate is a `mutagen fault` event and None, never an exception into the dish."""
         if not self._open(self.clock()):
             return None
@@ -141,8 +155,13 @@ class Mutagen(threading.Thread):
     def forget(self, strain: str) -> None:
         with self.lock:
             self.genomes.pop(strain, None)
-            self.pool.pop(strain, None)
-            self.requests.pop(strain, None)
+            # drop every key where `strain` is the recipient (the bare key too, via _split) or the
+            # donor, so a strain that goes extinct leaves no orphan splice pending or prepared
+            for store in (self.requests, self.pool, self.splice_at):
+                for key in list(store):
+                    rec, donor = _split(key)
+                    if rec == strain or donor == strain:
+                        del store[key]
 
     def reset(self, genomes: dict[str, tuple[str, str]]) -> None:
         """The dish was replaced: these are the living genomes now. Prepared daughters and
@@ -155,6 +174,7 @@ class Mutagen(threading.Thread):
             self.genomes = dict(genomes)
             self.pool.clear()
             self.requests.clear()
+            self.splice_at.clear()
 
     # --- the thread ---------------------------------------------------------
     def run(self) -> None:
@@ -218,17 +238,36 @@ class Mutagen(threading.Thread):
             return False  # the endpoint named a wait; the one wall-clock input on the tick path
         return now - self.last_call >= self.interval()
 
+    def _expire(self) -> None:
+        """Drop prepared or pending splices whose (recipient, donor) pair has not touched again
+        within HGT_EXPIRY_TICKS — real conjugation needs contact (docs/hgt.md). Wall clock only,
+        and approximate: `context["tick"]` refreshes about every three ticks, so the cutoff is
+        good to within a few ticks. Must be called with self.lock held (take and _pick do)."""
+        if not self.splice_at:
+            return
+        now = self.context.get("tick", 0)
+        for key in list(self.splice_at):
+            if now - self.splice_at.get(key, now) > config.HGT_EXPIRY_TICKS:
+                self.requests.pop(key, None)
+                self.pool.pop(key, None)
+                del self.splice_at[key]
+
     def _pick(self):
         with self.lock:
-            live = [s for s in self.requests if s in self.genomes]
-            for s in list(self.requests):
-                if s not in self.genomes:
-                    del self.requests[s]
+            self._expire()
+            live = []
+            for key in list(self.requests):
+                rec, donor = _split(key)
+                if rec in self.genomes and (donor is None or donor in self.genomes):
+                    live.append(key)
+                else:  # the recipient or the donor went extinct while the request waited
+                    del self.requests[key]
+                    self.splice_at.pop(key, None)
             if live:
-                strain = min(live, key=self.requests.get)  # oldest request
-                del self.requests[strain]
-                return strain
-            # spontaneous mutation: keep the pool warm for the dominant strain
+                key = min(live, key=self.requests.get)  # oldest request
+                del self.requests[key]
+                return key
+            # spontaneous mutation: keep the pool warm for the dominant strain (never a splice)
             census = self.context.get("census") or {}
             if census and self.clock() - self.last_call > config.MUTAGEN_INTERVAL * 5:
                 top = max(census, key=census.get)
@@ -236,27 +275,39 @@ class Mutagen(threading.Thread):
                     return top
         return None
 
-    def _mutate(self, strain: str) -> None:
-        """Wall clock, the thread: one call for `strain`; an admitted daughter goes into the pool."""
-        got = self._ask(strain)
+    def _mutate(self, key) -> None:
+        """Wall clock, the thread: one call for `key` (a bare strain, or a (recipient, donor)
+        splice); an admitted daughter goes into the pool under the same key."""
+        rec, donor = _split(key)
+        got = self._ask(rec, donor)
         if got is None:
             return
-        daughter = self._judge(strain, *got)
+        daughter = self._judge(rec, *got)
         if daughter is None:
             return
         with self.lock:
-            self.pool.setdefault(strain, deque(maxlen=3)).append(daughter)
+            self.pool.setdefault(key, deque(maxlen=3)).append(daughter)
+            if donor is not None:
+                self.splice_at[key] = self.context.get("tick", 0)  # the pair touched: reset the clock
         name, note = got[0], daughter[1]
-        self.log("prepared", f"a variant of {name} is ready — “{note}”" if note else f"a variant of {name} is ready")
+        if donor is not None:
+            msg = f"a splice of {rec} × {donor} is ready"
+        else:
+            msg = f"a variant of {name} is ready"
+        self.log("prepared", f"{msg} — “{note}”" if note else msg)
 
     def _ask(self, strain: str, donor: str | None = None) -> tuple[str, str, str, str, str] | None:
         """One call to the mind for `strain`: the prompt, the request, the outcome. Returns the
-        parent's (name, source) and the reply's (name, note, source) as one tuple, what _judge
+        recipient's (name, source) and the reply's (name, note, source) as one tuple, what _judge
         takes, or None when nothing came of it — the strain is gone, the mind is dormant or
-        exhausted, or the call failed and the backoff is set. `donor` is unused until horizontal
-        gene transfer gives it a prompt."""
+        exhausted, or the call failed and the backoff is set. When `donor` is set and its genome is
+        known, the splice prompt (prompts.hgt_*) is used instead of the mutation prompt; when the
+        donor left `genomes` between request and preparation, this falls through to the ordinary
+        mutation prompt (docs/hgt.md). Either way name/source are the recipient's, so _judge's
+        silent-identical check compares the reply against the recipient."""
         with self.lock:
             got = self.genomes.get(strain)
+            dg = self.genomes.get(donor) if donor is not None else None
             ctx = dict(self.context)
             rejections = list(self.rejections)
         if got is None:
@@ -264,20 +315,39 @@ class Mutagen(threading.Thread):
         name, source = got
         census = ctx.get("census") or {}
         pop = max(1, sum(census.values()))
-        user = prompts.mutagen_user(
-            seed=self.seed,
-            source=source,
-            strain_name=name,
-            tick=ctx.get("tick", 0),
-            phase=ctx.get("phase", "?"),
-            population=pop,
-            share=census.get(strain, 0) / pop,
-            nutrient=ctx.get("nutrient", 0.0),
-            strains=len(census),
-            whispers=ctx.get("whispers", []),
-            rejections=rejections,
-        )
-        system = prompts.mutagen_system(ctx.get("features"))  # documents whatever features the dish has on
+        if dg is not None:
+            dname, dsource = dg
+            user = prompts.hgt_user(
+                seed=self.seed,
+                recipient_source=source,
+                recipient_name=name,
+                donor_source=dsource,
+                donor_name=dname,
+                tick=ctx.get("tick", 0),
+                phase=ctx.get("phase", "?"),
+                population=pop,
+                share=census.get(strain, 0) / pop,
+                nutrient=ctx.get("nutrient", 0.0),
+                strains=len(census),
+                whispers=ctx.get("whispers", []),
+                rejections=rejections,
+            )
+            system = prompts.hgt_system(ctx.get("features"))  # the splice prompt, plus any feature clauses
+        else:
+            user = prompts.mutagen_user(
+                seed=self.seed,
+                source=source,
+                strain_name=name,
+                tick=ctx.get("tick", 0),
+                phase=ctx.get("phase", "?"),
+                population=pop,
+                share=census.get(strain, 0) / pop,
+                nutrient=ctx.get("nutrient", 0.0),
+                strains=len(census),
+                whispers=ctx.get("whispers", []),
+                rejections=rejections,
+            )
+            system = prompts.mutagen_system(ctx.get("features"))  # documents whatever features the dish has on
         self.state = "thinking"
         self.last_call = self.clock()
         try:

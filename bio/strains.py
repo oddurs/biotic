@@ -25,6 +25,14 @@ class Strain:
     peak: int = 0
     generation: int = 0
     mutagen: str | None = None  # what produced it: "llm", "random", "hgt", or null for a founder
+    donor: str | None = None  # the strain a gene was spliced from (docs/hgt.md); lineage still follows parent
+
+
+def _mix_hue(a: float, b: float) -> float:
+    """The shortest-arc midpoint of two hues on the colour circle (hues wrap at 1.0), so a
+    splice's census colour sits between its parents' — `_mix_hue(0.9, 0.1) == 0.0`, not 0.5."""
+    d = ((b - a + 0.5) % 1.0) - 0.5
+    return (a + d / 2) % 1.0
 
 
 class Registry:
@@ -35,7 +43,15 @@ class Registry:
 
     # --- creation -----------------------------------------------------------
     def new(
-        self, source: str, parent: str | None, tick: int, name: str, note: str, mutagen: str | None = None
+        self,
+        source: str,
+        parent: str | None,
+        tick: int,
+        name: str,
+        note: str,
+        mutagen: str | None = None,
+        *,
+        donor: str | None = None,
     ) -> Strain:
         self._n += 1
         sid = hashlib.sha1(f"{self._n}:{source}".encode()).hexdigest()[:4]
@@ -43,15 +59,20 @@ class Registry:
             sid = hashlib.sha1(f"{sid}:x".encode()).hexdigest()[:4]
         if parent and parent in self.strains:
             p = self.strains[parent]
-            hue = (p.hue + self._rng.gauss(0, 0.07)) % 1.0
-            gen = p.generation + 1
+            # A splice sits between its parents; an ordinary mutation stays on the recipient's hue.
+            # Either way one gauss jitter is drawn, so the hue RNG advances identically (docs/hgt.md).
+            base = _mix_hue(p.hue, self.strains[donor].hue) if donor and donor in self.strains else p.hue
+            hue = (base + self._rng.gauss(0, 0.07)) % 1.0
+            gen = p.generation + 1  # lineage follows the recipient only; donor is a separate DAG edge
         else:
             hue = self._rng.random()
             gen = 0
         cname = _clean_name(name) or f"strain_{sid}"
         if any(x.name == cname for x in self.strains.values()):
             cname = f"{cname}_{sid}"
-        s = Strain(sid, parent, cname, note.strip()[:200], source, tick, hue, generation=gen, mutagen=mutagen)
+        s = Strain(
+            sid, parent, cname, note.strip()[:200], source, tick, hue, generation=gen, mutagen=mutagen, donor=donor
+        )
         self.strains[sid] = s
         self.fossilize(s)
         return s
@@ -68,7 +89,13 @@ class Registry:
     def fossilize(self, s: Strain) -> None:
         config.SOMA.mkdir(parents=True, exist_ok=True)  # soma is nested under the vessel now
         parent = self.strains.get(s.parent) if s.parent else None
-        lineage = f"from {parent.name} ({parent.id})" if parent else "the founding cell"
+        donor = self.strains.get(s.donor) if s.donor else None
+        if parent and donor:
+            lineage = f"from {parent.name} ({parent.id}), with a gene from {donor.name} ({donor.id})"
+        elif parent:
+            lineage = f"from {parent.name} ({parent.id})"
+        else:
+            lineage = "the founding cell"  # a revived splice whose donor never existed here falls back too
         # the header's prose name for the arm; docs/mutagen.md calls the LLM arm "semantic"
         arm = {"llm": "semantic"}.get(s.mutagen, s.mutagen)
         origin = f" by the {arm} mutagen" if s.mutagen else ""
@@ -188,6 +215,7 @@ def _is_hue(v) -> bool:
 _SHAPE: dict[str, tuple] = {
     "id": (_is_id, "a strain id (four hex characters)"),
     "parent": (lambda v: v is None or _is_id(v), "a strain id or null"),
+    "donor": (lambda v: v is None or _is_id(v), "a strain id or null"),
     "name": (
         lambda v: isinstance(v, str) and bool(_NAME.match(v)),
         f"a strain name (a-z, 0-9 and _, up to {NAME_MAX})",

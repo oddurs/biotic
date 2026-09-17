@@ -410,7 +410,8 @@ def fake_mutagen(monkeypatch: pytest.MonkeyPatch) -> None:
     """A mutagen that always has a variant ready: every mutation roll the culture's RNG grants
     registers a new strain, which makes the culture RNG and the registry's counter and RNG
     load-bearing for the trajectory."""
-    monkeypatch.setattr(Mutagen, "take", lambda self, strain: ("var", "one threshold higher", VARIANT))
+    # `donor` keyword: _on_divide now calls take(strain, donor=donor); an hgt-off dish passes None
+    monkeypatch.setattr(Mutagen, "take", lambda self, strain, donor=None: ("var", "one threshold higher", VARIANT))
 
 
 def state(c: Culture) -> tuple:
