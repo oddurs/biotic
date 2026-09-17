@@ -41,6 +41,9 @@ LIVE_REST = "def live(me):\n    return 'rest'\n"
 EXCEPT_RULE = "except may only name"
 CONSTANT_RULE = "module-level values must be constants (numbers, strings, tuples; no calls, lists or dicts)"
 SET_RULE = "sets not allowed (their order depends on the interpreter, not the seed; use a tuple, list or dict)"
+POW_RULE = "** with a non-constant or oversized exponent (a resource bomb the budget cannot interrupt)"
+REPEAT_RULE = "sequence repeated by a large constant (a resource bomb the budget cannot interrupt)"
+RANGE_RULE = "range() over a huge constant (a resource bomb the budget cannot interrupt)"
 
 
 @pytest.fixture
@@ -232,6 +235,25 @@ REJECTED = [
         "def live(me):\n    match me.memory:\n        case {**KeyError}:\n            pass\n    return 'rest'\n",
         "cannot rebind KeyError",
     ),
+    # resource bombs the budget cannot interrupt (item 0042): one per form, refused by rule name.
+    # The literal memory bomb ([0] * 10**10) is criterion 2 on every platform via the static gate.
+    ("pow_constant_exponent", "def live(me):\n    return 2 ** 10**9\n", POW_RULE),
+    ("pow_nonconstant_exponent", "def live(me):\n    return 2 ** me.age\n", POW_RULE),
+    # An exponent past the fold cap (10**18) folds to None; it must be banned as oversized, not
+    # waved through as "not a plain literal" — the hole this item's review found in the Pow branch.
+    ("pow_oversized_constant_exponent", "def live(me):\n    return 2 ** 10**19\n", POW_RULE),
+    ("pow_power_tower_exponent", "def live(me):\n    return 2 ** (2 ** 100)\n", POW_RULE),
+    ("repeat_list_literal", "def live(me):\n    x = [0] * 10**10\n    return 'rest'\n", REPEAT_RULE),
+    ("repeat_str_literal", "def live(me):\n    x = '-' * 10**10\n    return 'rest'\n", REPEAT_RULE),
+    # A chained repeat: no single multiply is over the cap, but the product of the constant factors
+    # is. Left-associative, so the outer multiply sees a BinOp on both sides, not a literal.
+    ("repeat_chained_list", "def live(me):\n    x = [0] * 1000 * 1000 * 1000\n    return 'rest'\n", REPEAT_RULE),
+    ("repeat_chained_str", "def live(me):\n    x = 'a' * 1000 * 1000 * 1000\n    return 'rest'\n", REPEAT_RULE),
+    ("repeat_chained_parens", "def live(me):\n    x = ([0] * 10**6) * 10**6\n    return 'rest'\n", REPEAT_RULE),
+    ("range_huge_literal", "def live(me):\n    return sum(range(10**12)) and 'rest'\n", RANGE_RULE),
+    # A negative bound with a negative step is under the cap in isolation but iterates 10**12 times;
+    # only the actual len(range(...)) catches it.
+    ("range_negative_step", "def live(me):\n    return sum(range(0, -10**12, -1)) and 'rest'\n", RANGE_RULE),
     ("two_args", "def live(me, other):\n    return 'rest'\n", "live() must take exactly one argument"),
     ("no_live", "def grow(me):\n    return 'eat'\n", "no live(me) function"),
     ("syntax_error", "def live(me)\n    return 'rest'\n", "SyntaxError:"),
@@ -511,12 +533,38 @@ def test_module_level_work_is_budgeted(tight_budget):
     `admit`; if one ever got past it, the smoke test budgets the module body as well. Both
     gates are asserted so that neither can quietly stand in for the other."""
     src = "x = sum(i for i in range(10**9))\n" + LIVE_REST
-    assert inspect(src).reasons == [CONSTANT_RULE]
+    reasons = inspect(src).reasons
+    assert CONSTANT_RULE in reasons  # the module-level call
+    assert RANGE_RULE in reasons  # and the huge range literal, each caught by its own gate
     t0 = time.perf_counter()
     v = smoke_test(src)
     assert time.perf_counter() - t0 < 2.0
     assert not v
     assert v.reasons == ["too slow: module level exceeded time budget"]
+
+
+BOMB_BEHIND_TICK_GUARD = [
+    ("range", "        return sum(range(10**12))", RANGE_RULE),
+    # Both constant forms below reached the dish before this item's review: each folds to None
+    # (past the fold cap) and the Pow and repeat branches used to wave a None through.
+    ("pow", "        return 2 ** 10**19", POW_RULE),
+    ("repeat", "        x = [0] * 1000 * 1000 * 1000", REPEAT_RULE),
+]
+
+
+@pytest.mark.parametrize("name,body,rule", BOMB_BEHIND_TICK_GUARD, ids=[r[0] for r in BOMB_BEHIND_TICK_GUARD])
+def test_bomb_behind_a_tick_guard_is_refused_at_admission(name, body, rule, no_smoke_test):
+    """Acceptance criterion 1: a genome that runs a resource bomb only after tick 40 cannot stall
+    the dish. The stand-in cell in the smoke test never reaches tick 40 (`smoke_test` runs ticks
+    0..39), so a dynamic gate would never see the bomb; the static gate refuses the construct at
+    admission regardless of the tick that would run it, so the dish never receives the strain. Each
+    constant form — a huge range, an oversized power, a chained repeat — is covered, since the whole
+    class, not one spelling, is what the item closes. `no_smoke_test` proves the refusal is static:
+    nothing in the genome is executed."""
+    src = f"def live(me):\n    if me.tick > 40:\n{body}\n    return 'rest'\n"
+    v = admit(src)
+    assert not v
+    assert rule in v.reasons
 
 
 def test_genome_that_throws_fails_the_smoke_test():
@@ -601,6 +649,43 @@ def test_benign_constructs_are_admitted():
     assert v, v.reasons
 
 
+def test_bomb_reason_strings_match_the_membrane():
+    """The suite asserts these three by name; pin them to the membrane's own strings so the two
+    cannot drift apart and a renamed reason is caught here rather than passing silently."""
+    assert POW_RULE == membrane._POW_RULE
+    assert REPEAT_RULE == membrane._REPEAT_RULE
+    assert RANGE_RULE == membrane._RANGE_RULE
+
+
+BOMB_GATE_ADMITS = [
+    ("float_exponent", "def live(me):\n    return 'eat' if me.energy ** 0.5 > 0.5 else 'rest'\n"),
+    ("small_int_exponent", "def live(me):\n    return 'eat' if me.age ** 2 < 100 else 'rest'\n"),
+    # A sqrt written as a division: the folder must evaluate 1/2 to 0.5, not leave it None, or the
+    # oversized-exponent ban (which now fires on None) would lyse this on the thaw re-inspect.
+    ("division_exponent", "def live(me):\n    return 'eat' if me.energy ** (1 / 2) > 0.5 else 'rest'\n"),
+    ("nonconstant_multiplier", "def live(me):\n    grid = [0] * len(me.around)\n    return 'rest'\n"),
+    ("chained_nonconstant_multiplier", "def live(me):\n    grid = [0] * len(me.around) * 4\n    return 'rest'\n"),
+    ("nonconstant_range", "def live(me):\n    n = 8\n    for d in range(n):\n        pass\n    return 'rest'\n"),
+    # A short window high up the number line: each bound is over the cap, but the range is five
+    # long. The length has to be computed, not each bound compared in isolation, or this is banned.
+    (
+        "small_constant_range_window",
+        "def live(me):\n    for d in range(10**7, 10**7 + 5):\n        pass\n    return 'rest'\n",
+    ),
+]
+
+
+@pytest.mark.parametrize("name,source", BOMB_GATE_ADMITS, ids=[r[0] for r in BOMB_GATE_ADMITS])
+def test_bomb_gate_admits_benign_power_repeat_and_range(name, source):
+    """The bomb rules must not catch the ordinary forms: a float or small integer exponent, a
+    sequence repeated by a count the source does not fix, and a range over a runtime count. These
+    are load-bearing positive controls — `_screen` and `revive` re-run `inspect` on every thaw, so
+    a benign form that regressed into a ban would silently lyse a living strain on reload."""
+    v = admit(source)
+    assert v, (name, v.reasons)
+    assert v.reasons == []
+
+
 def test_set_is_not_in_scope():
     """The static gate refuses the name (above); the namespace does not hold it either, so a
     genome that reached `set` some other way would find a NameError, and `frozenset` was never
@@ -658,7 +743,9 @@ MEMORY_FAULTS = [
     ("alias", {"rows": [[0] * 8] * 8}, "me.memory['rows'] = [[0] * 8] * 8", ALIAS_RULE),
     ("cycle", {"c": _cyclic()}, "c = []\n    c.append(c)\n    me.memory['c'] = c", ALIAS_RULE),
     ("string", {"s": "x" * 3000}, "me.memory['s'] = 'x' * 3000", TOO_LARGE),
-    ("int", {"i": 10**5000}, "me.memory['i'] = 10 ** 5000", TOO_LARGE),
+    # Built by multiplying powers under POW_MAX_EXP, not one huge exponent: 10 ** 5000 is now a
+    # resource bomb the static gate refuses, so the memory path is reached through a form it admits.
+    ("int", {"i": 10**3000}, "me.memory['i'] = 10 ** 1000 * 10 ** 1000 * 10 ** 1000", TOO_LARGE),
 ]
 
 
@@ -853,13 +940,33 @@ def test_isolated_busy_loop_is_too_slow():
 
 
 def test_isolated_uninterruptible_loop_hits_the_timeout():
-    """A C-level loop cannot be interrupted by the alarm; the child is killed instead."""
+    """A C-level loop cannot be interrupted by the alarm; the child is killed instead. The count is
+    computed at runtime, so `range(n)` has a non-constant argument the static gate cannot fold and
+    the wall-clock timeout is what bounds it — the residual the static bans leave to the child."""
     t0 = time.perf_counter()
-    v = admit_isolated("def live(me):\n    return sum(range(10**12))\n", timeout=1.0)
+    v = admit_isolated("def live(me):\n    n = 10**12\n    return sum(range(n))\n", timeout=1.0)
     elapsed = time.perf_counter() - t0
     assert 1.0 <= elapsed < 6.0
     assert not v
     assert v.reasons == ["too slow: smoke test timed out"]
+    assert _no_membrane_children()
+
+
+@pytest.mark.skipif(
+    sys.platform != "linux", reason="setrlimit(RLIMIT_AS) is a no-op under an infinite hard limit on macOS"
+)
+def test_isolated_memory_bomb_is_capped_by_the_child():
+    """Acceptance criterion 2: the smoke test's child cannot exhaust memory. The count is computed
+    at runtime, so the static gate cannot see it — a 10**9-slot list is ~8 GiB — but the child's
+    RLIMIT_AS (2 GiB) makes the allocation fail as a MemoryError long before the 20 s wall timeout,
+    a clean rejection with no OOM kill and no process left behind."""
+    src = "def live(me):\n    n = 10**9\n    buf = [0] * n\n    return 'rest'\n"
+    t0 = time.perf_counter()
+    v = admit_isolated(src, timeout=20.0)
+    elapsed = time.perf_counter() - t0
+    assert not v
+    assert "MemoryError" in v.reasons[0]
+    assert elapsed < 15.0  # the cap fired, not the wall timeout
     assert _no_membrane_children()
 
 

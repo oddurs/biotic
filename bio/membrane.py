@@ -150,6 +150,26 @@ _SET_RULE = "sets not allowed (their order depends on the interpreter, not the s
 # Python 3.12 type parameters (`def f[T](): ...`) bind a name too; absent on 3.11.
 _TYPE_PARAMS = tuple(getattr(ast, n) for n in ("TypeVar", "ParamSpec", "TypeVarTuple") if hasattr(ast, n))
 
+# --- resource bombs the time budget cannot interrupt ----------------------------
+# The budget (Budget, below) is a SIGALRM delivered between bytecodes, so a single C-level
+# operation holds the interpreter until it finishes and no alarm, thread or exception can
+# pre-empt it: `2 ** 10**9`, `[0] * 10**10`, `sum(range(10**12))`. The static gate refuses their
+# literal and constant forms here, regardless of the tick that would run them, so a bomb hidden
+# behind `if me.tick > 40:` is refused at admission rather than stalling the dish; the isolated
+# child (admit_isolated) caps its own memory and CPU for the forms whose size is only known at
+# runtime. These are membrane rules, not dish physics, so they live here and not in config.py.
+POW_MAX_EXP = 1024  # largest constant integer exponent a genome may write (2 ** 1024 is ~300 digits)
+MAX_LITERAL_COUNT = 1_000_000  # largest constant range() or repeat count a genome may write
+_FOLD_CAP = 10**18  # the constant folder collapses to None past this, so folding stays cheap
+CHILD_AS_LIMIT = 2 * 1024**3  # bytes; address space the isolated child may map (best-effort)
+CHILD_CPU_LIMIT = 15  # seconds of CPU the isolated child may burn, under its 20 s wall timeout
+_POW_RULE = "** with a non-constant or oversized exponent (a resource bomb the budget cannot interrupt)"
+_REPEAT_RULE = "sequence repeated by a large constant (a resource bomb the budget cannot interrupt)"
+_RANGE_RULE = "range() over a huge constant (a resource bomb the budget cannot interrupt)"
+# What a constant arithmetic expression is made of: literals and `+ - * **` on them, nothing
+# a name, attribute, call or subscript could make depend on the running dish.
+_CONST_EXPR_NODES = (ast.Constant, ast.UnaryOp, ast.BinOp, ast.operator, ast.unaryop)
+
 
 @dataclass
 class Verdict:
@@ -195,6 +215,95 @@ def _binds(node: ast.AST) -> str | None:
 def _constant(roots, allowed: tuple[type, ...]) -> bool:
     """True if every node under `roots` is one the module level may evaluate."""
     return all(isinstance(n, allowed) for root in roots for n in ast.walk(root))
+
+
+def _is_const_expr(node: ast.expr) -> bool:
+    """True if `node` is built only from number and string literals and arithmetic on them, with
+    no name, attribute, call or subscript. This is what tells a value that is constant but may be
+    huge (`10**12`) apart from one only the running dish knows (`me.age`, `len(me.around)`)."""
+    return all(isinstance(n, _CONST_EXPR_NODES) for n in ast.walk(node))
+
+
+def _fold_number(node: ast.expr) -> int | float | None:
+    """Evaluate a constant arithmetic tree to a number, or None if it is not one, uses an operator
+    this folder does not carry, or is too large to hold. A manual recursive descent over
+    `+ - * / // % **` on int and float literals: it never uses eval, compile or ast.literal_eval,
+    so the checker runs no genome-derived code and cannot itself detonate. Integer `**` is computed
+    only for a small exponent (0..64) over a bounded base, and every intermediate past `_FOLD_CAP`
+    collapses to None, so folding is always cheap and never a bomb of its own; a `**` with a float
+    operand is an ordinary O(1) float power. Because the folder carries all the everyday numeric
+    operators, a None result reliably means "oversized or unrepresentable" and not merely "not a
+    plain literal" — which is what lets the Pow, repeat and range rules treat None as a bomb rather
+    than wave it through. `bool` is not a number here (a genome that writes `[0] * True` meant the
+    int)."""
+    if isinstance(node, ast.Constant):
+        v = node.value
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            return None
+        return v
+    if isinstance(node, ast.UnaryOp):
+        v = _fold_number(node.operand)
+        if v is None:
+            return None
+        if isinstance(node.op, ast.USub):
+            v = -v
+        elif not isinstance(node.op, ast.UAdd):
+            return None
+        return None if abs(v) > _FOLD_CAP else v
+    if isinstance(node, ast.BinOp):
+        left = _fold_number(node.left)
+        right = _fold_number(node.right)
+        if left is None or right is None:
+            return None
+        op = node.op
+        try:
+            if isinstance(op, ast.Add):
+                v = left + right
+            elif isinstance(op, ast.Sub):
+                v = left - right
+            elif isinstance(op, ast.Mult):
+                v = left * right
+            elif isinstance(op, ast.Div):
+                v = left / right  # always a float; a zero divisor is caught below
+            elif isinstance(op, ast.FloorDiv):
+                v = left // right
+            elif isinstance(op, ast.Mod):
+                v = left % right
+            elif isinstance(op, ast.Pow):
+                if isinstance(left, int) and isinstance(right, int):
+                    if not (0 <= right <= 64 and abs(left) <= MAX_LITERAL_COUNT):
+                        return None  # a large integer power: oversized, and never computed here
+                    v = left**right
+                else:
+                    v = float(left) ** float(right)  # a float power is O(1) and never a bomb
+            else:
+                return None
+        except (ZeroDivisionError, OverflowError, ValueError):
+            return None
+        if not isinstance(v, (int, float)) or isinstance(v, bool):
+            return None  # a complex, say, from a negative float raised to a fractional power
+        if isinstance(v, float) and not math.isfinite(v):
+            return None
+        return None if abs(v) > _FOLD_CAP else v
+    return None
+
+
+def _mult_factors(node: ast.expr) -> list[ast.expr]:
+    """Flatten a tree of `*` into its operands, descending only through `Mult` BinOps, so a
+    left-associative chain like `[0] * 1000 * 1000` yields `[[0], 1000, 1000]`. An operand that is
+    not itself a `*` (a literal, a name, a `+` expression) is returned whole. This is what lets the
+    repeat rule fold the product of every constant factor in a chain, not just one multiply."""
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mult):
+        return _mult_factors(node.left) + _mult_factors(node.right)
+    return [node]
+
+
+def _is_seq_literal(node: ast.expr) -> bool:
+    """A list or tuple display, or a string or bytes literal — the operands `*` repeats into a
+    larger sequence. A name that happens to hold a list is not one: its size is not in the source."""
+    return isinstance(node, (ast.List, ast.Tuple)) or (
+        isinstance(node, ast.Constant) and isinstance(node.value, (str, bytes))
+    )
 
 
 def inspect(source: str) -> Verdict:
@@ -270,6 +379,55 @@ def inspect(source: str) -> Verdict:
             reasons.append("async/generators not allowed")
         elif isinstance(node, ast.ClassDef):
             reasons.append("classes not allowed")
+        elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Pow):
+            # The base is free (energy ** 2, x ** 0.5 are fine); only the exponent makes a bomb.
+            exp = node.right
+            if not _is_const_expr(exp):
+                reasons.append(_POW_RULE)  # 2 ** me.age: the exponent is only known at runtime
+            else:
+                v = _fold_number(exp)
+                # None means the exponent folded past the cap or is otherwise unrepresentable — a
+                # constant bomb (2 ** 10**19, 2 ** 2**100), banned like the range and repeat rules
+                # below; a small int, or any float (x ** 0.5, energy ** (1/2)), is not one.
+                if v is None or (isinstance(v, int) and v > POW_MAX_EXP):
+                    reasons.append(_POW_RULE)  # 2 ** 10**9, 2 ** 10**19: an oversized exponent
+        elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mult):
+            # A sequence literal repeated by constant factors, directly ([0] * 10**10) or through a
+            # chain ([0] * 1000 * 1000 * 1000): fold the product of the factors and ban it if the
+            # whole product is oversized. A factor the source does not fix ([0] * len(me.around))
+            # leaves the product unknown and is left to the child's caps.
+            factors = _mult_factors(node)
+            seqs = [f for f in factors if _is_seq_literal(f)]
+            others = [f for f in factors if not _is_seq_literal(f)]
+            if len(seqs) == 1 and others and all(_is_const_expr(f) for f in others):
+                product: int | None = 1
+                for f in others:
+                    v = _fold_number(f)
+                    if v is None or not isinstance(v, int):
+                        product = None  # unfoldable or non-integer factor: treat as oversized
+                        break
+                    product *= v
+                    if product > MAX_LITERAL_COUNT:
+                        break
+                if product is None or product > MAX_LITERAL_COUNT:
+                    reasons.append(_REPEAT_RULE)  # [0] * 10**10, [0] * 1000 * 1000 * 1000
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "range":
+            # range(n) / range(len(x)) is non-constant and left to the child. When every bound is a
+            # constant integer the exact length is known, so compute it and ban a huge one — which
+            # catches a negative-step form (range(0, -10**12, -1)) that comparing bounds in
+            # isolation would miss. A bound past the fold cap is oversized however the rest read.
+            folded = [_fold_number(a) if _is_const_expr(a) else None for a in node.args]
+            oversized = any(v is None for a, v in zip(node.args, folded) if _is_const_expr(a))
+            all_const_ints = bool(node.args) and not node.keywords and all(isinstance(v, int) for v in folded)
+            if oversized:
+                reasons.append(_RANGE_RULE)  # range(10**19): a bound past the fold cap
+            elif all_const_ints:
+                try:
+                    length = len(range(*folded))
+                except (TypeError, ValueError):
+                    length = 0  # range(x, y, 0): a runtime error the smoke test surfaces, not a bomb
+                if length > MAX_LITERAL_COUNT:
+                    reasons.append(_RANGE_RULE)  # range(10**12), range(0, -10**12, -1)
     # dedupe, keep order
     seen = set()
     reasons = [r for r in reasons if not (r in seen or seen.add(r))]
@@ -568,8 +726,40 @@ def admit_isolated(source: str, timeout: float = 20.0) -> Verdict:
         return Verdict(False, [f"membrane crashed: {(r.stderr or r.stdout)[-200:]}"])
 
 
+def _limit_resources() -> None:
+    """Cap the isolated child's address space and CPU, so a resource bomb the smoke test runs
+    cannot exhaust the box before the wall-clock timeout reaps it. Best-effort: macOS refuses to
+    lower RLIMIT_AS/RLIMIT_DATA below an infinite hard limit, so there the static gate and the
+    wall timeout are the backstop, while RLIMIT_CPU works on both. Called once inside the child,
+    after exec, where the process is fresh and single-threaded so setrlimit is fork-safe — this
+    is deliberately not a subprocess preexec_fn, which would run in a fork of the multithreaded
+    mutagen process and can deadlock on the fork-with-threads interaction."""
+    try:
+        import resource
+    except ImportError:  # not a POSIX platform; the wall timeout is the only backstop there
+        return
+
+    for name in ("RLIMIT_AS", "RLIMIT_DATA"):
+        limit = getattr(resource, name, None)
+        if limit is None:
+            continue
+        try:
+            _, hard = resource.getrlimit(limit)
+            cap = CHILD_AS_LIMIT if hard == resource.RLIM_INFINITY else min(CHILD_AS_LIMIT, hard)
+            resource.setrlimit(limit, (cap, hard))
+        except (ValueError, OSError):
+            pass
+    try:
+        _, hard = resource.getrlimit(resource.RLIMIT_CPU)
+        cap = CHILD_CPU_LIMIT if hard == resource.RLIM_INFINITY else min(CHILD_CPU_LIMIT, hard)
+        resource.setrlimit(resource.RLIMIT_CPU, (cap, hard))
+    except (ValueError, OSError):
+        pass
+
+
 if __name__ == "__main__":
     import sys
 
+    _limit_resources()
     v = admit(sys.stdin.read())
     print(json.dumps({"ok": v.ok, "reasons": v.reasons}))

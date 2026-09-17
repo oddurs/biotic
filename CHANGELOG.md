@@ -10,9 +10,6 @@ turns the `Unreleased` section into a dated release.
 ### Added
 
 - The project site at https://oddurs.github.io/biotic/: a StyleX design system, docs with search and a generated CLI reference, the specimen library, field notes with RSS, and Open Graph images. Lives in `web/` and is checked by the same `scripts/task check`.
-
-### Added
-
 - Diversity and turnover in the growth curve: `vessel/curve.csv` gains `killed`, `shannon`, `dominance`,
   `mean_gen`, `arisen`, `extinct`, `pheromone`, `mutations_ready` and `mutations_taken`, sampled every
   10 ticks like the rest. `Dish.metrics()`, `Culture.metrics()` and `bio.curve.read()` expose them; the
@@ -154,6 +151,18 @@ turns the `Unreleased` section into a dated release.
 
 ### Fixed
 
+- Resource bombs the time budget cannot interrupt: the membrane now refuses their literal and
+  constant forms statically, regardless of the tick that would run them. The static gate rejects
+  `**` with a non-constant exponent (`2 ** me.age`) or a constant one over 1024, whether it folds
+  to a number (`2 ** 10**9`) or is too large to carry (`2 ** 10**19`, `2 ** (2 ** 100)`); a
+  sequence literal repeated by a large constant in one multiply or a chain of them (`[0] * 10**10`,
+  `[0] * 1000 * 1000 * 1000`); and `range()` whose constant length is huge, including a negative
+  step (`sum(range(10**12))`, `range(0, -10**12, -1)`) — so a bomb hidden behind `if me.tick > 40:`
+  is refused at admission instead of stalling the dish. A float or small integer exponent stays
+  legal (`x ** 0.5`, `energy ** 2`, `energy ** (1 / 2)`). The isolated smoke-test child also caps
+  its address space and CPU (RLIMIT_AS/RLIMIT_DATA/RLIMIT_CPU; best-effort — macOS cannot lower the
+  address-space limit), so a memory bomb whose size is computed at runtime cannot exhaust the box.
+  `bio/prompts.py` states the new rules. See `docs/membrane.md`.
 - An empty `curve.csv`, or one holding only blank lines, is given its header with the next row instead
   of being appended to without one.
 - `dish.json` no longer rounds cell energy, so a resumed dish follows exactly the trajectory the running one
