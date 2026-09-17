@@ -262,7 +262,8 @@ def test_the_control_starves_only_because_it_does_not_share():
 
 def test_given_and_received_are_curve_columns_after_predated():
     assert curve.COLUMNS[-2:] == ("given", "received")
-    assert curve.COLUMNS.index("given") == curve.COLUMNS.index("predated") + 1
+    # the sharing pair trails every other column; the arm columns sit between it and `predated`
+    assert curve.COLUMNS.index("given") > curve.COLUMNS.index("predated")
     assert curve.DECIMALS["given"] == 4 and curve.DECIMALS["received"] == 4  # floats, not the int default
     assert "given" not in curve._INT and "received" not in curve._INT
     assert plot.LABELS["given"] == "energy given (cumulative)"
