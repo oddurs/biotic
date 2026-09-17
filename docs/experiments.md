@@ -235,3 +235,44 @@ arm's (2.20 → floor 1.76). The 30b arm is disqualified on pass_rate; both
 per viable variant while also winning pass rate, diversity, dominance, and latency.
 **The default is now `google/gemini-2.5-flash-lite`** (`.env.example`). The full
 table, the 20-sample rubric read, and the founder-genesis probe are in cairn item 0041.
+
+## does parasitism arise? (item 0016)
+
+Tierra's first undesigned product was a parasite. The question here is whether a
+strain evolves that lives *without* eating agar — an obligate predator (all its
+energy by `lyse`), a beggar (all of it by received `give`), or one that splices a
+donor's foraging code and drops its own. It was run as an experiment, not waited
+for by accident.
+
+Six flasks from seed `"tide"`, one built-in founder (`7a8d`) poured into all six,
+mutagen `mixed` with the 0041 default `google/gemini-2.5-flash-lite`, tick clock
+at `EVERY_TICKS`=40, 15,000 ticks each. Three treatment flasks had `lyse,give,hgt`
+enabled (`biotic drop feature`); three controls had them off. Scaled from the
+item's 12 × 30,000 for the $3 cap and wall-clock; realised spend $0.178. Metric
+of parasitism: read every *living* strain's source at the end and ask whether any
+has no `"eat"` (or `"feed"`) path.
+
+**Answer: no.** No living strain in any flask dropped its `"eat"` path.
+
+- **Predation arose and swept — but facultative.** Almost every living treatment
+  strain evolved a `("lyse", d)` path (17/18, 4/4, 34/34), yet every one still
+  returned `"eat"` as well. Predated deaths reached 11.5% of all deaths. The
+  hunters were added *to* foragers, never *instead of* them.
+- **Predation collapsed diversity, the opposite of the arms-race hope.** Treatment
+  ended near-monoculture (mean Shannon 0.22, dominance 0.88) while the feature-off
+  control stayed diverse (mean Shannon 1.87, dominance 0.38, ~13 strains). A strain
+  that eats *and* lyses out-competes a dish of pure foragers and sweeps it.
+- **Giving never evolved** (`given` = 0.0 in every flask), so the beggar route to
+  parasitism never opened: the prior reaches "take" from a forager easily and
+  "give" not at all.
+- **HGT fired but grafted, it did not replace** (13 and 2 spliced strains in two
+  flasks): a splice adds one borrowed behaviour and keeps the recipient's, so the
+  recipient kept eating.
+- **Novelty barely decelerated:** `arisen` climbed near-linearly at ~10–13 new
+  strains per 1,000 ticks; the late slope fell below the early one in four of six
+  flasks but only slightly — no plateau within 15k ticks.
+
+The nearest miss is `scavenger_42b1_ambusher` (treat/03, LLM mutagen): it lyses a
+weaker non-kin neighbour when it holds the energy, and falls through to `"eat"`
+otherwise. One deleted line short of an obligate predator — a line the prior never
+deleted. The full per-flask table and the quoted genome are in cairn item 0016.
