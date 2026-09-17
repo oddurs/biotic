@@ -57,3 +57,11 @@ _FakeMe._neighbor_energy multiplies each around value by MAX_ENERGY and the crow
 ## 2026-09-16
 
 crit2 test pinned K=15 empirically: control's poor cells (0.12 on basal 0.01) starve by tick 13; the poorest giver cell holds ~0.33 at K=15, far above reserve. Both dishes share one seed and gifts touch no rng, so shuffle order stays in lockstep; assert control starved>=1, giver starved==0, giver live>control. A feature-off guard test proves survival is the gift, not the layout.
+
+## 2026-09-16
+
+Review parity fix: added given/received to naturalist METRIC_KEYS and a float-aware since-diff, and a 'shared X given · Y received' prompt line (omitted when nothing was shared, like the eyepiece row), so the LLM observer narrates the altruism/cheating dynamic, matching predation's 'predated' wiring rather than only seeing the drop-feature event.
+
+## 2026-09-16
+
+docs/sharing.md conservation aside corrected: dropped the false 'there is no other sink' whole-dish claim. The per-transfer heat (given-received) is the only sink sharing ADDS; the MAX_ENERGY clamp (received over-counts energy trimmed on the recipient's own tick) and energy-carrying deaths remain the sinks they always were.

@@ -19,8 +19,10 @@ turns the `Unreleased` section into a dated release.
   **feature**, off by default so no existing dish is altered; `biotic seed "…" --with give` turns it
   on from the founding cell and `biotic drop feature give` mid-run (logged and marked on the curve
   like any drop). `vessel/curve.csv` gains cumulative `given` and `received` columns after
-  `predated` (net below gross by the heat), and `dish.json` records both totals. `GIVE_EFFICIENCY`
-  and `GIVE_RESERVE` are physics constants in `bio/config.py`. See `docs/sharing.md`.
+  `predated` (net below gross by the heat), and `dish.json` records both totals. The naturalist's
+  field notes report the energy shared in each interval (the `given`/`received` deltas), as they
+  already do for predation. `GIVE_EFFICIENCY` and `GIVE_RESERVE` are physics constants in
+  `bio/config.py`. See `docs/sharing.md`.
 - Predation, the first biotic rule: a cell can burst a neighbour of another strain with
   `("lyse", d)`. The attacker pays `LYSE_COST` (0.05) whatever happens; with probability
   `p = 1 / (1 + exp(-LYSE_K · (E_attacker − E_defender)))` the target bursts (death cause

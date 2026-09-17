@@ -14,12 +14,13 @@ import random
 import pytest
 from rich.console import Console
 
-from bio import config, curve, plot, prompts
+from bio import config, curve, naturalist, plot, prompts
 from bio.__main__ import main
 from bio.culture import Culture
 from bio.dish import Dish, Me
 from bio.membrane import _FakeMe, admit
 from bio.mind import Mind
+from bio.naturalist import compose
 
 REST = "def live(me):\n    return 'rest'\n"
 
@@ -336,6 +337,82 @@ def test_the_two_feature_clauses_are_independent():
     assert "me.neighbor_energy" in give_only and "me.threat" not in give_only
     both = prompts.cell_api({"lyse": True, "give": True})
     assert "me.threat" in both and "me.neighbor_energy" in both
+
+
+# --- the naturalist is told how much was shared (parity with predated) -------------------------
+
+
+def _note_packet(tick: int, t: float, **metrics) -> dict:
+    """A minimal naturalist packet, as Culture._packet builds one, for a one-strain census."""
+    m = {
+        "tick": tick,
+        "population": 4,
+        "strains": 1,
+        "nutrient": 0.4,
+        "pheromone": 0.0,
+        "shannon": 0.0,
+        "dominance": 1.0,
+        "births": 0,
+        "starved": 0,
+        "lysed": 0,
+        "senescent": 0,
+        "killed": 0,
+        "predated": 0,
+        "given": 0.0,
+        "received": 0.0,
+        "arisen": 1,
+        "extinct": 0,
+        "mean_gen": 1.0,
+        "phase": "log",
+    }
+    m.update(metrics)
+    row = {"id": "giver", "name": "giver", "note": "", "generation": 1, "cells": 4, "share": 1.0}
+    return {
+        "seed": "give",
+        "tick": tick,
+        "t": t,
+        "branch": 0,
+        "phase": "log",
+        "tiles": 100,
+        "tick_seconds": 0.5,
+        "metrics": m,
+        "census": [row],
+        "events": [],
+        "sketch": {"scale": 1, "rows": ["a"], "legend": [("a", "giver")]},
+    }
+
+
+def test_the_sharing_totals_are_carried_in_the_naturalists_metric_keys():
+    """given/received are part of the baseline the naturalist keeps, exactly as predated is, so the
+    LLM observer can narrate the altruism it sees — not just the fact the feature was enabled."""
+    assert "given" in naturalist.METRIC_KEYS and "received" in naturalist.METRIC_KEYS
+
+
+def test_the_naturalist_prompt_reports_the_energy_shared_since_the_last_note():
+    """A note on a sharing dish states the energy shared in the interval — the delta of the
+    dish-wide cumulative totals — reading as 'shared X given · Y received', and omits the line when
+    nothing was shared, the same omit-when-none rule the eyepiece sharing row follows."""
+    prev = {
+        "tick": 10,
+        "t": 100.0,
+        "text": "An earlier entry.",
+        "branch": 0,
+        "seam": False,
+        "metrics": {k: 0 for k in naturalist.METRIC_KEYS} | {"given": 0.25, "received": 0.20},
+        "census": {"giver": 4},
+    }
+    shared = compose(_note_packet(20, 200.0, given=1.25, received=1.12), prev)
+    assert shared["since"]["given"] == pytest.approx(1.0) and shared["since"]["received"] == pytest.approx(0.92)
+    user = prompts.naturalist_user(shared)
+    assert "shared 1.00 given · 0.92 received" in user
+
+    # no gift in this interval: the totals did not move, so the line is omitted
+    quiet = compose(
+        _note_packet(30, 300.0, given=1.25, received=1.12),
+        prev | {"metrics": prev["metrics"] | {"given": 1.25, "received": 1.12}},
+    )
+    assert quiet["since"]["given"] == 0.0
+    assert "shared " not in prompts.naturalist_user(quiet)
 
 
 # --- persistence: the counters round-trip -----------------------------------------------------

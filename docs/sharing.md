@@ -108,9 +108,16 @@ are exactly what they were.
   so a dish that never shares shows no empty sharing line. This is by design, not
   a missing reading.
 
-Energy is conserved to the documented loss. In a closed dish (`REPLENISH=0`,
-nothing eaten) the total energy after any run equals the starting total minus
-basal costs minus `given − received`; there is no other sink.
+Energy is conserved to the documented loss: every gift moves `amount` out of the
+giver and `GIVE_EFFICIENCY × amount` into the recipient, and the gap
+`given − received` is heat. That transfer heat is the only sink sharing *adds*.
+In a closed dish (`REPLENISH=0`, nothing eaten), away from the `MAX_ENERGY`
+ceiling and absent any death that carries energy out, the total after a run is
+the starting total minus basal costs minus `given − received`. The two sinks
+that were always there still are: the `MAX_ENERGY` clamp — a gift can push a
+recipient over 2.0, and the excess is trimmed on its own tick (above), so
+`received` over-counts energy the dish immediately takes back — and a senescent
+or killed cell that dies holding energy, which removes it from the accounting.
 
 ## persistence
 

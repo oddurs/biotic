@@ -317,6 +317,8 @@ def naturalist_user(p: dict) -> str:
             deaths += f", {since['predated']} predated"
         lines.append(f"  births {since['births']} · deaths {deaths}")
         lines.append(f"  strains arisen {since['arisen']} · gone extinct {since['extinct']}")
+        if since.get("given"):  # only when energy was shared; a non-sharing dish shows no line
+            lines.append(f"  shared {since['given']:.2f} given · {since['received']:.2f} received")
     if p.get("remarks"):
         lines += ["", "Changes worth noting:"] + [f"  - {r}" for r in p["remarks"]]
     compare = since is not None and not since.get("seam")
