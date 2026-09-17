@@ -37,6 +37,8 @@ previous row.
 | `predated` | int, cumulative | cells burst by a lysing neighbour of another strain; 0 unless the `lyse` feature is on (`docs/predation.md`). Appended after `mutations_viable` |
 | `arisen_llm` | int, cumulative | strains that arose by the semantic (LLM) mutagen; `docs/mutagen.md` |
 | `arisen_random` | int, cumulative | strains that arose by the offline random mutagen (the control arm); `docs/mutagen.md` |
+| `given` | float, cumulative | gross energy handed to neighbours by `("give", d, x)`; 0.0 unless the `give` feature is on (`docs/sharing.md`). Appended after `arisen_random` |
+| `received` | float, cumulative | net energy that reached recipients, `given` minus the transfer heat; at most `given`. Appended after `given` |
 
 Floats are written to four decimals, `mean_gen` to two. Four decimals resolve
 sustained signalling in `pheromone`: one cell emitting 0.2 every tick holds the

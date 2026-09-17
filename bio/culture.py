@@ -36,7 +36,7 @@ HIDDEN = {"call", "prepared"}
 CLOCKS = ("wall", "tick")
 
 # How each opt-in feature reads in the log when it is enabled (docs/predation.md).
-FEATURE_LABELS = {"lyse": "predation (lyse)"}
+FEATURE_LABELS = {"lyse": "predation (lyse)", "give": "sharing (give)"}
 
 FALLBACK_GENESIS = """\
 def live(me):
@@ -1106,6 +1106,8 @@ class Culture:
             "nutrient": metrics["nutrient"],
             "births": d.births,
             "deaths": dict(d.deaths),
+            "given": d.given,
+            "received": d.received,
             "history": list(d.history),
             "strains_total": len(self.registry.strains),
             "generation": max((s.generation for s in self.registry.strains.values()), default=0),

@@ -11,6 +11,7 @@ import random
 
 import pytest
 
+from bio import config
 from bio.dish import parse_action
 
 ACCEPTED = [
@@ -42,6 +43,13 @@ ACCEPTED = [
     (("lyse", 9), ("lyse", 1)),  # wraps mod 8, like move and divide
     (("lyse", "3"), ("lyse", 3)),
     (("lyse", -1), ("lyse", 7)),
+    (("give", 2, 0.4), ("give", (2, 0.4))),
+    (("give", 9, 0.4), ("give", (1, 0.4))),  # the direction wraps mod 8
+    (("give", "2", "0.4"), ("give", (2, 0.4))),  # both coerce
+    (("give", 2, 5), ("give", (2, 2.0))),  # the amount clamps up to MAX_ENERGY
+    (("give", 2, -1), ("give", (2, 0.0))),  # and down to 0
+    (("share", 1, 0.2), ("give", (1, 0.2))),  # alias
+    (["give", 2, 0.4], ("give", (2, 0.4))),  # a list is a tuple
 ]
 
 REJECTED = [
@@ -58,9 +66,17 @@ REJECTED = [
     ("lyse",),  # a bare lyse names no neighbour
     ("lyse", None),
     ("lyse", True),  # int(True) is 1, but a bool is not a direction
+    ("give", 1),  # give needs both a direction and an amount
+    ("give",),
+    ("give", True, 0.5),  # a bool is not a direction
+    ("give", 2, True),  # nor an amount
+    ("give", 2, float("nan")),  # nan is nonsense, not "give everything"
+    ("give", float("inf"), 0.5),  # int(inf) does not exist
+    ("give", 2, 10**400),  # float(that) overflows
     (),
     (1, 2),
-    ("move", 1, 2),
+    ("move", 1, 2),  # move takes at most one argument
+    ("give", 2, 0.4, 0.4),  # four elements is nonsense
     {},
     set(),
     b"eat",
@@ -86,7 +102,24 @@ def test_nonsense_parses_to_none(out):
 def test_parse_action_never_raises():
     """A fuzz over the kinds of value a genome can produce. Fixed seed; ~3000 cases."""
     rng = random.Random(2024)
-    names = ["eat", "rest", "move", "divide", "emit", "split", "sleep", "wait", "stay", "go", "feed", "lyse", "x", ""]
+    names = [
+        "eat",
+        "rest",
+        "move",
+        "divide",
+        "emit",
+        "split",
+        "sleep",
+        "wait",
+        "stay",
+        "go",
+        "feed",
+        "lyse",
+        "give",
+        "share",
+        "x",
+        "",
+    ]
     odd = [math, random.Random(), ValueError("x"), (i for i in range(3)), range(3), lambda: 1, b"eat", {}, set()]
 
     def word():
@@ -121,7 +154,7 @@ def test_parse_action_never_raises():
             return rng.choice([tuple, list])(items)
         return scalar()
 
-    kinds = {"eat", "rest", "move", "divide", "emit", "lyse"}
+    kinds = {"eat", "rest", "move", "divide", "emit", "lyse", "give"}
     for _ in range(3000):
         given = value()
         out = parse_action(given)
@@ -138,5 +171,9 @@ def test_parse_action_never_raises():
             assert arg is None or (isinstance(arg, int) and 0 <= arg < 8)
         elif kind == "emit":
             assert isinstance(arg, float) and 0.0 <= arg <= 1.0
+        elif kind == "give":
+            assert isinstance(arg, tuple) and len(arg) == 2
+            assert isinstance(arg[0], int) and 0 <= arg[0] < 8
+            assert isinstance(arg[1], float) and 0.0 <= arg[1] <= config.MAX_ENERGY
         else:
             assert arg is None

@@ -259,12 +259,13 @@ def test_from_dict_tolerates_missing_optional_keys():
     """Older dish.json files may lack these; loading falls back to defaults."""
     d = _grown(20)
     blob = d.to_dict()
-    for key in ("history", "deaths", "births", "replenish", "rng"):
+    for key in ("history", "deaths", "births", "given", "received", "replenish", "rng"):
         del blob[key]
     clone = Dish.from_dict(blob)
     assert clone.tick == d.tick
     assert clone.census() == d.census()
     assert clone.replenish == config.REPLENISH
     assert clone.births == 0
+    assert clone.given == 0.0 and clone.received == 0.0
     assert list(clone.history) == []
     assert clone.deaths == {"starved": 0, "lysed": 0, "senescent": 0, "killed": 0, "predated": 0}

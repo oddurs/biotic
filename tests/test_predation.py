@@ -197,8 +197,8 @@ def test_a_failed_attack_costs_the_cost_and_the_recoil():
 def test_lyse_with_the_feature_off_is_a_no_op_that_does_not_touch_the_rng():
     """A dish that never enabled predation runs a lyse action as an inert no-op, and its RNG stream
     is untouched — so a dish that predates this feature follows the exact trajectory it always did."""
-    d = Dish("off", width=24, height=12)  # feature off by default
-    assert d.features == {"lyse": False}
+    d = Dish("off", width=24, height=12)  # features off by default
+    assert d.features == {"lyse": False, "give": False}
     d.register("a", FALLBACK_GENESIS)
     d.register("b", FALLBACK_GENESIS)
     cx, cy = d.center()
@@ -321,7 +321,7 @@ def test_features_round_trip_through_to_dict():
     d = Dish("rt", width=24, height=12)
     d.features["lyse"] = True
     clone = Dish.from_dict(d.to_dict())
-    assert clone.features == {"lyse": True}
+    assert clone.features == {"lyse": True, "give": False}
 
 
 def test_a_dish_without_a_features_key_thaws_to_all_off():
@@ -330,18 +330,18 @@ def test_a_dish_without_a_features_key_thaws_to_all_off():
     blob = d.to_dict()
     del blob["features"]
     clone = Dish.from_dict(blob)
-    assert clone.features == {"lyse": False}
+    assert clone.features == {"lyse": False, "give": False}
 
 
 def test_an_unknown_flag_from_a_newer_apparatus_survives_the_round_trip():
-    """A flag a newer apparatus wrote (a future "give", say) that this build has no rule for must
+    """A flag a newer apparatus wrote (a future "hgt", say) that this build has no rule for must
     not be dropped by from_dict's merge — docs/predation.md promises the round trip preserves it.
     Known flags absent from the blob still default off."""
     d = Dish("rt", width=24, height=12)
     blob = d.to_dict()
-    blob["features"]["give"] = True
+    blob["features"]["hgt"] = True
     clone = Dish.from_dict(blob)
-    assert clone.features["give"] is True, "an unknown forward flag was silently dropped"
+    assert clone.features["hgt"] is True, "an unknown forward flag was silently dropped"
     assert clone.features["lyse"] is False
 
 

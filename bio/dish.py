@@ -21,7 +21,15 @@ from .membrane import Budget, Lysis, compile_genome, memory_fault
 DIRS = [(0, -1), (1, -1), (1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1)]
 DIR_NAMES = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
 
-_ALIASES = {"split": "divide", "sleep": "rest", "wait": "rest", "stay": "rest", "go": "move", "feed": "eat"}
+_ALIASES = {
+    "split": "divide",
+    "sleep": "rest",
+    "wait": "rest",
+    "stay": "rest",
+    "go": "move",
+    "feed": "eat",
+    "share": "give",
+}
 _COERCE_ERRORS = (TypeError, ValueError, OverflowError)  # int(nan), int(inf), float(10**400), int(None)
 
 
@@ -41,11 +49,31 @@ def parse_action(out):
         if s in ("eat", "rest", "divide"):
             return (s, None)
         return None
-    if isinstance(out, (tuple, list)) and 1 <= len(out) <= 2:
+    if isinstance(out, (tuple, list)) and 1 <= len(out) <= 3:
         kind, arg = out[0], (out[1] if len(out) > 1 else None)
         if not isinstance(kind, str):
             return None
         kind = _ALIASES.get(kind.strip().lower(), kind.strip().lower())
+        if kind == "give":
+            # the only three-element action: ("give", d, x). The amount is required (a bare
+            # ("give", d) names no quantity) and clamped to 0..MAX_ENERGY; the dish decides how
+            # much of it a cell can actually spare. Its own try, so a bad amount is None, not an
+            # unparseable-action lysis routed through the shared handler below.
+            if len(out) != 3:
+                return None
+            d, x = out[1], out[2]
+            if isinstance(d, bool) or isinstance(x, bool):  # a bool is neither a direction nor an amount
+                return None
+            try:
+                d = int(d) % 8
+                x = float(x)
+            except _COERCE_ERRORS:
+                return None
+            if x != x:  # nan: nonsense, not "give everything"
+                return None
+            return ("give", (d, max(0.0, min(config.MAX_ENERGY, x))))
+        if len(out) > 2:  # every other action takes at most one argument
+            return None
         try:
             if isinstance(arg, bool) and kind in ("move", "divide", "emit", "lyse"):
                 return None  # int(True) is 1 and float(True) is 1.0, but a bool is neither a direction nor an amount
@@ -91,6 +119,7 @@ class Me:
         "crowd",
         "kin",
         "threat",
+        "neighbor_energy",
         "scent",
         "scent_here",
         "memory",
@@ -110,7 +139,7 @@ class Me:
         self.rng = dish.rng
         self.here = dish.nutrient[cell.y][cell.x]
         self.scent_here = dish.pheromone[cell.y][cell.x]
-        around, crowd, kin, threat, scent = [], [], [], [], []
+        around, crowd, kin, threat, neighbor_energy, scent = [], [], [], [], [], []
         for dx, dy in DIRS:
             x, y = cell.x + dx, cell.y + dy
             if dish.inside(x, y):
@@ -122,13 +151,19 @@ class Me:
                 # the energy of a neighbouring cell of another strain; 0.0 for empty, glass or kin.
                 # The perceptual basis for fleeing or lysing; populated every tick, branch-free.
                 threat.append(other.energy if (other is not None and other.strain != cell.strain) else 0.0)
+                # the energy of any neighbouring cell, KIN INCLUDED; 0.0 for empty or glass. The
+                # perceptual basis for giving to the hungry (me.kin marks which are kin); populated
+                # every tick, branch-free, no rng.
+                neighbor_energy.append(other.energy if other is not None else 0.0)
             else:  # the glass wall
                 around.append(0.0)
                 scent.append(0.0)
                 crowd.append(True)
                 kin.append(False)
                 threat.append(0.0)
+                neighbor_energy.append(0.0)
         self.around, self.crowd, self.kin, self.threat, self.scent = around, crowd, kin, threat, scent
+        self.neighbor_energy = neighbor_energy
 
 
 class Dish:
@@ -151,6 +186,10 @@ class Dish:
         self.history: deque[int] = deque(maxlen=600)
         self.deaths = {"starved": 0, "lysed": 0, "senescent": 0, "killed": 0, "predated": 0}
         self.births = 0
+        # sharing (docs/sharing.md), cumulative and dish-wide: energy that left givers, and the
+        # smaller amount that reached recipients; the gap is heat. 0.0 unless the `give` feature is on.
+        self.given = 0.0
+        self.received = 0.0
         # opt-in rules (docs/predation.md); all off unless a seeding or a `drop feature` turns one on
         self.features: dict[str, bool] = {f: False for f in config.FEATURES}
         self.replenish = config.REPLENISH
@@ -298,6 +337,8 @@ class Dish:
             "senescent": self.deaths.get("senescent", 0),
             "killed": self.deaths.get("killed", 0),
             "predated": self.deaths.get("predated", 0),
+            "given": self.given,
+            "received": self.received,
         }
 
     def _die(self, cell: Cell, cause: str) -> None:
@@ -421,6 +462,26 @@ class Dish:
                 cell.energy += config.LYSE_YIELD * e_def
             else:
                 cell.energy -= config.LYSE_RECOIL
+        elif kind == "give":
+            # sharing, off unless the `give` feature is on (docs/sharing.md). An empty tile, the
+            # glass wall, or too little to spare is a silent no-op that costs nothing. Kin and non-kin
+            # both receive — giving to a stranger is what makes cheating possible. No roll.
+            if not self.features.get("give"):
+                return
+            d, x = arg
+            dx, dy = DIRS[d]
+            target = self.cells.get((cell.x + dx, cell.y + dy))
+            if target is None:
+                return
+            amount = min(x, cell.energy - config.GIVE_RESERVE)  # never give below the reserve
+            if amount <= 0.0:
+                return
+            cell.energy -= amount
+            target.energy += (
+                amount * config.GIVE_EFFICIENCY
+            )  # the rest is heat; the recipient is capped on its own tick
+            self.given += amount
+            self.received += amount * config.GIVE_EFFICIENCY
         # rest: nothing
 
     def _diffuse(self) -> None:
@@ -487,6 +548,8 @@ class Dish:
             "history": list(self.history),
             "deaths": self.deaths,
             "births": self.births,
+            "given": self.given,
+            "received": self.received,
             "replenish": self.replenish,
             "features": self.features,
         }
@@ -509,6 +572,8 @@ class Dish:
         dish.history = deque(d.get("history", []), maxlen=600)
         dish.deaths = d.get("deaths", dish.deaths)
         dish.births = d.get("births", 0)
+        dish.given = d.get("given", 0.0)
+        dish.received = d.get("received", 0.0)
         dish.replenish = d.get("replenish", config.REPLENISH)
         # absent (a dish frozen before features existed) means every feature off; a flag a newer
         # apparatus wrote survives the round trip even if this one has no rule for it
