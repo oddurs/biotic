@@ -156,7 +156,12 @@ in the file nor in the log, and the money is spent, the same gap the ledger docu
 - **Resume.** `ctrl-c` and `biotic live` continue the notebook: the baseline comes back from
   `dish.json` or the log, and the next entry compares with the last one written, however long
   the incubator was off. The prompt gives both the ticks and the wall-clock time between looks
-  and says that wall time beyond the ticks is time the incubator was off.
+  and says that wall time beyond the ticks is time the incubator was off. When the dish was away
+  longer than `BIOTIC_INCUBATION_GAP` (default ten minutes), the first entry after the resume is
+  also given the measured off-time — "the incubator was off for 12h04m of that; the dish did not
+  run then" — so the model reports the figure rather than subtracting wall from pace. Only the
+  entry that spans the gap is told it, and only when there is a prior entry to span from; the
+  `gap` event and the curve's `⋯` record the absence regardless (`docs/curve.md`).
 - **Revive.** The notebook is the vessel's, not the sample's. A dish sample carries the
   baseline the culture had when it was frozen, and a revive ignores it: the baseline stays the
   vessel's last entry, marked with a *seam*. The next entry is composed with no deltas and no

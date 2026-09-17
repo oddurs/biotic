@@ -104,4 +104,7 @@ REVIVE_WATCH = 300  # ticks a revived strain is watched before the log says whet
 NOTES_EVERY = int(env("BIOTIC_NOTES_EVERY", "600"))  # ticks between field notes; 0 turns the naturalist off
 NOTES_MIN_SECONDS = 120.0  # wall-clock floor between looks; at --tick 0 the cadence alone would be one call per reply
 
+# --- incubation gaps (bookkeeping, not physics) --------------------------
+INCUBATION_GAP = float(env("BIOTIC_INCUBATION_GAP", "600"))  # seconds away before a resume logs a gap
+
 PALETTE_SEED = 0.61803398875

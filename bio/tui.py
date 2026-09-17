@@ -40,6 +40,7 @@ ICONS = {
     "revived": ("↺", "bold cyan"),
     "eyepiece": ("!", "yellow"),
     "note": ("¶", "magenta"),
+    "gap": ("⋯", "dim"),  # a resume after a wall-clock absence; matches plot.MARKERS["gap"]
 }
 AGAR = [
     (0.02, " ", "grey23"),

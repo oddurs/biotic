@@ -198,6 +198,14 @@ eyepiece's: `⚗` a drop, `↺` a revive, `⋯` an incubation gap; a column with
 several shows the first. Extinctions and strains arising are not drawn: a long
 run has thousands, and they are already columns — `--cols extinct,arisen`.
 
+The `⋯` is a `gap` event the culture logs on resume when the dish was away —
+between a save and the next `biotic live` — for longer than `BIOTIC_INCUBATION_GAP`
+(default 600 s, ten minutes). It is drawn at the resume tick, the tick the dish
+left off at: no tick is faked for the time it was off, so the gap is a mark on the
+curve, not a stretch of it. The event carries the measured absence
+(`incubation resumed after 12h04m`); `docs/naturalist.md` has how the naturalist
+is told the same figure.
+
 The plot is of one branch: the last by default, `--branch N` for another (the
 error names the branches the file has). A branch's own `revived` event, the one
 with `from` in its data, is logged at the sample's tick, before the branch's

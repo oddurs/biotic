@@ -230,6 +230,9 @@ def compose(packet: dict, previous: dict | None) -> dict:
             }
             for k in ("births", "starved", "lysed", "senescent", "killed", "arisen", "extinct"):
                 since[k] = max(0, m.get(k, 0) - pm.get(k, 0))
+            resume = packet.get("resume")  # the first note after a resume gets the measured off-time, once
+            if resume and previous["tick"] <= resume["tick"] <= packet["tick"]:
+                since["gap"] = {"seconds": resume["gap"], "wall": fmt_wait(resume["gap"])}
             total = sum(prev_census.values())
             for r in census:
                 r["was"] = prev_census[r["id"]] / total if total and r["id"] in prev_census else None

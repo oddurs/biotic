@@ -21,7 +21,7 @@ from . import config, curve, freezer, prompts
 from .dish import Cell, Dish, decode_memory, encode_memory
 from .membrane import admit, admit_isolated, inspect, memory_fault
 from .mind import Dormant, Exhausted, Mind, MindError, fmt_usd, parse_budget
-from .mutagen import Mutagen, exhausted_msg
+from .mutagen import Mutagen, exhausted_msg, fmt_wait
 from .naturalist import EVENTS_KEPT, NOTE_EVENTS, Naturalist, sketch
 from .prompts import _n  # the pluralisation helper lives with the prompts that also use it
 from .strains import Registry, check_record
@@ -58,6 +58,8 @@ class Culture:
         mind.log = self.log  # every call the dish pays for is an event in its log
         self.events: deque[dict] = deque(maxlen=200)  # the recent visible events, for the eyepiece
         self._unsaid: list[tuple[str, str, dict]] = []  # what load() found out; run() logs it
+        self.saved_at: float | None = None  # wall time of the last dish.json write; None until saved/loaded
+        self._resume: dict | None = None  # {"gap": seconds, "tick": resume_tick}; measured in load(), read by _packet()
         self.rng = random.Random(f"{seed}::culture")
         self.started = time.time()
         self.last_phase = None
@@ -245,6 +247,25 @@ class Culture:
             m.budget_usd = parse_budget(budget)
         cult = cls(seed, dish, reg, m)
         cult.restore_state(blob.get("culture") or {})  # absent from a dish.json written before it was saved
+        saved_at = blob.get("saved_at")  # top-level persistence metadata, never in state_dict; older files have none
+        cult.saved_at = saved_at
+        if saved_at and dish.tick > 0:  # a germinated-but-never-run dish saves at tick 0; that is no resume
+            gap = time.time() - saved_at
+            logged = _last_gap(config.EVENTS)  # a gap already logged against this exact save
+            already = logged is not None and logged.get("saved_at") == saved_at
+            if gap >= config.INCUBATION_GAP and not already:  # threshold; also excludes clock-skew negatives
+                # A process hard-killed between the resume drain and its first save leaves dish.json's
+                # saved_at unchanged, so this gap would re-satisfy the threshold on the next load. The gap
+                # is already in the log against this same saved_at, though, so — as with notes and the
+                # ledger, which reconcile on reload — one absence is announced once.
+                cult._resume = {"gap": gap, "tick": dish.tick}
+                cult._unsaid.append(
+                    (
+                        "gap",
+                        f"incubation resumed after {fmt_wait(gap)}",
+                        {"seconds": gap, "saved_at": saved_at, "branch": cult.branch},
+                    )
+                )
         note = _last_note(config.EVENTS)  # a note the last save missed: in the log and the notebook, not dish.json
         if note is not None:
             cult.naturalist.reconcile(note)
@@ -265,11 +286,13 @@ class Culture:
         fails must not stop the dish: it is logged once as a `freezer` event, every later save
         is tried again, and another event says when writing works.
         """
+        now = time.time()  # the wall clock this write happens at; a resume measures its gap from here
         try:
             with self.lock:
                 blob = self.dish.to_dict()
                 blob["culture"] = self.state_dict()
                 blob["mind"] = self.mind.ledger()
+                blob["saved_at"] = now  # top-level persistence metadata, kept out of state_dict and freezer samples
                 tmp = config.DISH_FILE.with_suffix(".tmp")
                 tmp.write_text(json.dumps(blob))
                 tmp.replace(config.DISH_FILE)
@@ -279,6 +302,7 @@ class Culture:
                 self.log("freezer", f"dish.json not written from tick {self.dish.tick}: {e}; the culture runs on")
             self._save_broken = True
             return
+        self.saved_at = now  # only on a write that took; a broken save leaves the last good timestamp
         if self._save_broken:
             self._save_broken = False
             self.log("freezer", f"dish.json written again at tick {self.dish.tick}")
@@ -607,6 +631,7 @@ class Culture:
             self.dish, self.registry = dish, registry
             dish.on_divide = self._on_divide
             self.restore_state(state)
+            self._resume = None  # a resume measured on the old branch must not reach the new one's first note
         self.mutagen.reset({sid: (s.name, s.source) for sid, s in registry.strains.items() if sid in dish.genomes})
         self.naturalist.reset()
 
@@ -874,6 +899,7 @@ class Culture:
             "metrics": self.metrics(census, phase),
             "census": rows,
             "events": events,
+            "resume": self._resume,  # null, or the gap this run resumed after; the first note reports it
             "sketch": sketch(d, census, {r["id"]: r["name"] for r in rows}),
         }
 
@@ -984,6 +1010,7 @@ class Culture:
             },
             "note": self.naturalist.latest(),
             "uptime": time.time() - self.started,
+            "saved_at": self.saved_at,
         }
 
 
@@ -1043,6 +1070,15 @@ def clock_words(clock: str, every_ticks: int | None) -> str:
     if clock == "tick" and every_ticks:
         return f"tick, every {_n(int(every_ticks), 'tick')}"
     return clock
+
+
+def _last_gap(path) -> dict | None:
+    """The most recent `gap` event, or None. It carries the `saved_at` it resumed from; when a
+    process was killed before its first post-resume save, dish.json still holds that same
+    saved_at, and load() reads this to keep one absence from being logged twice. A gap logged
+    against the current saved_at was written at that resume, before any save, so it is in the
+    tail; a dish that never resumed reads no more of its log for one."""
+    return _last_event(path, "gap")
 
 
 def _strain_sample(path: Path) -> dict:

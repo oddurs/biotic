@@ -179,7 +179,7 @@ def test_plottable_columns_and_labels_use_the_docs_words():
 
 
 def test_marker_glyphs_match_the_eyepiece():
-    for kind in ("phase", "drop", "revived"):
+    for kind in ("phase", "drop", "revived", "gap"):
         assert plot.MARKERS[kind] == tui.ICONS[kind]
     for glyph, _ in plot.MARKERS.values():
         assert cell_len(glyph) == 1, glyph

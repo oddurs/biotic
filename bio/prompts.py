@@ -246,6 +246,8 @@ def naturalist_user(p: dict) -> str:
             f"Since the last entry (tick {since['prev_tick']}, {since['ticks']} ticks{pace}; "
             f"{since['wall']} of wall-clock time):"
         )
+        if since.get("gap"):
+            lines.append(f"  the incubator was off for {since['gap']['wall']} of that; the dish did not run then.")
         (pa, pb), (sa, sb) = since["population"], since["strains"]
         (ha, hb), (da, db) = since["shannon"], since["dominance"]
         lines.append(
