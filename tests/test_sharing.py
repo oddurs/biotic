@@ -261,8 +261,9 @@ def test_the_control_starves_only_because_it_does_not_share():
 
 
 def test_given_and_received_are_curve_columns_after_predated():
-    assert curve.COLUMNS[-2:] == ("given", "received")
-    # the sharing pair trails every other column; the arm columns sit between it and `predated`
+    # the sharing pair sits after `predated` and the arm columns, and is consecutive; `spliced`
+    # (the hgt column) trails it, so the pair is no longer the tail of the curve
+    assert curve.COLUMNS.index("received") == curve.COLUMNS.index("given") + 1
     assert curve.COLUMNS.index("given") > curve.COLUMNS.index("predated")
     assert curve.DECIMALS["given"] == 4 and curve.DECIMALS["received"] == 4  # floats, not the int default
     assert "given" not in curve._INT and "received" not in curve._INT
@@ -286,7 +287,7 @@ def test_a_sharing_dish_writes_given_and_received_to_the_curve(make_culture):
     for _ in range(curve.CADENCE):
         c.step()
     header = config.CURVE.read_text().splitlines()[0].split(",")
-    assert header[-2:] == ["given", "received"]
+    assert header[-3:] == ["given", "received", "spliced"]
     row = curve.read()[-1]
     assert row["tick"] == curve.CADENCE
     assert isinstance(row["given"], float) and isinstance(row["received"], float)
@@ -303,7 +304,7 @@ def test_give_with_the_feature_off_is_an_inert_no_op():
     counter changes, and the RNG stream is untouched — so a dish that predates this feature follows
     the exact trajectory it always did."""
     d = _dish(feature=False)
-    assert d.features == {"lyse": False, "give": False}
+    assert d.features == {"lyse": False, "give": False, "hgt": False}
     cx, cy = d.center()
     giver = d.place(cx, cy, "giver", energy=1.0)
     recip = d.place(cx + 1, cy, "other", energy=0.3)

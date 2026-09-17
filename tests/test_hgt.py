@@ -226,8 +226,11 @@ def test_biotic_strains_and_genome_print_the_donor(make_culture, capsys):
 
 
 def test_spliced_is_an_int_column_appended_after_predated():
+    # `spliced` trails every other column (predation, the arms and the sharing pair all landed
+    # ahead of it), so it is the tail of the curve and still sits after `predated`.
     assert "spliced" in curve.COLUMNS
-    assert curve.COLUMNS.index("spliced") == curve.COLUMNS.index("predated") + 1
+    assert curve.COLUMNS[-1] == "spliced"
+    assert curve.COLUMNS.index("spliced") > curve.COLUMNS.index("predated")
     assert "spliced" in curve._INT and "spliced" not in curve.DECIMALS
 
 
