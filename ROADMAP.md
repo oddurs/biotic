@@ -4,7 +4,7 @@
 
 ## dish — A dish you can leave running
 
-`########··` 75% · 12 of 16 done · due 2026-09-21
+`#########·` 81% · 13 of 16 done · due 2026-09-21
 
 The apparatus exists and a culture evolves in it. It is not yet an instrument:
 
@@ -16,7 +16,6 @@ The apparatus exists and a culture evolves in it. It is not yet an instrument:
 ### planned
 
 - [ ] `0006` Replicate flasks: many dishes from one install <sup>feature · p1</sup>
-- [ ] `0010` Incubation gaps: record wall-clock absence, do not fake ticks <sup>feature · p2</sup>
 
 ### done
 
@@ -27,6 +26,7 @@ The apparatus exists and a culture evolves in it. It is not yet an instrument:
 - [x] `0007` The naturalist: periodic field notes from an observer model <sup>feature · p1</sup>
 - [x] `0008` Membrane and physics test suite <sup>chore · p0</sup>
 - [x] `0009` Survive small and resized terminals <sup>feature · p2</sup>
+- [x] `0010` Incubation gaps: record wall-clock absence, do not fake ticks <sup>feature · p2</sup>
 - [x] `0040` Tick-clocked mutation supply for headless runs <sup>feature · p0</sup>
 - [x] `0042` Resource bombs the budget cannot interrupt <sup>bug · p1</sup>
 - [x] `0043` Genome memory fidelity across a save <sup>bug · p2</sup>

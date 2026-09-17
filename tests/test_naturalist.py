@@ -466,6 +466,33 @@ def test_compose_across_a_seam_shows_events_since_the_entry_but_no_deltas():
     assert "replaced with a frozen sample" in user and "(was" not in user and "new since" not in user
 
 
+def test_the_first_note_after_a_resume_reports_the_measured_gap():
+    """When the packet carries a resume whose tick falls in the window the first note spans, the
+    composed `since` gains the measured off-time and the prompt states it. Later notes, and a note
+    across a seam, do not: the gap is reported once, on the entry that spans the absence."""
+    p = packet(200, 2000.0, {"a": 50, "b": 50})
+    p["resume"] = {"gap": 43440.0, "tick": 100}  # 12h04m, at the tick the last entry was written
+    prev = {
+        "tick": 100,
+        "t": 1000.0,
+        "text": FIRST,
+        "branch": 0,
+        "metrics": {"population": 100},
+        "census": {"a": 50, "b": 50},
+    }
+
+    since = compose(p, prev)["since"]
+    assert since["gap"] == {"seconds": 43440.0, "wall": "12h04m"}
+    user = prompts.naturalist_user(compose(p, prev))
+    assert "the incubator was off for 12h04m of that; the dish did not run then." in user
+
+    later = {**prev, "tick": 150}  # the entry after the one that spanned the resume: baseline past it
+    assert compose(p, later)["since"].get("gap") is None
+
+    seam = {"tick": 100, "t": 1000.0, "text": FIRST, "branch": 0, "seam": True, "metrics": {}, "census": {}}
+    assert "gap" not in compose(p, seam)["since"]
+
+
 # --- persistence: a save, a hard kill, an older vessel -------------------------------------------
 
 
@@ -581,6 +608,7 @@ def test_the_packet_carries_the_dish_and_not_the_apparatus(make_culture):
         "metrics",
         "census",
         "events",
+        "resume",
         "sketch",
     }
     assert set(p["census"][0]) == {"id", "name", "note", "generation", "cells", "share"}

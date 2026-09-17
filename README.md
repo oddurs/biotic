@@ -85,7 +85,7 @@ And look at what has grown:
     biotic genome top          # the dominant strain's code and lineage
     biotic log                 # the incubator log
     biotic notes [-n 5]        # the naturalist's field notes: what changed since the last look, hedged
-    biotic status
+    biotic status              # vitals, spend, the freezer, and when the dish was last active
     cat soma/*.py              # the fossil record
 
 ## experiments

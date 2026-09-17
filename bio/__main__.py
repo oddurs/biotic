@@ -11,6 +11,7 @@ from . import config, freezer, naturalist
 from .culture import CLOCKS, Culture, clock_words, incubating, sterilize
 from .dish import Dish
 from .mind import Dormant, Mind, MindError, fmt_budget, fmt_usd
+from .mutagen import fmt_wait
 from .strains import Registry
 
 
@@ -119,6 +120,9 @@ def cmd_status(a):
         print(f"notes       {len(notes)} · last at tick {notes[-1].tick} ({notes[-1].when})")
     else:
         print("notes       none")
+    if s.get("saved_at"):
+        ago = time.time() - s["saved_at"]
+        print(f"last active {freezer.when(s['saved_at'])} · {fmt_wait(ago)} ago")
     pid = incubating()
     if pid is not None:
         print(f"incubator   running (pid {pid})")

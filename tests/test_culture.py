@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+import time
 
 import pytest
 
-from bio import config
+from bio import config, curve, plot
+from bio.__main__ import main
 from bio.culture import FALLBACK_GENESIS, Culture
 from bio.membrane import inspect
 from bio.mind import Mind
@@ -145,6 +147,90 @@ def test_a_cell_whose_saved_memory_breaks_the_rule_is_lysed_on_the_first_tick(ma
     assert _events("nonviable") == [], "the genome is fine; the cell's memory was not"
     saved = json.loads(config.DISH_FILE.read_text())
     assert saved["tick"] == 21 and all(not (row[0] == x and row[1] == y) for row in saved["cells"])
+
+
+def _set_saved_at(t: float) -> None:
+    blob = json.loads(config.DISH_FILE.read_text())
+    blob["saved_at"] = t
+    config.DISH_FILE.write_text(json.dumps(blob))
+
+
+def test_a_resumed_dish_logs_the_gap_once_and_the_curve_marks_it(make_culture):
+    """A dish taken up after longer than BIOTIC_INCUBATION_GAP away logs one `gap` event at the
+    resume tick — not a faked tick — and `biotic curve` draws it as a marker there. Resuming again
+    from a fresh save logs nothing: the gap is the absence, not the resume."""
+    c = make_culture()
+    for _ in range(40):
+        c.step()
+    resume_tick = c.dish.tick
+    c.save()
+    _set_saved_at(time.time() - 43440)  # 12h04m ago
+
+    again = Culture.load(Mind())
+    assert again.saved_at is not None and again._resume == {"gap": pytest.approx(43440, abs=5), "tick": resume_tick}
+    again.run(ticks=20, tick_seconds=0)  # a curve row lands at ticks 50 and 60, both past the resume tick
+    again.mutagen.join(timeout=5)
+
+    gaps = _events("gap")
+    assert len(gaps) == 1
+    (gap,) = gaps
+    assert gap["tick"] == resume_tick
+    assert gap["msg"].startswith("incubation resumed after ")
+    assert gap["branch"] == 0
+
+    evs = curve.events()
+    marks = plot.markers(evs)
+    assert any(m.kind == "gap" and m.tick == resume_tick and m.branch == 0 for m in marks)
+    fig = plot.figure(curve.read(), evs, ["population"])
+    assert any(m.kind == "gap" for m in fig.markers)
+
+    third = Culture.load(Mind())  # dish.json now carries a fresh saved_at from again.run()'s final save
+    assert third._resume is None
+    third.run(ticks=5, tick_seconds=0)
+    third.mutagen.join(timeout=5)
+    assert len(_events("gap")) == 1  # the gap is logged once, for the absence that happened
+
+
+def test_a_brief_absence_and_a_never_run_dish_log_no_gap(make_culture):
+    """No gap for a resume within the threshold, and none for a dish that has never run: a dish
+    germinated but not incubated saves at tick 0, and the tick>0 guard keeps it from a phantom gap."""
+    c = make_culture()
+    for _ in range(20):
+        c.step()
+    c.save()  # a fresh saved_at, so the absence is seconds, well under the threshold
+    brief = Culture.load(Mind())
+    assert brief._resume is None
+    brief.run(ticks=5, tick_seconds=0)
+    brief.mutagen.join(timeout=5)
+    assert _events("gap") == []
+
+    fresh = make_culture()
+    fresh.save()  # tick 0: germinated, never incubated
+    _set_saved_at(time.time() - 43440)
+    never = Culture.load(Mind())
+    assert never._resume is None  # the dish.tick > 0 guard
+    never.run(ticks=1, tick_seconds=0)
+    never.mutagen.join(timeout=5)
+    assert _events("gap") == []
+
+
+def test_status_shows_last_active(make_culture, capsys):
+    """`biotic status` reports when the dish was last written, and says nothing about it for a
+    dish.json from before the field existed."""
+    c = make_culture()
+    for _ in range(10):
+        c.step()
+    c.save()
+    _set_saved_at(time.time() - 43440)
+    main(["status"])
+    out = capsys.readouterr().out
+    assert "last active" in out and "ago" in out
+
+    blob = json.loads(config.DISH_FILE.read_text())
+    del blob["saved_at"]
+    config.DISH_FILE.write_text(json.dumps(blob))
+    main(["status"])
+    assert "last active" not in capsys.readouterr().out
 
 
 def test_network_guard_is_armed():
