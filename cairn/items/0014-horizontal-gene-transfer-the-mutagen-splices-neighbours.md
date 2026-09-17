@@ -63,3 +63,7 @@ Wall-clock pool: requests/pool keyed by str (mutation) or (recipient,donor) tupl
 ## 2026-09-16
 
 conftest fake_mutagen signature had to become take(self, strain, donor=None) because _on_divide now calls take(cell.strain, donor=donor); without it the freezer tests TypeError. A splice increments BOTH mutations_taken and spliced (a splice is a kind of mutation) so the two curve columns are not disjoint; documented in docs/hgt.md and CHANGELOG. _ask's donor-missing fallback: if the donor left genomes between request and prep, the splice falls through to an ordinary mutation prompt (wall-clock edge only; tick clock guarantees the donor is present).
+
+## 2026-09-16
+
+Review fix: docs/predation.md misstated CONCEPT.md §1 order (had hgt second, give third). CONCEPT.md §1 is predation, sharing, hgt; docs/hgt.md agrees. Reworded predation.md to 'sharing is second, hgt third'. Docs-only, no behaviour change (CHANGELOG/README 'second rule' means second-implemented, left as-is).

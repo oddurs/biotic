@@ -5,9 +5,9 @@ rest — but never on another cell. Predation is the first rule that makes one
 cell's code matter to another's: `("lyse", d)` bursts the neighbour in direction
 `d` and takes some of its energy. Now there is a reason to be armoured, to be
 fast, to flee, to be worth less than the attack costs. It is the first of the
-biotic rules in `CONCEPT.md` §1; horizontal gene transfer (`hgt`,
-`docs/hgt.md`) is the second, sharing (`give`) comes next, and coevolution — the
-arms race — is item 0016.
+biotic rules in `CONCEPT.md` §1; sharing (`give`) is the second and horizontal
+gene transfer (`hgt`, `docs/hgt.md`) the third, and coevolution — the arms
+race — is item 0016.
 
 Predation is a **feature**: an opt-in rule a dish keeps off unless you turn it
 on. A dish that predates this change is untouched, and behaves exactly as it
