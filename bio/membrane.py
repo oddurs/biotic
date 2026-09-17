@@ -508,14 +508,20 @@ class _FakeMe:
         self.around = [rng.random() for _ in range(8)]
         self.crowd = [rng.random() < 0.4 for _ in range(8)]
         self.kin = [c and rng.random() < 0.6 for c in self.crowd]
-        # a non-kin neighbour's energy on some occupied tiles, 0.0 elsewhere; mirrors Me.threat so a
-        # genome that reads me.threat (a lyser, or a cell that flees a threat) exercises its branch here
-        self.threat = [e * (c and rng.random() < 0.6) for c, e in zip(self.crowd, self.around)]
+        self.threat = self._threat(rng, self.crowd, self.around)
         self.scent = [rng.random() * 0.5 for _ in range(8)]
         self.scent_here = rng.random() * 0.5
         self.memory = {}
         self.strain = "test"
         self.population = rng.randint(1, 900)
+
+    @staticmethod
+    def _threat(rng: random.Random, crowd: list[bool], around: list[float]) -> list[float]:
+        # a non-kin neighbour's energy on some occupied tiles, 0.0 elsewhere; scaled to 0..MAX_ENERGY
+        # like a live neighbour's energy (Me.threat holds a cell's energy, not a nutrient), so a genome
+        # that reads me.threat (a lyser, or a cell that flees) exercises its branch across the real
+        # interval an energy-scale threshold would gate on
+        return [e * config.MAX_ENERGY * (c and rng.random() < 0.6) for c, e in zip(crowd, around)]
 
 
 def smoke_test(source: str, rounds: int = 40) -> Verdict:
@@ -541,7 +547,7 @@ def smoke_test(source: str, rounds: int = 40) -> Verdict:
         me.around = [rng.choice([0.0, rng.random()]) for _ in range(8)]
         me.crowd = [rng.random() < (i / rounds) for _ in range(8)]
         me.kin = [c and rng.random() < 0.6 for c in me.crowd]
-        me.threat = [e * (c and rng.random() < 0.6) for c, e in zip(me.crowd, me.around)]
+        me.threat = _FakeMe._threat(rng, me.crowd, me.around)
         try:
             with Budget(budget):
                 out = fn(me)

@@ -59,3 +59,7 @@ LYSE_K=2.0: energies are 0..MAX_ENERGY(2.0) so the sigmoid arg is bounded ±4, g
 ## 2026-09-16
 
 plot.LABELS needs a predated entry: PLOTTABLE derives from COLUMNS so predated becomes plottable automatically, and test_plot pins set(LABELS)==set(PLOTTABLE); biotic curve --cols predated would KeyError without it.
+
+## 2026-09-16
+
+Review fixes: (1) _FakeMe threat was on the nutrient scale 0..1, not a neighbour's energy 0..MAX_ENERGY(2.0), so a lyse/flee branch gated on an energy-scale threshold (>1.5) was admitted but never exercised on the smoke rounds. Scaled it by config.MAX_ENERGY and deduped both call sites (init + per-round refresh) into _FakeMe._threat, pinned by test_the_smoke_stand_in_presents_threat_on_the_energy_scale. (2) Added test_an_unknown_flag_from_a_newer_apparatus_survives_the_round_trip to pin the forward-compat feature-flag merge docs/predation.md promises.

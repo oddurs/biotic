@@ -19,7 +19,7 @@ from bio import config, curve, plot, prompts
 from bio.__main__ import main
 from bio.culture import FALLBACK_GENESIS, Culture
 from bio.dish import Dish
-from bio.membrane import admit
+from bio.membrane import _FakeMe, admit
 from bio.mind import Mind
 
 # A genome that lyses the most energetic non-kin neighbour when one is near (me.threat marks it),
@@ -81,6 +81,19 @@ def test_a_lyse_reading_genome_is_admitted():
     """The membrane's stand-in must expose me.threat, or a genome that reads it is refused before
     it can live. admit() runs the static gate and forty smoke rounds against _FakeMe."""
     assert admit(LYSER), admit(LYSER).reasons
+
+
+def test_the_smoke_stand_in_presents_threat_on_the_energy_scale():
+    """me.threat holds a neighbour cell's energy (0..MAX_ENERGY), not a nutrient (0..1). The
+    stand-in must span the same interval, or a genome whose flee/lyse branch is gated on an
+    energy-scale threshold (e.g. me.threat[d] > 1.5) is admitted but never exercised on the
+    smoke rounds. Regressing the stand-in to the 0..1 nutrient scale would drop this max to <= 1.0."""
+    hi = 0.0
+    for seed in range(200):
+        me = _FakeMe(random.Random(seed), 0)
+        hi = max(hi, max(me.threat))
+    assert hi > 1.0, "fake threat never clears the nutrient ceiling; it is not on the energy scale"
+    assert hi <= config.MAX_ENERGY, "fake threat exceeds a live neighbour's energy ceiling"
 
 
 def test_a_mixed_dish_with_lyse_on_produces_predated_deaths():
@@ -318,6 +331,18 @@ def test_a_dish_without_a_features_key_thaws_to_all_off():
     del blob["features"]
     clone = Dish.from_dict(blob)
     assert clone.features == {"lyse": False}
+
+
+def test_an_unknown_flag_from_a_newer_apparatus_survives_the_round_trip():
+    """A flag a newer apparatus wrote (a future "give", say) that this build has no rule for must
+    not be dropped by from_dict's merge — docs/predation.md promises the round trip preserves it.
+    Known flags absent from the blob still default off."""
+    d = Dish("rt", width=24, height=12)
+    blob = d.to_dict()
+    blob["features"]["give"] = True
+    clone = Dish.from_dict(blob)
+    assert clone.features["give"] is True, "an unknown forward flag was silently dropped"
+    assert clone.features["lyse"] is False
 
 
 # --- seeding a dish with the feature on --------------------------------------------------------
