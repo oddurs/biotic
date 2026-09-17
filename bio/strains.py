@@ -24,6 +24,7 @@ class Strain:
     extinct_at: int | None = None
     peak: int = 0
     generation: int = 0
+    mutagen: str | None = None  # what produced it: "llm", "random", "hgt", or null for a founder
 
 
 class Registry:
@@ -33,7 +34,9 @@ class Registry:
         self._n = 0
 
     # --- creation -----------------------------------------------------------
-    def new(self, source: str, parent: str | None, tick: int, name: str, note: str) -> Strain:
+    def new(
+        self, source: str, parent: str | None, tick: int, name: str, note: str, mutagen: str | None = None
+    ) -> Strain:
         self._n += 1
         sid = hashlib.sha1(f"{self._n}:{source}".encode()).hexdigest()[:4]
         while sid in self.strains:
@@ -48,7 +51,7 @@ class Registry:
         cname = _clean_name(name) or f"strain_{sid}"
         if any(x.name == cname for x in self.strains.values()):
             cname = f"{cname}_{sid}"
-        s = Strain(sid, parent, cname, note.strip()[:200], source, tick, hue, generation=gen)
+        s = Strain(sid, parent, cname, note.strip()[:200], source, tick, hue, generation=gen, mutagen=mutagen)
         self.strains[sid] = s
         self.fossilize(s)
         return s
@@ -66,9 +69,10 @@ class Registry:
         config.SOMA.mkdir(parents=True, exist_ok=True)  # soma is nested under the vessel now
         parent = self.strains.get(s.parent) if s.parent else None
         lineage = f"from {parent.name} ({parent.id})" if parent else "the founding cell"
+        origin = f" by the {s.mutagen} mutagen" if s.mutagen else ""
         header = (
             f'"""strain {s.id} — {s.name}\n\n'
-            f"generation {s.generation}, arose at tick {s.born}, {lineage}.\n"
+            f"generation {s.generation}, arose at tick {s.born}, {lineage}{origin}.\n"
             f"{s.note}\n"
             f'"""\n\n'
         )
@@ -193,6 +197,7 @@ _SHAPE: dict[str, tuple] = {
     "extinct_at": (lambda v: v is None or _is_tick(v), "a tick or null"),
     "peak": (_is_tick, "a count (an integer, 0 or more)"),
     "generation": (_is_tick, "a generation (an integer, 0 or more)"),
+    "mutagen": (lambda v: v is None or v in ("llm", "random", "hgt"), "an origin: llm, random, hgt or null"),
 }
 assert set(_SHAPE) == _FIELDS
 

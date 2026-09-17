@@ -31,6 +31,7 @@ Watch the dish (default).
 | `--tick TICK` | seconds per tick |
 | `--budget BUDGET` | dollars this dish may spend on the mind (default: what the dish remembers, else BIOTIC_BUDGET_USD, else 2.00; inf for no cap) |
 | `--clock CLOCK` | mutagen clock: wall (a background thread; the dish never waits on the mind; live's default) or tick (the dish calls the mind itself, at most every BIOTIC_MUTAGEN_EVERY_TICKS ticks, and waits for the reply; run's default). Sticks to the dish like --budget; BIOTIC_MUTAGEN_CLOCK sets it per process. docs/experiments.md One of `wall`, `tick` |
+| `--mutagen MUTAGEN` | mutagen arm: llm (the semantic mind), random (the offline control arm — AST mutations, no network, no spend) or mixed (BIOTIC_RANDOM_SHARE of rolls go to random; the default). Sticks to the dish like --clock; BIOTIC_MUTAGEN sets it per process. docs/mutagen.md One of `llm`, `random`, `mixed` |
 
 ## run
 
@@ -44,6 +45,7 @@ Run headless, e.g. for an experiment.
 | `--quiet` | no budget line or progress reports; the summary at the end still prints |
 | `--budget BUDGET` | dollars this dish may spend on the mind (default: what the dish remembers, else BIOTIC_BUDGET_USD, else 2.00; inf for no cap) |
 | `--clock CLOCK` | mutagen clock: wall (a background thread; the dish never waits on the mind; live's default) or tick (the dish calls the mind itself, at most every BIOTIC_MUTAGEN_EVERY_TICKS ticks, and waits for the reply; run's default). Sticks to the dish like --budget; BIOTIC_MUTAGEN_CLOCK sets it per process. docs/experiments.md One of `wall`, `tick` |
+| `--mutagen MUTAGEN` | mutagen arm: llm (the semantic mind), random (the offline control arm — AST mutations, no network, no spend) or mixed (BIOTIC_RANDOM_SHARE of rolls go to random; the default). Sticks to the dish like --clock; BIOTIC_MUTAGEN sets it per process. docs/mutagen.md One of `llm`, `random`, `mixed` |
 
 ## status
 
@@ -195,6 +197,7 @@ Found N flasks of one seed and one ancestor.
 | `--seed SEED` | the seed every flask shares (same seed, same agar) |
 | `--n N` | how many flasks (default 12, as Lenski has) (default `12`) |
 | `--dir DIR` | where the flasks live (default: BIOTIC_FLASKS, else ./flasks) |
+| `--mutagen MUTAGEN` | mutagen arm: llm (the semantic mind), random (the offline control arm — AST mutations, no network, no spend) or mixed (BIOTIC_RANDOM_SHARE of rolls go to random; the default). Sticks to the dish like --clock; BIOTIC_MUTAGEN sets it per process. docs/mutagen.md One of `llm`, `random`, `mixed` |
 
 ### flasks run
 

@@ -74,6 +74,7 @@ def new(
     root: str | Path | None = None,
     mind: Mind | None = None,
     size: tuple[int, int] | None = None,
+    mutagen: str | None = None,
 ) -> dict:
     """Create `<root>/<name>/{01..NN}`, each a vessel of the SAME seed and SAME founder, each with
     a distinct flask id so the trajectories diverge. Refuses an existing, populated set.
@@ -93,13 +94,13 @@ def new(
     w, h = size if size is not None else _fit_dish()
     mind = mind if mind is not None else _dormant()
     with config.vessel_scope(base / ids[0]):
-        c = Culture.germinate(seed, mind, flask=ids[0], size=(w, h))
+        c = Culture.germinate(seed, mind, flask=ids[0], size=(w, h), mutagen=mutagen)
         (s,) = c.registry.strains.values()  # exactly one at the founding
         founder = (s.name, s.note, s.source)
         ancestor = {"id": s.id, "name": s.name, "note": s.note}
     for fid in ids[1:]:
         with config.vessel_scope(base / fid):
-            Culture.germinate(seed, _dormant(), flask=fid, founder=founder, size=(w, h))
+            Culture.germinate(seed, _dormant(), flask=fid, founder=founder, size=(w, h), mutagen=mutagen)
     man = {
         "name": name,
         "seed": seed,
@@ -110,6 +111,7 @@ def new(
         "created": time.time(),
         "biotic": freezer.version(),
         "model": mind.model if mind.awake else None,  # null when the ancestor is the built-in fallback
+        "mutagen": mutagen or config.MUTAGEN_KIND,  # the arm every flask of the set runs under
         "founder": ancestor,
     }
     manifest_path(name, root).write_text(json.dumps(man, indent=1))

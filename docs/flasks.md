@@ -54,14 +54,28 @@ it to found each flask in turn.
 `flasks new` founds the ancestor with a **dormant** mind: the built-in fallback founder, no
 network call, no dollar spent. `flasks run` runs every flask with the mind turned off in the child
 environment (the API keys are blanked so the child cannot re-read them from `.env`), so no
-replicate can spend from the project balance and the mutagen never fires. Replicates therefore run
-**without variation** — the founder's lineage grows, competes for agar, and crashes, but nothing
-mutates.
+replicate can spend from the project balance and the *semantic* mutagen never fires.
 
-Awake replicate runs — twelve flasks each with a live mutagen, and a budget shared or split across
-them — are a deliberately separate, later concern, because they spend real money and want an
-explicit cap. Item 0006 gives you replication of the *dynamics*; it does not turn the mutagen loose
-across a dozen flasks.
+The random mutagen, though, needs no mind (`docs/mutagen.md`), so dormant replicates **do** vary on
+the default `mixed` arm — a quarter of their divisions take an offline AST mutation. That is what
+makes a replicate set a real control: `biotic flasks new comp --seed "tide" --mutagen random`
+founds twelve flasks that evolve entirely offline, and `biotic flasks run comp --ticks 5000` runs
+them for nothing. To keep the old behaviour — replicates that grow, compete and crash but never
+mutate — found the set with `--mutagen llm`, which pins the semantic arm the dormant mind cannot
+feed.
+
+Awake replicate runs — twelve flasks each with a live *semantic* mutagen, and a budget shared or
+split across them — are a deliberately separate, later concern, because they spend real money and
+want an explicit cap. Item 0006 gives you replication of the *dynamics*; it does not turn the
+semantic mutagen loose across a dozen flasks.
+
+## the mutagen arm
+
+`biotic flasks new <name> --mutagen llm|random|mixed` fixes the arm for the whole set, recorded in
+the manifest and remembered in each flask's `dish.json`, so `flasks run` — which spawns children
+with no flags — runs every flask on it. Default `mixed`. Use it to found the two halves of the
+control experiment (`docs/experiments.md`): one set `--mutagen random`, one `--mutagen llm`, same
+seed.
 
 ## reading the spread
 

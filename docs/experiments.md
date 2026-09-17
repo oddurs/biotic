@@ -164,3 +164,26 @@ the same seed and a mind that replays its replies, every column reproduces; with
 live model, the supply schedule reproduces and the replies do not, which is the
 experiment. What differs between two conditions is then the model's answers and
 what the dish did with them, not how many chances the model got.
+
+## the control arm
+
+The tick clock makes the *supply* of variants a property of the run. The mutagen's
+*arm* decides where those variants come from: the semantic mind, the offline random
+mutagen, or a mix (`docs/mutagen.md`). The comparison the project is built to make —
+does the semantic mutagen escape the plateau random mutation reached? — needs both
+arms run under the same conditions.
+
+Found one set per arm from one seed, run both, and overlay them:
+
+    biotic flasks new comp-llm    --seed "tide" --mutagen llm
+    biotic flasks new comp-random --seed "tide" --mutagen random
+    biotic flasks run comp-llm    --ticks 5000
+    biotic flasks run comp-random --ticks 5000
+    biotic flasks curve comp-random --cols arisen,shannon,dominance
+
+Same seed means the same agar, so the only difference between the sets is the mutagen.
+The random set is fully offline — the flasks are dormant, and the random arm needs no
+mind — so it costs nothing and runs at whatever speed the box allows; the `llm` set
+spends from the budget and is bounded by the tick clock. Compare the shape of `arisen`,
+the ceiling of `shannon`, and how long `dominance` sits near 1: that is the plateau
+question, asked directly. The write-up of the comparison is items 0038 and 0041.

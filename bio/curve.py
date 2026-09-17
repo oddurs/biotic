@@ -47,6 +47,9 @@ COLUMNS: tuple[str, ...] = (
     "mutations_viable",
     # predation: cells burst by a lysing neighbour of another strain, cumulative. docs/predation.md
     "predated",
+    # the arms of the mutagen, cumulative: strains that arose by each. docs/mutagen.md
+    "arisen_llm",
+    "arisen_random",
 )
 DECIMALS = {"nutrient": 4, "shannon": 4, "dominance": 4, "mean_gen": 2, "pheromone": 4}
 _INT = frozenset(COLUMNS) - frozenset(DECIMALS) - {"phase"}

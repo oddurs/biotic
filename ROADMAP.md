@@ -32,7 +32,7 @@ The apparatus exists and a culture evolves in it. It is not yet an instrument:
 
 ## biotic-env — The environment is other cells
 
-`##········` 17% · 1 of 6 done · due 2026-10-05
+`####······` 33% · 2 of 6 done · due 2026-10-05
 
 Tierra's own history says where novelty comes from: not the physical
 
@@ -40,13 +40,13 @@ Tierra's own history says where novelty comes from: not the physical
 
 - [ ] `0013` Sharing: `("give", d, x)` <sup>feature · p1</sup>
 - [ ] `0014` Horizontal gene transfer: the mutagen splices neighbours <sup>feature · p0</sup>
-- [ ] `0015` A random mutagen as the control arm <sup>feature · p0</sup>
 - [ ] `0016` Experiment: does parasitism arise? <sup>docs · p1</sup>
 - [ ] `0041` Experiment: the mutagen's identity — a model comparison <sup>docs · p1</sup>
 
 ### done
 
 - [x] `0012` Predation: `("lyse", d)` <sup>feature · p0</sup>
+- [x] `0015` A random mutagen as the control arm <sup>feature · p0</sup>
 
 ## substrates — The agar becomes chemistry
 

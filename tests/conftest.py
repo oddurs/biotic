@@ -166,6 +166,9 @@ def vessel(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setattr(config, "BASE_URL", "https://example.invalid/v1")  # Mind.awake -> False
     monkeypatch.setattr(config, "BUDGET_USD", 2.0)  # whatever .env says, a test's default budget is $2.00
     monkeypatch.setattr(config, "MUTAGEN_INTERVAL", 12.0)
+    # The suite's baseline mutagen arm is the semantic one, so a dormant culture is faithful, as it
+    # was before the random control arm existed; tests for the random and mixed arms set their own.
+    monkeypatch.setattr(config, "MUTAGEN_KIND", "llm")
     monkeypatch.setattr("urllib.request.urlopen", _no_network)
     monkeypatch.setenv("BIOTIC_WIDTH", "24")  # germinate() sizes the dish from these
     monkeypatch.setenv("BIOTIC_HEIGHT", "12")
