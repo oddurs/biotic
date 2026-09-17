@@ -23,8 +23,12 @@ def cmd_seed(a):
             "no mind: set OPENROUTER_API_KEY in .env (the dish will still grow, with a default founder)",
             file=sys.stderr,
         )
+    feats = [x.strip() for x in a.features.split(",") if x.strip()] if a.features else None
+    for f in feats or []:  # fail fast, before germinate can autoclave an existing dish on a typo
+        if f not in config.FEATURES:
+            sys.exit(f"unknown feature: {f}; known features: {', '.join(config.FEATURES)}")
     try:
-        c = Culture.germinate(a.seed, mind, fresh=a.fresh, budget=a.budget)
+        c = Culture.germinate(a.seed, mind, fresh=a.fresh, budget=a.budget, features=feats)
     except (FileExistsError, RuntimeError) as e:
         sys.exit(str(e))
     s = next(iter(c.registry.strains.values()))
@@ -239,6 +243,14 @@ def cmd_whisper(a):
 
 
 def cmd_drop(a):
+    if a.what == "feature":
+        if not a.name:
+            sys.exit(f"`biotic drop feature` needs a feature name; known features: {', '.join(config.FEATURES)}")
+        if a.name not in config.FEATURES:
+            sys.exit(f"unknown feature: {a.name}; known features: {', '.join(config.FEATURES)}")
+        _intervene({"drop": "feature", "feature": a.name})
+        print(f"feature {a.name} queued to enable on the next run")
+        return
     req = {"drop": a.what}
     if a.at:
         x, y = a.at.split(",")
@@ -593,6 +605,9 @@ def main(argv=None):
     s.add_argument("seed")
     s.add_argument("--fresh", action="store_true", help="autoclave first if a culture exists")
     s.add_argument("--budget", type=float, help=budget_help)
+    s.add_argument(
+        "--with", dest="features", metavar="NAMES", help="comma-separated features to enable at seeding, e.g. lyse"
+    )
     s.set_defaults(f=cmd_seed)
 
     s = sub.add_parser("live", help="watch the dish (default)", parents=[common])
@@ -645,7 +660,8 @@ def main(argv=None):
     s.add_argument("text", nargs="+")
     s.set_defaults(f=cmd_whisper)
     s = sub.add_parser("drop", help="intervene in the dish", parents=[common])
-    s.add_argument("what", choices=["nutrient", "antibiotic", "mutagen"])
+    s.add_argument("what", choices=["nutrient", "antibiotic", "mutagen", "feature"])
+    s.add_argument("name", nargs="?", help="the feature to enable, for `drop feature` (e.g. lyse)")
     s.add_argument("--at", help="x,y")
     s.add_argument("--r", type=float, help="radius")
     s.set_defaults(f=cmd_drop)

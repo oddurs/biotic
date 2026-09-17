@@ -2,10 +2,11 @@
 id: 12
 title: 'Predation: `("lyse", d)`'
 type: feature
-status: planned
+status: done
 milestone: biotic-env
+assignee: Oddur Sigurdsson
 created: 2026-09-08
-updated: 2026-09-08
+updated: 2026-09-16
 priority: p0
 effort: m
 area: bio/dish.py, bio/prompts.py
@@ -34,7 +35,27 @@ dish.
 
 ## Acceptance criteria
 
-- [ ] A genome that always lyses is admitted, and in a mixed dish produces `predated` deaths
-- [ ] Kin are never lysed
-- [ ] Enabling mid-run is logged and marked on the curve
-- [ ] Vitals show predation deaths; census unaffected in format
+- [x] A genome that always lyses is admitted, and in a mixed dish produces `predated` deaths
+- [x] Kin are never lysed
+- [x] Enabling mid-run is logged and marked on the curve
+- [x] Vitals show predation deaths; census unaffected in format
+
+## 2026-09-16
+
+_FakeMe (bio/membrane.py) must expose me.threat, or a genome reading it is refused by the smoke test — directly failing 'a lyser is admitted'. Added self.threat to _FakeMe.__init__ and refreshed it per smoke round; it is a plain float list so it passes the static gate.
+
+## 2026-09-16
+
+germinate ordering: features are validated before any destructive step (so a typo never autoclaves) and enable_feature() runs after cult=cls(...) but before _genesis(), so the founding prompt documents lyse when seeded --with lyse. enable_feature logs the tick-0 drop marker itself.
+
+## 2026-09-16
+
+predated appended at the very END of curve.COLUMNS (append-only invariant). This broke test_metrics widening tests that assumed a 19-col file gains exactly the 2 supply cols and full-width hand rows — updated them to expect predated too; not flagged in the plan.
+
+## 2026-09-16
+
+LYSE_K=2.0: energies are 0..MAX_ENERGY(2.0) so the sigmoid arg is bounded ±4, giving p in ~0.02..0.98 — always a chance either way and no exp overflow. Sigmoid uses pre-cost energies (what the genome perceived).
+
+## 2026-09-16
+
+plot.LABELS needs a predated entry: PLOTTABLE derives from COLUMNS so predated becomes plottable automatically, and test_plot pins set(LABELS)==set(PLOTTABLE); biotic curve --cols predated would KeyError without it.

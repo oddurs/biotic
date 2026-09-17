@@ -9,6 +9,16 @@ turns the `Unreleased` section into a dated release.
 
 ### Added
 
+- Predation, the first biotic rule: a cell can burst a neighbour of another strain with
+  `("lyse", d)`. The attacker pays `LYSE_COST` (0.05) whatever happens; with probability
+  `p = 1 / (1 + exp(-LYSE_K · (E_attacker − E_defender)))` the target bursts (death cause
+  `predated`) and the attacker gains `LYSE_YIELD` (0.6) × the target's energy, otherwise it loses
+  a further `LYSE_RECOIL` (0.03). Kin are immune (a silent, free no-op), and cells gain `me.threat`:
+  eight floats, a non-kin neighbour's energy or 0. Predation is an opt-in **feature**, off by default
+  so no existing dish is altered; `biotic seed "…" --with lyse` turns it on from the founding cell and
+  `biotic drop feature lyse` mid-run (logged and marked on the curve like any drop). `dish.json` now
+  records `dish.features`, and `vessel/curve.csv` gains a cumulative `predated` column after
+  `mutations_viable`. `LYSE_K` (2.0) is a physics constant in `bio/config.py`. See `docs/predation.md`.
 - Incubation gaps: a dish resumed after more than ten minutes away logs one `gap` event (`incubation resumed after 12h04m`), which `biotic curve` draws as `⋯` at the resume tick; the naturalist's first note after the gap is told the measured off-time, and `biotic status` shows `last active`. `dish.json` now records `saved_at`. Tune with `BIOTIC_INCUBATION_GAP` (seconds). See `docs/curve.md`.
 - Replicate flasks: `biotic flasks new <name> --seed "…" [--n 12]` founds one ancestor and pours it
   into `flasks/<name>/{01..NN}/`, each a self-contained vessel of the same seed (so the agar is

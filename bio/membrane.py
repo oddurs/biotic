@@ -508,6 +508,9 @@ class _FakeMe:
         self.around = [rng.random() for _ in range(8)]
         self.crowd = [rng.random() < 0.4 for _ in range(8)]
         self.kin = [c and rng.random() < 0.6 for c in self.crowd]
+        # a non-kin neighbour's energy on some occupied tiles, 0.0 elsewhere; mirrors Me.threat so a
+        # genome that reads me.threat (a lyser, or a cell that flees a threat) exercises its branch here
+        self.threat = [e * (c and rng.random() < 0.6) for c, e in zip(self.crowd, self.around)]
         self.scent = [rng.random() * 0.5 for _ in range(8)]
         self.scent_here = rng.random() * 0.5
         self.memory = {}
@@ -538,6 +541,7 @@ def smoke_test(source: str, rounds: int = 40) -> Verdict:
         me.around = [rng.choice([0.0, rng.random()]) for _ in range(8)]
         me.crowd = [rng.random() < (i / rounds) for _ in range(8)]
         me.kin = [c and rng.random() < 0.6 for c in me.crowd]
+        me.threat = [e * (c and rng.random() < 0.6) for c, e in zip(me.crowd, me.around)]
         try:
             with Budget(budget):
                 out = fn(me)

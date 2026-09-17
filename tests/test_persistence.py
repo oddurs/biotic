@@ -267,4 +267,4 @@ def test_from_dict_tolerates_missing_optional_keys():
     assert clone.replenish == config.REPLENISH
     assert clone.births == 0
     assert list(clone.history) == []
-    assert clone.deaths == {"starved": 0, "lysed": 0, "senescent": 0, "killed": 0}
+    assert clone.deaths == {"starved": 0, "lysed": 0, "senescent": 0, "killed": 0, "predated": 0}

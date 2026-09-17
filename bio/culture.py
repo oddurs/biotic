@@ -34,6 +34,9 @@ HIDDEN = {"call", "prepared"}
 # dish calling the mind itself at most every MUTAGEN_EVERY_TICKS ticks. docs/experiments.md
 CLOCKS = ("wall", "tick")
 
+# How each opt-in feature reads in the log when it is enabled (docs/predation.md).
+FEATURE_LABELS = {"lyse": "predation (lyse)"}
+
 FALLBACK_GENESIS = """\
 def live(me):
     free = [d for d in range(8) if not me.crowd[d]]
@@ -108,6 +111,7 @@ class Culture:
         flask: str = "",
         founder: tuple[str, str, str] | None = None,
         size: tuple[int, int] | None = None,
+        features: list[str] | None = None,
     ) -> Culture:
         """Found a culture: autoclave the vessel (the freezer is kept), pour a dish, inoculate `n`
         cells (default config.INOCULUM) of the founder, save, and freeze tick 0 as `genesis`. The
@@ -131,6 +135,9 @@ class Culture:
         n = config.INOCULUM if n is None else int(n)
         if n < 1:
             raise ValueError(f"an inoculum is at least 1 cell, not {n}")
+        for f in features or []:  # validate before any destructive step, so a typo never autoclaves the dish
+            if f not in config.FEATURES:
+                raise ValueError(f"unknown feature: {f}; known features: {', '.join(config.FEATURES)}")
         if budget is not None:
             mind.budget_usd = parse_budget(budget)
         sample = None
@@ -151,6 +158,10 @@ class Culture:
         dish = Dish(seed, w, h, flask=flask)
         reg = Registry(seed)
         cult = cls(seed, dish, reg, mind)
+        # before _genesis(): the founding prompt must document a feature the dish is seeded with.
+        # enable_feature writes a tick-0 drop marker (the vessel exists), so no separate seed log.
+        for f in features or []:
+            cult.enable_feature(f)
         if sample is None and founder is not None:
             # a replicate flask: one ancestor for every flask of the set, poured in without the
             # mind (no network, no spend), so the flasks differ only by their RNG salt.
@@ -211,7 +222,10 @@ class Culture:
         for attempt in range(4):
             try:
                 reply = self.mind.think(
-                    prompts.GENESIS_SYSTEM, prompts.genesis_user(self.seed, failures), temperature=0.9, role="genesis"
+                    prompts.genesis_system(self.dish.features),
+                    prompts.genesis_user(self.seed, failures),
+                    temperature=0.9,
+                    role="genesis",
                 )
             except Exhausted as e:
                 # nothing left to try with: not a founder that would not grow, so not that message
@@ -489,7 +503,28 @@ class Culture:
             return []
         return [ln[2:].strip() for ln in config.WHISPERS.read_text().splitlines() if ln.startswith("- ")]
 
-    def drop(self, what: str, at: tuple[int, int] | None = None, r: float | None = None) -> str:
+    def enable_feature(self, name: str) -> str:
+        """Switch on an opt-in dish rule (docs/predation.md), logged as a `drop` intervention so it
+        marks the growth curve and reaches the naturalist like any other drop. Idempotent: enabling
+        one already on is a no-op that says so. The genesis and mutagen prompts documenting the
+        feature follow from dish.features, so this must run before _genesis() at seeding."""
+        if name not in config.FEATURES:
+            raise ValueError(f"unknown feature: {name}")
+        d, label = self.dish, FEATURE_LABELS.get(name, name)
+        if d.features.get(name):
+            msg = f"{label} was already enabled"
+            self.log("drop", msg, what=f"feature {name}", feature=name, already=True)
+            return msg
+        d.features[name] = True
+        msg = f"{label} enabled"
+        self.log("drop", msg, what=f"feature {name}", feature=name)
+        return msg
+
+    def drop(
+        self, what: str, at: tuple[int, int] | None = None, r: float | None = None, name: str | None = None
+    ) -> str:
+        if what == "feature":
+            return self.enable_feature(name)
         d = self.dish
         if at is None:
             # somewhere on the agar, biased toward the middle
@@ -536,7 +571,7 @@ class Culture:
                     self.whisper(req["whisper"])
                 elif "drop" in req:
                     at = tuple(req["at"]) if req.get("at") else None
-                    self.drop(req["drop"], at, req.get("r"))
+                    self.drop(req["drop"], at, req.get("r"), name=req.get("feature"))
                 elif "freeze" in req:
                     self.freeze(req["freeze"] or "manual")
                 elif "freeze_strain" in req:
@@ -861,6 +896,9 @@ class Culture:
             "census": census,
             "nutrient": d.nutrient_mean(),
             "whispers": self.whispers(),
+            # a fresh copy each refresh, so enable_feature mutating the dish's dict never reaches
+            # the mutagen thread's snapshot mid-call (the prompt is built from this dict)
+            "features": dict(d.features),
         }
 
     def metrics(self, census: dict[str, int] | None = None, phase: str | None = None) -> dict:

@@ -34,6 +34,7 @@ previous row.
 | `branch` | int | the vessel's timeline: 0 until the first `biotic revive` of a dish sample, one more after each. A coordinate, not a marker: `(branch, tick)` names a row uniquely once a revive has sent `tick` back through values already in the file. Empty in rows written before the column existed; those were all branch 0 |
 | `mutations_attempted` | int, cumulative | calls the mutagen made that got an answer or an error, on either clock; not the calls a dormant or exhausted mind refused before any request |
 | `mutations_viable` | int, cumulative | daughters that passed the membrane: into the pool on the wall clock, born at once on the tick clock. At most `mutations_attempted`; `docs/experiments.md` |
+| `predated` | int, cumulative | cells burst by a lysing neighbour of another strain; 0 unless the `lyse` feature is on (`docs/predation.md`). Appended after `mutations_viable` |
 
 Floats are written to four decimals, `mean_gen` to two. Four decimals resolve
 sustained signalling in `pheromone`: one cell emitting 0.2 every tick holds the
@@ -89,9 +90,9 @@ the first variant taken, because the model's replies are not a function of the
 dish. Leave `mutations_ready` out when comparing curves.
 
 The death ledger closes. For a dish inoculated once,
-`births − (starved + lysed + senescent + killed) = population − INOCULUM` holds
-in every row; `killed` is a column so that it still holds after an antibiotic
-disc.
+`births − (starved + lysed + senescent + killed + predated) = population − INOCULUM`
+holds in every row; `killed` is a column so that it still holds after an antibiotic
+disc, and `predated` so that it still holds once predation is on (`docs/predation.md`).
 
 `phase` is the phase the culture believes: the raw phase has to hold for 25
 ticks before it is logged, so the column lags the population by up to 25 ticks,

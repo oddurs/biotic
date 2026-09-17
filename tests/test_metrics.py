@@ -23,7 +23,7 @@ OLD_HEADER = "tick,population,strains,nutrient,phase,births,starved,lysed,senesc
 NEW_HEADER = (
     OLD_HEADER
     + ",killed,shannon,dominance,mean_gen,arisen,extinct,pheromone,mutations_ready,mutations_taken,branch"
-    + ",mutations_attempted,mutations_viable"
+    + ",mutations_attempted,mutations_viable,predated"
 )
 OLD_ROWS = [
     "10,5,1,0.7103,lag,0,0,0,0",
@@ -267,14 +267,14 @@ def test_old_curve_is_widened_in_place(make_culture):
 
 
 def test_a_curve_written_before_the_supply_columns_is_widened(make_culture):
-    """A file from the nineteen-column apparatus, up to `branch`, gains exactly the two supply
-    columns; its rows read None there, the new rows read ints."""
+    """A file from the nineteen-column apparatus, up to `branch`, gains the columns appended after
+    it — the two supply columns and `predated`; its rows read None there, the new rows read ints."""
     header = list(curve.COLUMNS[:19])
     assert header[-1] == "branch"
     row = "10,5,1,0.7000,lag,0,0,0,0,0,0.0000,1.0000,0.00,1,0,0.0000,0,0,0"
     config.CURVE.write_text(",".join(header) + "\n" + row + "\n")
     fields, added = curve.reconcile(config.CURVE)
-    assert fields == list(curve.COLUMNS) and added == ["mutations_attempted", "mutations_viable"]
+    assert fields == list(curve.COLUMNS) and added == ["mutations_attempted", "mutations_viable", "predated"]
     c = make_culture()
     c.dish.tick = 10
     for _ in range(10):
@@ -282,7 +282,8 @@ def test_a_curve_written_before_the_supply_columns_is_widened(make_culture):
     rows = curve.read()
     assert [r["tick"] for r in rows] == [10, 20]
     assert rows[0]["mutations_attempted"] is None and rows[0]["mutations_viable"] is None
-    assert rows[1]["mutations_attempted"] == 0 and rows[1]["mutations_viable"] == 0
+    assert rows[0]["predated"] is None
+    assert rows[1]["mutations_attempted"] == 0 and rows[1]["mutations_viable"] == 0 and rows[1]["predated"] == 0
     assert rows[0]["branch"] == 0 and rows[1]["branch"] == 0
     with open(config.CURVE, newline="") as f:
         assert {len(r) for r in csv.reader(f)} == {len(curve.COLUMNS)}
@@ -360,7 +361,7 @@ def test_a_curve_that_cannot_be_widened_is_left_intact_and_said_once(make_cultur
 def test_unknown_columns_are_kept(make_culture):
     header = list(curve.COLUMNS) + ["mystery"]
     row = ["10", "5", "1", "0.7000", "lag", "0", "0", "0", "0", "0", "0.0000", "1.0000", "0.00", "1", "0"]
-    row += ["0.0000", "0", "0", "0", "0", "0", "x"]
+    row += ["0.0000", "0", "0", "0", "0", "0", "0", "x"]  # …pheromone…branch, attempted, viable, predated, mystery
     config.CURVE.write_text(",".join(header) + "\n" + ",".join(row) + "\n")
     c = make_culture()
     for _ in range(10):
@@ -426,7 +427,7 @@ def test_a_spreadsheets_byte_order_mark_is_not_a_column(make_culture):
     assert config.CURVE.read_bytes().startswith(b"tick,")  # rewritten without the mark
     assert curve.read()[0]["tick"] == 10
     # a file with every column and a mark is read in place, not rewritten
-    row = "10,5,1,0.7000,lag,0,0,0,0,0,0.0000,1.0000,0.00,1,0,0.0000,0,0,0,0,0"
+    row = "10,5,1,0.7000,lag,0,0,0,0,0,0.0000,1.0000,0.00,1,0,0.0000,0,0,0,0,0,0"
     config.CURVE.write_bytes((bom + ",".join(curve.COLUMNS) + "\n" + row + "\n").encode())
     assert curve.reconcile(config.CURVE) == (list(curve.COLUMNS), [])
     assert config.CURVE.read_bytes().startswith(bom.encode())

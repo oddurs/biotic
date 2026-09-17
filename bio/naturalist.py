@@ -49,6 +49,7 @@ METRIC_KEYS = (
     "lysed",
     "senescent",
     "killed",
+    "predated",
     "arisen",
     "extinct",
 )
@@ -228,7 +229,7 @@ def compose(packet: dict, previous: dict | None) -> dict:
                 "shannon": (pm.get("shannon", 0.0), m["shannon"]),
                 "dominance": (pm.get("dominance", 0.0), m["dominance"]),
             }
-            for k in ("births", "starved", "lysed", "senescent", "killed", "arisen", "extinct"):
+            for k in ("births", "starved", "lysed", "senescent", "killed", "predated", "arisen", "extinct"):
                 since[k] = max(0, m.get(k, 0) - pm.get(k, 0))
             resume = packet.get("resume")  # the first note after a resume gets the measured off-time, once
             if resume and previous["tick"] <= resume["tick"] <= packet["tick"]:

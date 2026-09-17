@@ -78,6 +78,13 @@ You can lean over the bench while it runs:
     biotic drop nutrient [--at 30,12] [--r 5]          # a drop of broth
     biotic drop antibiotic [--at 30,12] [--r 6]        # a disc that clears a region
     biotic drop mutagen                                # ×6 mutation rate for 300 ticks
+    biotic drop feature lyse                           # switch on predation mid-run; docs/predation.md
+
+Predation (`lyse`) is a **feature**: an opt-in rule, off by default so no existing dish is
+altered. `biotic seed "wolves and sheep" --with lyse` turns it on from the founding cell, or
+`biotic drop feature lyse` mid-run. A cell can then burst a neighbour of another strain and take
+some of its energy — the first rule that makes one cell's code matter to another's. Kin are
+immune. `docs/predation.md` has the action, the odds, and `me.threat`.
 
 And look at what has grown:
 
