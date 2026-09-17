@@ -38,6 +38,10 @@ ACCEPTED = [
     (("emit", 5), ("emit", 1.0)),
     (("emit", -1), ("emit", 0.0)),
     (("eat", 99), ("eat", None)),
+    (("lyse", 1), ("lyse", 1)),
+    (("lyse", 9), ("lyse", 1)),  # wraps mod 8, like move and divide
+    (("lyse", "3"), ("lyse", 3)),
+    (("lyse", -1), ("lyse", 7)),
 ]
 
 REJECTED = [
@@ -51,7 +55,9 @@ REJECTED = [
     "go",  # a bare alias for move has no direction
     ("move", None),
     ("emit", "x"),
-    ("lyse", 1),  # flip this row when predation lands
+    ("lyse",),  # a bare lyse names no neighbour
+    ("lyse", None),
+    ("lyse", True),  # int(True) is 1, but a bool is not a direction
     (),
     (1, 2),
     ("move", 1, 2),
@@ -115,7 +121,7 @@ def test_parse_action_never_raises():
             return rng.choice([tuple, list])(items)
         return scalar()
 
-    kinds = {"eat", "rest", "move", "divide", "emit"}
+    kinds = {"eat", "rest", "move", "divide", "emit", "lyse"}
     for _ in range(3000):
         given = value()
         out = parse_action(given)
@@ -126,7 +132,7 @@ def test_parse_action_never_raises():
         assert kind in kinds
         if isinstance(given, (tuple, list)) and len(given) == 2 and isinstance(given[1], bool):
             assert kind in ("eat", "rest"), (given, out)  # a bool never becomes a direction or an amount
-        if kind == "move":
+        if kind in ("move", "lyse"):
             assert isinstance(arg, int) and 0 <= arg < 8
         elif kind == "divide":
             assert arg is None or (isinstance(arg, int) and 0 <= arg < 8)

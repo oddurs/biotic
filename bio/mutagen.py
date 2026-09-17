@@ -277,10 +277,11 @@ class Mutagen(threading.Thread):
             whispers=ctx.get("whispers", []),
             rejections=rejections,
         )
+        system = prompts.mutagen_system(ctx.get("features"))  # documents whatever features the dish has on
         self.state = "thinking"
         self.last_call = self.clock()
         try:
-            reply = self.mind.think(prompts.MUTAGEN_SYSTEM, user, role="mutagen")
+            reply = self.mind.think(system, user, role="mutagen")
         except Dormant:
             self.state = "dormant"
             return None

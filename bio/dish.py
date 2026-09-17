@@ -47,10 +47,14 @@ def parse_action(out):
             return None
         kind = _ALIASES.get(kind.strip().lower(), kind.strip().lower())
         try:
-            if isinstance(arg, bool) and kind in ("move", "divide", "emit"):
+            if isinstance(arg, bool) and kind in ("move", "divide", "emit", "lyse"):
                 return None  # int(True) is 1 and float(True) is 1.0, but a bool is neither a direction nor an amount
             if kind == "move":
                 return ("move", int(arg) % 8)
+            if kind == "lyse":
+                if arg is None:
+                    return None  # a bare ("lyse",) names no neighbour to burst
+                return ("lyse", int(arg) % 8)
             if kind == "divide":
                 return ("divide", None if arg is None else int(arg) % 8)
             if kind == "emit":
@@ -86,6 +90,7 @@ class Me:
         "around",
         "crowd",
         "kin",
+        "threat",
         "scent",
         "scent_here",
         "memory",
@@ -105,7 +110,7 @@ class Me:
         self.rng = dish.rng
         self.here = dish.nutrient[cell.y][cell.x]
         self.scent_here = dish.pheromone[cell.y][cell.x]
-        around, crowd, kin, scent = [], [], [], []
+        around, crowd, kin, threat, scent = [], [], [], [], []
         for dx, dy in DIRS:
             x, y = cell.x + dx, cell.y + dy
             if dish.inside(x, y):
@@ -114,12 +119,16 @@ class Me:
                 other = dish.cells.get((x, y))
                 crowd.append(other is not None)
                 kin.append(other is not None and other.strain == cell.strain)
+                # the energy of a neighbouring cell of another strain; 0.0 for empty, glass or kin.
+                # The perceptual basis for fleeing or lysing; populated every tick, branch-free.
+                threat.append(other.energy if (other is not None and other.strain != cell.strain) else 0.0)
             else:  # the glass wall
                 around.append(0.0)
                 scent.append(0.0)
                 crowd.append(True)
                 kin.append(False)
-        self.around, self.crowd, self.kin, self.scent = around, crowd, kin, scent
+                threat.append(0.0)
+        self.around, self.crowd, self.kin, self.threat, self.scent = around, crowd, kin, threat, scent
 
 
 class Dish:
@@ -140,8 +149,10 @@ class Dish:
         self.nutrient = self._make_agar()
         self.pheromone = [[0.0] * self.w for _ in range(self.h)]
         self.history: deque[int] = deque(maxlen=600)
-        self.deaths = {"starved": 0, "lysed": 0, "senescent": 0, "killed": 0}
+        self.deaths = {"starved": 0, "lysed": 0, "senescent": 0, "killed": 0, "predated": 0}
         self.births = 0
+        # opt-in rules (docs/predation.md); all off unless a seeding or a `drop feature` turns one on
+        self.features: dict[str, bool] = {f: False for f in config.FEATURES}
         self.replenish = config.REPLENISH
         # hooks the culture installs
         self.on_divide: Callable[[Cell], tuple[str, str] | None] | None = None
@@ -286,6 +297,7 @@ class Dish:
             "lysed": self.deaths.get("lysed", 0),
             "senescent": self.deaths.get("senescent", 0),
             "killed": self.deaths.get("killed", 0),
+            "predated": self.deaths.get("predated", 0),
         }
 
     def _die(self, cell: Cell, cause: str) -> None:
@@ -392,6 +404,23 @@ class Dish:
         elif kind == "emit":
             cell.energy -= config.EMIT_COST
             self.pheromone[cell.y][cell.x] = min(1.0, self.pheromone[cell.y][cell.x] + arg)
+        elif kind == "lyse":
+            # predation, off unless the `lyse` feature is on (docs/predation.md). Kin and empty
+            # tiles are silent no-ops that cost nothing — that is `me.kin` earning its keep.
+            if not self.features.get("lyse"):
+                return
+            dx, dy = DIRS[arg]
+            target = self.cells.get((cell.x + dx, cell.y + dy))
+            if target is None or target.strain == cell.strain:
+                return
+            e_att, e_def = cell.energy, target.energy  # the energies the genome perceived, before the cost
+            cell.energy -= config.LYSE_COST
+            p = 1.0 / (1.0 + math.exp(-config.LYSE_K * (e_att - e_def)))
+            if self.rng.random() < p:
+                self._die(target, "predated")
+                cell.energy += config.LYSE_YIELD * e_def
+            else:
+                cell.energy -= config.LYSE_RECOIL
         # rest: nothing
 
     def _diffuse(self) -> None:
@@ -459,6 +488,7 @@ class Dish:
             "deaths": self.deaths,
             "births": self.births,
             "replenish": self.replenish,
+            "features": self.features,
         }
 
     @classmethod
@@ -480,6 +510,9 @@ class Dish:
         dish.deaths = d.get("deaths", dish.deaths)
         dish.births = d.get("births", 0)
         dish.replenish = d.get("replenish", config.REPLENISH)
+        # absent (a dish frozen before features existed) means every feature off; a flag a newer
+        # apparatus wrote survives the round trip even if this one has no rule for it
+        dish.features = {**{f: False for f in config.FEATURES}, **(d.get("features") or {})}
         for x, y, strain, energy, age, born, mem in d["cells"]:
             dish.cells[(x, y)] = Cell(x, y, strain, energy, age, born, decode_memory(mem or {}))
         return dish

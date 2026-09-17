@@ -136,6 +136,17 @@ MEMORY_MAX_CHARS = 2048  # a cell's memory as plain JSON, after every tick; more
 MEMORY_MAX_DEPTH = 16  # how deep lists, tuples and dicts may nest inside it
 INOCULUM = 5  # cells placed at seeding
 
+# --- features (opt-in dish rules; docs/predation.md) ---------------------
+# Rules a dish keeps off unless it is seeded `--with <name>` or `drop feature <name>` turns it
+# on mid-run. Off by default, so no dish that predates this alters. `lyse` is the only one now.
+FEATURES = ("lyse",)
+
+# --- predation (bio/dish.py; the `lyse` feature) -------------------------
+LYSE_COST = 0.05  # what an attack costs the attacker, win or lose
+LYSE_YIELD = 0.6  # fraction of the defender's energy the attacker gains on a kill
+LYSE_RECOIL = 0.03  # extra cost when the attack fails
+LYSE_K = 2.0  # sigmoid steepness; energies are 0..MAX_ENERGY (2.0), so the arg is ±4, p ≈ 0.02..0.98, no overflow
+
 # --- the freezer (bookkeeping, not physics) ------------------------------
 FREEZE_EVERY = int(env("BIOTIC_FREEZE_EVERY", "2000"))  # ticks between automatic samples; 0 disables
 REVIVE_WATCH = 300  # ticks a revived strain is watched before the log says whether it took

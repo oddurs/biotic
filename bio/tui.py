@@ -251,7 +251,8 @@ def vitals(c: Culture, snap: dict) -> Table:
     t.add_row(
         "deaths",
         f"{dd.get('starved', 0)} starved · {dd.get('lysed', 0)} lysed · {dd.get('senescent', 0)} old"
-        + (f" · {dd['killed']} killed" if dd.get("killed") else ""),
+        + (f" · {dd['killed']} killed" if dd.get("killed") else "")
+        + (f" · {dd['predated']} predated" if dd.get("predated") else ""),
     )
     m, mind = snap["mutagen"], snap["mind"]
     state = MUTAGEN_STYLE.get(m["state"], (m["state"], ""))

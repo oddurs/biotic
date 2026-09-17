@@ -74,10 +74,41 @@ Hard rules of the membrane — a genome breaking any of these is discarded befor
     the cell, and nothing in the genome can catch that.
 """
 
-GENESIS_SYSTEM = f"""\
+
+# The cell API a genome is written against, plus a clause for every dish rule (feature) that is
+# switched on. With no feature on, cell_api() is CELL_API byte-for-byte, so the GENESIS_SYSTEM and
+# MUTAGEN_SYSTEM constants below — the ones the leak tests pin — read exactly as they always have.
+# A feature's clause appears only when its dish has it on, and only in the mutagen/genesis prompts,
+# never in the naturalist's. docs/predation.md.
+def _feature_clauses(features: dict[str, bool] | None) -> str:
+    out = ""
+    if features and features.get("lyse"):
+        out += f"""
+This dish has predation switched on. One more perception and one more action are available:
+
+    me.threat      8 floats: the energy of each neighbor that is a cell of ANOTHER strain,
+                   clockwise from north; 0.0 where the tile is empty, the glass wall, or my own kin.
+
+    ("lyse", d)    attack the neighbor in direction d. Costs {_c.LYSE_COST:g} whatever happens.
+                   Only a cell of another strain can be lysed; against an empty tile, the glass wall,
+                   or your own kin it does nothing and costs nothing (me.kin marks the kin). The
+                   attack bursts the target with probability p = 1 / (1 + exp(-{_c.LYSE_K:g} · (my
+                   energy − its energy))): the more energy you hold over it, the likelier the burst.
+                   On success the target dies (cause "predated") and you gain {_c.LYSE_YIELD:g} × its
+                   energy; on failure you lose a further {_c.LYSE_RECOIL:g}.
+"""
+    return out
+
+
+def cell_api(features: dict[str, bool] | None = None) -> str:
+    """The cell API with a clause appended for every feature the dish has on. cell_api() == CELL_API."""
+    return CELL_API + _feature_clauses(features)
+
+
+_GENESIS_TEMPLATE = """\
 You write the founding cell of a bacterial culture in a simulated petri dish.
 
-{CELL_API}
+{api}
 
 The culture is seeded with a word, phrase, or question. It is not an instruction. Let it
 inflect the founding cell's temperament — how it eats, when it divides, whether it wanders,
@@ -92,12 +123,12 @@ NOTE: <one sentence, in a naturalist's voice, describing this cell's habit>
 <the complete Python source of the genome>
 """
 
-MUTAGEN_SYSTEM = f"""\
+_MUTAGEN_TEMPLATE = """\
 You are a mutagen acting on a bacterial culture in a simulated petri dish. You are handed
 the genome of a cell that is about to divide. Return the daughter's genome: the same genome
 with ONE small heritable change.
 
-{CELL_API}
+{api}
 
 What a mutation is: a changed threshold. A new branch on an existing condition. A new key in
 me.memory. Using me.scent or me.kin where it wasn't used. Dropping a behaviour. Reordering
@@ -115,6 +146,18 @@ NOTE: <one sentence, in a naturalist's voice, describing what changed>
 ---
 <the complete Python source of the daughter's genome>
 """
+
+
+def genesis_system(features: dict[str, bool] | None = None) -> str:
+    return _GENESIS_TEMPLATE.format(api=cell_api(features))
+
+
+def mutagen_system(features: dict[str, bool] | None = None) -> str:
+    return _MUTAGEN_TEMPLATE.format(api=cell_api(features))
+
+
+GENESIS_SYSTEM = genesis_system()  # the no-feature text; unchanged from before features existed
+MUTAGEN_SYSTEM = mutagen_system()  # likewise
 
 
 def genesis_user(seed: str, failures: list[str] | None = None) -> str:
@@ -256,6 +299,8 @@ def naturalist_user(p: dict) -> str:
         deaths = f"{since['starved']} starved, {since['lysed']} lysed, {since['senescent']} of age"
         if since["killed"]:
             deaths += f", {since['killed']} killed"
+        if since.get("predated"):
+            deaths += f", {since['predated']} predated"
         lines.append(f"  births {since['births']} · deaths {deaths}")
         lines.append(f"  strains arisen {since['arisen']} · gone extinct {since['extinct']}")
     if p.get("remarks"):
