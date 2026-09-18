@@ -21,6 +21,7 @@ web/**/dist/
 web/**/.astro/
 web/**/.vitest/
 web/**/test-results/
+web/.site/
 web/**/playwright-report/
 
 # worktrees, OS, editors

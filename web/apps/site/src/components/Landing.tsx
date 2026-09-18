@@ -6,6 +6,7 @@ import { media } from "@biotic/design/tokens/media.stylex";
 import { radius } from "@biotic/design/tokens/shape.stylex";
 import { space } from "@biotic/design/tokens/space.stylex";
 import { font } from "@biotic/design/tokens/type.stylex";
+import type { ReactNode } from "react";
 import { site } from "../../site.config";
 import { href } from "../lib/url";
 
@@ -33,19 +34,6 @@ const styles = stylex.create({
   cardTitle: { marginBottom: space.xs },
 });
 
-// A frame from the eyepiece. A live dish replaces this in a later change.
-const frame = String.raw` biotic   seed “tide”   tick 1204   0h10m02s   ♥
-╭─ agar ──────────────────────────╮ ╭─ vitals ───────────────────╮
-│          ·:·∷∷∷:·               │ │ population  483  25% agar  │
-│       ·:∷●●●●●●∷:·              │ │             ▁▂▃▅▆▇█████▇▇ │
-│     ·:∷●●●●●●●●●●●∷:            │ │      phase  stationary     │
-│    ·∷●●●●●●●●●●●●●●●:·          │ │    strains  6 living · 14  │
-│    ∷●●●●●●●●●●●●●●●●●∷          │ │       agar  ████████░░ 0.41│
-│    :●●●●●●●●●●●●●●●●●:          │ │    mutagen  ◐ thinking     │
-│     ·∷●●●●●●●●●●●●∷·            │ ╰────────────────────────────╯
-│        ·:∷∷●●●∷∷:·              │
-╰─────────────────────────────────╯`;
-
 const pillars = [
   {
     title: "The dish",
@@ -61,7 +49,8 @@ const pillars = [
   },
 ];
 
-export function Landing() {
+/** `dish` is a slot for the hydrated live dish; the static fallback is what no-JS readers see. */
+export function Landing({ dish }: { dish?: ReactNode }) {
   return (
     <>
       <section {...stylex.props(styles.hero)}>
@@ -87,9 +76,11 @@ export function Landing() {
                 </Button>
               </Stack>
             </Stack>
-            <div {...stylex.props(styles.dish)} aria-hidden="true">
-              {frame}
-            </div>
+            {dish ?? (
+              <div {...stylex.props(styles.dish)} aria-hidden="true">
+                a culture of cells, growing
+              </div>
+            )}
           </div>
         </Container>
       </section>

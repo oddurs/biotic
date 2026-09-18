@@ -269,7 +269,7 @@ One seam runs both: `scripts/task`. Contributors need git, gh, uv, and Node 24.
     scripts/agent start feat/my-change  # a branch in its own worktree; prints the path to cd into
     scripts/task check                  # format, lint, tests, build: what CI runs
     scripts/agent pr                    # checks, pushes, opens the pull request
-    (cd web && pnpm dev)                # the site, live, at http://localhost:6969; published at https://oddurs.github.io/biotic/
+    scripts/site up                     # the site, live, at http://localhost:6969 (down, status, logs, open, preview)
 
 `scripts/task test` runs the suite alone: the membrane (one genome per escape class, and
 ten fossils from a real run in `tests/fixtures/genomes/` that must always be admitted),
