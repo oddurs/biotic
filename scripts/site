@@ -48,10 +48,10 @@ do_up() {
     (cd web && pnpm --filter @biotic/site exec astro build) >"$LOG" 2>&1
     cmd="node apps/site/e2e/serve.mjs"
   else
-    # ASTRO_DEV_BACKGROUND=0 disables astro's own daemonising, so this process is the server.
-    cmd="ASTRO_DEV_BACKGROUND=0 pnpm --filter @biotic/site exec astro dev --port $PORT --host"
+    cmd="pnpm --filter @biotic/site exec astro dev --port $PORT --host"
   fi
-  (cd web && PORT=$PORT nohup sh -c "exec $cmd" >>"$LOG" 2>&1 & echo $! >"$PID")
+  # ASTRO_DEV_BACKGROUND set disables astro's own daemonising, so this process is the server.
+  (cd web && PORT=$PORT ASTRO_DEV_BACKGROUND=0 nohup sh -c "exec $cmd" >>"$LOG" 2>&1 & echo $! >"$PID")
   i=0
   while [ $i -lt 60 ]; do
     if healthy; then
