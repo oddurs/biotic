@@ -13,7 +13,7 @@ set -eu
 cd "$(dirname "$0")/.."
 ROOT=$(pwd)
 PORT=${SITE_PORT:-6969}
-STATE=web/.site
+STATE=$ROOT/web/.site
 PID=$STATE/pid
 LOG=$STATE/log
 URL="http://localhost:$PORT/"
@@ -51,12 +51,12 @@ do_up() {
     # ASTRO_DEV_BACKGROUND=0 disables astro's own daemonising, so this process is the server.
     cmd="ASTRO_DEV_BACKGROUND=0 pnpm --filter @biotic/site exec astro dev --port $PORT --host"
   fi
-  (cd web && PORT=$PORT nohup sh -c "exec $cmd" >>"$LOG" 2>&1 & echo $! >"$ROOT/$PID")
+  (cd web && PORT=$PORT nohup sh -c "exec $cmd" >>"$LOG" 2>&1 & echo $! >"$PID")
   i=0
   while [ $i -lt 60 ]; do
     if healthy; then
       say "$mode server up, serving $ROOT"
-      say "log: $LOG   stop: scripts/site down"
+      say "log: web/.site/log   stop: scripts/site down"
       printf '%s\n' "$URL"
       return 0
     fi
