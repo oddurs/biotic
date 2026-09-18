@@ -1,8 +1,11 @@
 ---
 import Base from "../layouts/Base.astro";
 import { Landing } from "../components/Landing";
+import { LiveDish } from "../components/LiveDish";
 ---
 
 <Base>
-  <Landing />
+  <Landing>
+    <LiveDish slot="dish" client:visible />
+  </Landing>
 </Base>

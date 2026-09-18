@@ -1,0 +1,89 @@
+#!/bin/sh
+# The site, locally. One command owns the port so there is never a stale server holding it.
+#
+#   scripts/site up        start the dev server (hot reload) in the background; prints the URL
+#   scripts/site preview   build the site and serve the production build instead
+#   scripts/site down      stop whatever this script started, and anything else on the port
+#   scripts/site status    is it up, which checkout is serving, since when
+#   scripts/site logs      follow the server log
+#   scripts/site open      open the site in the browser (starts it first if needed)
+#
+# Port: $SITE_PORT, default 6969. State lives in web/.site/ (git-ignored).
+set -eu
+cd "$(dirname "$0")/.."
+ROOT=$(pwd)
+PORT=${SITE_PORT:-6969}
+STATE=web/.site
+PID=$STATE/pid
+LOG=$STATE/log
+URL="http://localhost:$PORT/"
+
+say() { printf '%s\n' "$*" >&2; }
+listeners() { lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t 2>/dev/null || true; }
+healthy() { curl -sf -o /dev/null "$URL"; }
+
+do_down() {
+  if [ -f "$PID" ]; then
+    kill "$(cat "$PID")" 2>/dev/null || true
+    rm -f "$PID"
+  fi
+  # astro can leave a detached daemon behind; anything still on the port goes too
+  for pid in $(listeners); do kill -9 "$pid" 2>/dev/null || true; done
+  say "port $PORT is free"
+}
+
+do_up() {
+  mode=${1:-dev}
+  if healthy && [ -f "$PID" ] && kill -0 "$(cat "$PID")" 2>/dev/null; then
+    say "already up: $URL ($(cat "$STATE/checkout"))"
+    printf '%s\n' "$URL"
+    return 0
+  fi
+  do_down >/dev/null 2>&1
+  mkdir -p "$STATE"
+  printf '%s\n' "$ROOT" >"$STATE/checkout"
+  date '+%Y-%m-%d %H:%M:%S' >"$STATE/since"
+  if [ "$mode" = preview ]; then
+    say "building the site..."
+    (cd web && pnpm --filter @biotic/site exec astro build) >"$LOG" 2>&1
+    cmd="node apps/site/e2e/serve.mjs"
+  else
+    # ASTRO_DEV_BACKGROUND=0 disables astro's own daemonising, so this process is the server.
+    cmd="ASTRO_DEV_BACKGROUND=0 pnpm --filter @biotic/site exec astro dev --port $PORT --host"
+  fi
+  (cd web && PORT=$PORT nohup sh -c "exec $cmd" >>"$LOG" 2>&1 & echo $! >"$ROOT/$PID")
+  i=0
+  while [ $i -lt 60 ]; do
+    if healthy; then
+      say "$mode server up, serving $ROOT"
+      say "log: $LOG   stop: scripts/site down"
+      printf '%s\n' "$URL"
+      return 0
+    fi
+    if ! kill -0 "$(cat "$PID")" 2>/dev/null; then break; fi
+    sleep 1; i=$((i + 1))
+  done
+  say "the server did not come up; last lines of $LOG:"
+  tail -20 "$LOG" >&2
+  exit 1
+}
+
+case "${1:-}" in
+  up) do_up dev ;;
+  preview) do_up preview ;;
+  down) do_down ;;
+  status)
+    if healthy; then
+      say "up: $URL"
+      say "serving: $(cat "$STATE/checkout" 2>/dev/null || echo 'not started by this script')"
+      say "since:   $(cat "$STATE/since" 2>/dev/null || echo '?')   pid: $(listeners | tr '\n' ' ')"
+    else
+      say "down (port $PORT)"; exit 1
+    fi ;;
+  logs) tail -n 40 -f "$LOG" ;;
+  open)
+    healthy || do_up dev >/dev/null
+    if command -v open >/dev/null 2>&1; then open "$URL"; else xdg-open "$URL"; fi
+    printf '%s\n' "$URL" ;;
+  *) sed -n '2,11p' "$0" >&2; exit 2 ;;
+esac

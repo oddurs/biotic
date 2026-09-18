@@ -36,6 +36,9 @@ primitives, browser tests) and `web/apps/site` is the Astro site. Rules:
   run `pnpm --dir web generate`, and commit the output. A test fails on drift.
 - Every primitive has a browser test that includes an axe audit. Keep it that way.
 - The project name and links live in `web/apps/site/site.config.ts`; nothing else hardcodes them.
+- Run the site with `scripts/site up|down|status|logs|open|preview`, never `astro dev` directly:
+  it owns port 6969, prints the URL, and records which checkout is serving. Astro daemonises
+  itself in agent environments otherwise, and stale daemons hold the port.
 - Docs are MDX under `web/apps/site/src/content/docs/` and render through the design
   system's MDX component map. Links in content are root-relative (`/docs/...`); the base is
   applied at render. The CLI reference is generated: run `scripts/task docs` after changing

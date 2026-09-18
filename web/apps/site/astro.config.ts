@@ -42,5 +42,9 @@ export default defineConfig({
     plugins: [
       stylex.vite({ unstable_moduleResolution: { type: "commonJS", rootDir: workspaceRoot } }),
     ],
+    // resvg is a native binding used only by the build-time OG endpoint; the dev server's
+    // dependency optimizer must not try to bundle it.
+    ssr: { external: ["@resvg/resvg-js"] },
+    optimizeDeps: { exclude: ["@resvg/resvg-js"] },
   },
 });
