@@ -31,3 +31,6 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+
+# strains written at the repo root by a run from the wrong cwd; the culture lives in vessel/
+/soma/
