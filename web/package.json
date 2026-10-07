@@ -17,7 +17,7 @@
     "generate": "pnpm --filter @biotic/design generate"
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.0",
+    "@eslint/js": "^10.0.1",
     "@stylexjs/eslint-plugin": "^0.19.0",
     "@types/node": "^26.5.0",
     "eslint": "^10.10.0",
